@@ -244,6 +244,11 @@ local function BuildPanel()
     panel.barContent:SetPoint("TOPLEFT", 16, y)
     y = y - 46
 
+    panel.barMode = CreateDropdown(panel, "Bar Shows", "barMode",
+        SimpleChoices(Const.BAR_MODES))
+    panel.barMode:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
+
     panel.buffBottom = y
 
     local revert = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -315,22 +320,64 @@ function Panel:Refresh()
     local titleText = (panel.TitleContainer and panel.TitleContainer.TitleText) or panel.TitleText
     if titleText then titleText:SetText(label) end
 
-    local isAuraGroup = Const.AURA_GROUPS[currentGroup] and true or false
+    -- Bar sizing appears for any bar-capable group (tracked buffs, cooldown
+    -- bars); the Icons/Bars toggle only for the one group that has both; the
+    -- Effect/Cooldown mode only for a duration-bar group.
+    local isBarGroup = Const.BAR_CAPABLE_GROUPS[currentGroup] and true or false
+    local hasDisplayToggle = Const.DISPLAY_TOGGLE_GROUPS[currentGroup] and true or false
+    local hasBarMode = Const.DURATION_BAR_GROUPS[currentGroup] and true or false
 
     local sliders = { panel.rows, panel.iconSize, panel.spacing, panel.opacity }
     local dropdowns = { panel.orientation, panel.iconDirection, panel.visibility }
-    if isAuraGroup then
+    if isBarGroup then
         sliders[#sliders + 1] = panel.barWidth
         sliders[#sliders + 1] = panel.barHeight
-        dropdowns[#dropdowns + 1] = panel.display
         dropdowns[#dropdowns + 1] = panel.barContent
     end
-
-    for _, widget in ipairs({ panel.display, panel.barWidth, panel.barHeight, panel.barContent }) do
-        widget:SetShown(isAuraGroup)
+    if hasDisplayToggle then
+        dropdowns[#dropdowns + 1] = panel.display
+    end
+    if hasBarMode then
+        dropdowns[#dropdowns + 1] = panel.barMode
     end
 
-    local buttonY = isAuraGroup and panel.buffBottom or panel.buffTop
+    -- Lay out only the rows this group actually has, top-down, so a hidden
+    -- Display dropdown (cooldown bars have no toggle) leaves no gap and the
+    -- buttons sit directly under whatever the last visible row is.
+    local BAR_ROW = 46
+    local rowY = panel.buffTop
+
+    panel.display:SetShown(hasDisplayToggle)
+    if hasDisplayToggle then
+        panel.display:ClearAllPoints()
+        panel.display:SetPoint("TOPLEFT", 16, rowY)
+        rowY = rowY - BAR_ROW
+    end
+
+    for _, slider in ipairs({ panel.barWidth, panel.barHeight }) do
+        slider:SetShown(isBarGroup)
+        if isBarGroup then
+            slider:ClearAllPoints()
+            slider:SetPoint("TOPLEFT", 24, rowY)
+            rowY = rowY - BAR_ROW
+        end
+    end
+
+    panel.barContent:SetShown(isBarGroup)
+    if isBarGroup then
+        panel.barContent:ClearAllPoints()
+        panel.barContent:SetPoint("TOPLEFT", 16, rowY)
+        rowY = rowY - BAR_ROW
+    end
+
+    panel.barMode:SetShown(hasBarMode)
+    if hasBarMode then
+        panel.barMode:ClearAllPoints()
+        panel.barMode:SetPoint("TOPLEFT", 16, rowY)
+        rowY = rowY - BAR_ROW
+    end
+
+    local buttonY = rowY
     for _, button in ipairs(panel.buttons) do
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", 20, buttonY)

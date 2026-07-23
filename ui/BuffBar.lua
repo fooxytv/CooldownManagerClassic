@@ -272,42 +272,133 @@ end
 -- State
 --------------------------------------------------------------------------------
 
---- Applies an aura state table to the bar. Returns true while the bar is
+--- Applies a tracker state table to the bar. Returns true while the bar is
 --- counting down and the group therefore needs the periodic ticker.
+---
+--- Serves three cases, told apart by state.phase and the group:
+---   * a duration bar (phase set) -- the effect the ability applies, bright,
+---     then its recharge, dimmed, or nothing in Effect Only mode
+---   * a tracked-buff bar (aura group) -- the aura's remaining duration
+---   * a plain cooldown bar -- the recharge, then full when ready
 function BuffBar:Update(frame, state, appearance)
     if not state then return false end
 
     local duration = state.swipeDuration or 0
     local remaining = state.remaining or 0
 
-    if duration > 0 and remaining > 0 then
-        frame.bar:SetMinMaxValues(0, duration)
-        frame.bar:SetValue(remaining)
-        frame.pip:Show()
-    elseif state.active then
-        -- Blizzard leaves the bar empty for an aura with no timer, which is a
-        -- rarity on Retail. In Classic half the tracked buffs are permanent --
-        -- stances, aspects, Thorns -- and an empty bar reads as "expired", so
-        -- a timerless aura fills the bar instead.
-        frame.bar:SetMinMaxValues(0, 1)
-        frame.bar:SetValue(1)
-        frame.pip:Hide()
+    -- The global cooldown never drives a bar. Even with Show Global Cooldown on,
+    -- a 1.5s drain fired on every cast would make the column flicker; a real
+    -- cooldown always wins in GetState, so this only skips GCD-length ones.
+    if state.isGCD then
+        duration, remaining = 0, 0
+    end
+
+    local fill = Const.BAR_FILL_COLOR
+    local iconDesaturate = false
+    local iconTint                 -- nil means full colour
+    local timerRemaining = 0
+
+    if state.phase then
+        -- Duration-bar group: the applied effect takes precedence over the
+        -- recharge, so a defensive reads as "protected for N" first.
+        local effectOnly = appearance.barMode == "Effect Only"
+
+        if state.phase == "active" then
+            -- The effect is up: its remaining time, bright.
+            if duration > 0 then
+                frame.bar:SetMinMaxValues(0, duration)
+                frame.bar:SetValue(remaining)
+                frame.pip:Show()
+                timerRemaining = remaining
+            else
+                -- A permanent effect with no timer: a full bar.
+                frame.bar:SetMinMaxValues(0, 1)
+                frame.bar:SetValue(1)
+                frame.pip:Hide()
+            end
+        elseif state.phase == "cooldown" and not effectOnly then
+            -- Recharging: the cooldown, dimmed and greyed so it plainly ranks
+            -- below an ability whose effect is currently up.
+            frame.bar:SetMinMaxValues(0, duration > 0 and duration or 1)
+            frame.bar:SetValue(remaining)
+            frame.pip:Show()
+            fill = Const.BAR_COOLDOWN_COLOR
+            iconDesaturate = appearance.desaturateUnavailable ~= false
+            iconTint = Const.ITEM_COLORS.notUsable
+            timerRemaining = remaining
+        else
+            -- Ready, or (Effect Only) an ability that is simply not up. Hybrid
+            -- fills bright to signal "available"; Effect Only keeps the bar for
+            -- the effect alone, so it stays empty until the effect is back.
+            local ready = state.phase == "ready"
+            frame.bar:SetMinMaxValues(0, 1)
+            frame.bar:SetValue((ready and not effectOnly) and 1 or 0)
+            frame.pip:Hide()
+            if not ready then
+                iconDesaturate = appearance.desaturateUnavailable ~= false
+                iconTint = Const.ITEM_COLORS.notUsable
+            end
+        end
+
+        frame.bar:SetStatusBarColor(fill[1], fill[2], fill[3])
     else
-        frame.bar:SetMinMaxValues(0, 1)
-        frame.bar:SetValue(0)
-        frame.pip:Hide()
+        -- Tracked-buff bar (aura) or plain cooldown bar.
+        local isAura = Const.AURA_GROUPS[frame.groupKey]
+
+        if duration > 0 and remaining > 0 then
+            frame.bar:SetMinMaxValues(0, duration)
+            frame.bar:SetValue(remaining)
+            frame.pip:Show()
+            timerRemaining = remaining
+        elseif isAura then
+            -- Blizzard leaves the bar empty for an aura with no timer, a rarity
+            -- on Retail. In Classic half the tracked buffs are permanent --
+            -- stances, aspects, Thorns -- and an empty bar reads as "expired",
+            -- so a timerless aura fills the bar instead. An absent aura falls
+            -- here too, but the group hides it before it is ever drawn.
+            frame.bar:SetMinMaxValues(0, 1)
+            frame.bar:SetValue(state.active and 1 or 0)
+            frame.pip:Hide()
+        else
+            frame.bar:SetMinMaxValues(0, 1)
+            frame.bar:SetValue(1)
+            frame.pip:Hide()
+        end
+
+        if not isAura then
+            iconDesaturate = appearance.desaturateUnavailable ~= false and not state.available
+            local colors = Const.ITEM_COLORS
+            if appearance.colorByUsability == false then
+                iconTint = state.available and colors.usable or colors.notUsable
+            elseif state.usable then
+                iconTint = colors.usable
+            elseif state.notEnoughPower then
+                iconTint = colors.notEnoughPower
+            else
+                iconTint = colors.notUsable
+            end
+        end
+    end
+
+    -- Buff icons and active effects are full colour; a recharging ability greys,
+    -- exactly as the icon display does.
+    if frame.texture.SetDesaturated then frame.texture:SetDesaturated(iconDesaturate) end
+    if iconTint then
+        frame.texture:SetVertexColor(iconTint[1], iconTint[2], iconTint[3])
+    else
+        frame.texture:SetVertexColor(1, 1, 1)
     end
 
     local showText = appearance.showCountdownText ~= false and not state.suppressText
-    if showText and remaining > 0 then
+    if showText and timerRemaining > 0 then
         -- Only touched when the rendered string changes; see Icon:Update.
-        local text = ns.FormatTime(remaining)
+        local text = ns.FormatTime(timerRemaining)
         if frame.lastTimeText ~= text then
             frame.timeText:SetText(text)
             frame.lastTimeText = text
         end
 
-        if remaining <= 5 then
+        if timerRemaining <= 5 then
             local c = Const.COLORS.expiring
             frame.timeText:SetTextColor(c[1], c[2], c[3])
         else
@@ -327,5 +418,5 @@ function BuffBar:Update(frame, state, appearance)
         frame.countText:Hide()
     end
 
-    return remaining > 0
+    return timerRemaining > 0
 end

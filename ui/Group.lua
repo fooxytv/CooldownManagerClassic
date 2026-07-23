@@ -133,15 +133,14 @@ end
 -- Layout
 --------------------------------------------------------------------------------
 
---- Which widget module draws this group's entries. Retail splits tracked buffs
---- into two Edit Mode systems, icons and bars; here it is one group with a
---- display setting, so the module is chosen per layout rather than per group.
+--- Which widget module draws this group's entries. Chosen by the group's
+--- display setting rather than the group's identity: the tracked-buffs group
+--- toggles between icons and bars, the cooldown-bars group is always bars, and
+--- the cooldown icon groups never set `display` so they stay icons. Both the
+--- aura and cooldown trackers feed the same bar widget.
 function Group:GetWidget()
     local settings = self:GetSettings()
-    if Const.AURA_GROUPS[self.key]
-        and settings
-        and settings.appearance.display == "Bars"
-    then
+    if settings and settings.appearance.display == "Bars" then
         return ns.BuffBar, "bars"
     end
     return ns.Icon, "icons"
@@ -356,14 +355,26 @@ function Group:Update()
         end
     end
 
-    local tracker = Const.AURA_GROUPS[self.key] and ns.Auras or ns.Cooldowns
     local appearance = settings.appearance
     local animating = false
+
+    -- Three state sources. A duration-bar group merges the ability's effect
+    -- with its recharge; a plain aura group reads the aura; everything else is
+    -- a cooldown. Resolved once per group rather than per icon.
+    local durationBars = Const.DURATION_BAR_GROUPS[self.key]
+    local auraGroup = Const.AURA_GROUPS[self.key]
 
     local widget = self.widget or ns.Icon
     for _, icon in ipairs(self.icons) do
         if icon.spellID then
-            local state = tracker:GetState(icon.spellID, appearance.showGCD)
+            local state
+            if durationBars then
+                state = ns.Cooldowns:GetBarState(icon.spellID)
+            elseif auraGroup then
+                state = ns.Auras:GetState(icon.spellID)
+            else
+                state = ns.Cooldowns:GetState(icon.spellID, appearance.showGCD)
+            end
             if widget:Update(icon, state, appearance) then
                 animating = true
             end

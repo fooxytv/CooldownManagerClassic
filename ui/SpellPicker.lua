@@ -28,9 +28,10 @@ local TABS = {
     cooldowns = {
         title = "Advanced Cooldown Settings",
         sections = {
-            { key = "essential", label = "Essential Cooldowns" },
-            { key = "utility",   label = "Utility Cooldowns" },
-            { key = nil,         label = "Not Displayed" },
+            { key = "essential",    label = "Essential Cooldowns" },
+            { key = "utility",      label = "Utility Cooldowns" },
+            { key = "cooldownbars", label = "Cooldown Bars" },
+            { key = nil,            label = "Not Displayed" },
         },
     },
     buffs = {

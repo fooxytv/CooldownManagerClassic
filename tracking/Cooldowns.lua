@@ -129,6 +129,58 @@ function Cooldowns:GetState(spellID, showGCD)
     return state
 end
 
+-- Merged state for a duration bar: the effect the ability applies takes
+-- precedence over its recharge. `phase` tells the widget which it is.
+--
+--   active    the ability's aura is on the player -- show its remaining
+--             duration (Barkskin's 8s), bright
+--   cooldown  no effect up but the ability is recharging -- show the recharge,
+--             dimmed
+--   ready     neither: the ability is available now
+--
+-- The aura is matched by the ability's own spell ID, which is the same ID for
+-- the great majority of self-buff defensives (Barkskin, Vampiric Blood, Ignore
+-- Pain). Where the applied aura has a different ID it simply is not found and
+-- the bar shows the recharge, which is no worse than an icon would manage.
+local barCache = {}
+function Cooldowns:GetBarState(spellID)
+    local state = barCache[spellID]
+    if not state then
+        state = {}
+        barCache[spellID] = state
+    end
+
+    local aura = ns.Auras:GetState(spellID)
+    if aura and aura.active and (aura.remaining or 0) > 0 then
+        state.phase = "active"
+        state.swipeDuration = aura.swipeDuration
+        state.remaining = aura.remaining
+        state.active = true
+        -- The effect is up, so the icon reads as "on" rather than greyed.
+        state.available = true
+        state.usable = true
+        state.notEnoughPower = false
+        state.charges = aura.charges
+        state.isGCD = false
+        state.suppressText = false
+        return state
+    end
+
+    local cd = self:GetState(spellID, false)
+    state.phase = (cd.remaining or 0) > 0 and "cooldown" or "ready"
+    state.swipeDuration = cd.swipeDuration
+    state.remaining = cd.remaining
+    state.active = cd.active
+    state.available = cd.available
+    state.usable = cd.usable
+    state.notEnoughPower = cd.notEnoughPower
+    state.charges = cd.charges
+    state.isGCD = cd.isGCD
+    state.suppressText = cd.suppressText
+    return state
+end
+
 function Cooldowns:ClearCache()
     wipe(cache)
+    wipe(barCache)
 end

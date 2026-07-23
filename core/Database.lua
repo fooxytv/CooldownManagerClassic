@@ -55,9 +55,10 @@ end
 -- Default vertical offsets keep the three groups stacked without overlapping
 -- on a fresh install.
 local GROUP_DEFAULT_Y = {
-    essential = -140,
-    utility   = -190,
-    buffs     = -240,
+    essential    = -140,
+    utility      = -190,
+    buffs        = -240,
+    cooldownbars = -290,
 }
 
 local function DefaultGroup(key)

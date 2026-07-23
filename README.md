@@ -86,6 +86,29 @@ One deliberate departure: an aura with no timer fills its bar instead of leaving
 it empty. Blizzard leaves it empty, which is fine on Retail and misleading in
 Classic, where stances, aspects and the like are permanent.
 
+### Cooldown bars
+
+A fourth group, **Cooldown Bars**, that Retail's Cooldown Manager has no
+equivalent for. It reuses the buff-bar widget but is a Classic-only addition,
+for watching a defensive or utility cooldown at a glance — Barkskin, Vampiric
+Blood, Ignore Pain — where a swipe on a small icon is hard to read.
+
+What it tracks is the ability's *effect*, not merely its recharge. For a
+Cooldown Bars entry the state is merged in `Cooldowns:GetBarState`: the aura the
+ability applies takes precedence, so the bar first shows how long the effect
+lasts (Barkskin's 8s), then — in the default **Effect + Cooldown** mode — the
+recharge, dimmed, then a full bar when it is ready again. The **Effect Only**
+mode drops the recharge for Retail's simpler tracked-bar behaviour: the bar is
+filled only while the effect is up.
+
+The aura is matched by the ability's own spell ID, which is the same ID for the
+great majority of self-buff defensives. Where the applied aura has a different
+ID it is not found and the bar shows the recharge, no worse than an icon.
+
+The group is purely additive — the Essential and Utility icon groups are
+untouched. It appears as its own **Cooldown Bars** section in the picker's
+Cooldowns tab, and drag a spell into it to track it there.
+
 ### Edit Mode
 
 Blizzard has no supported way for an addon to register its own Edit Mode system,

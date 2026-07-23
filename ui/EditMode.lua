@@ -332,7 +332,9 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "hideWhenInactive", true) and true or false end,
             set = function(_, value) SetOption(groupKey, "hideWhenInactive", value and true or false) end,
         }
+    end
 
+    if Const.DISPLAY_TOGGLE_GROUPS[groupKey] then
         settings[#settings + 1] = {
             order = 12,
             name = "Display",
@@ -354,7 +356,9 @@ local function BuildSettings(groupKey)
                 end
             end,
         }
+    end
 
+    if Const.BAR_CAPABLE_GROUPS[groupKey] then
         settings[#settings + 1] = {
             order = 13,
             name = "Bar Width",
@@ -387,6 +391,18 @@ local function BuildSettings(groupKey)
             values = DropdownValues(Const.BAR_CONTENTS),
             get = function() return GetOption(groupKey, "barContent", "Icon and Name") end,
             set = function(_, value) SetOption(groupKey, "barContent", value) end,
+        }
+    end
+
+    if Const.DURATION_BAR_GROUPS[groupKey] then
+        settings[#settings + 1] = {
+            order = 16,
+            name = "Bar Shows",
+            kind = lem.SettingType.Dropdown,
+            default = "Effect + Cooldown",
+            values = DropdownValues(Const.BAR_MODES),
+            get = function() return GetOption(groupKey, "barMode", "Effect + Cooldown") end,
+            set = function(_, value) SetOption(groupKey, "barMode", value) end,
         }
     end
 

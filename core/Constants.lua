@@ -17,18 +17,50 @@ Const.PROFILE_FORMAT_VERSION = 1
 
 -- Display order of the groups. Anything iterating groups should use this
 -- rather than pairs() so the layout is stable.
-Const.GROUP_ORDER = { "essential", "utility", "buffs" }
+Const.GROUP_ORDER = { "essential", "utility", "buffs", "cooldownbars" }
 
 Const.GROUP_LABELS = {
-    essential = "Essential Cooldowns",
-    utility   = "Utility",
-    buffs     = "Tracked Buffs",
+    essential    = "Essential Cooldowns",
+    utility      = "Utility",
+    buffs        = "Tracked Buffs",
+    cooldownbars = "Cooldown Bars",
 }
 
 -- Groups tracked as auras on the player rather than as spell cooldowns.
 Const.AURA_GROUPS = {
     buffs = true,
 }
+
+-- Groups whose entries can be drawn as draining bars rather than icons.
+--   buffs        toggles between the two (Retail has both a BuffIcon and a
+--                BuffBar viewer; here one group with a Display setting)
+--   cooldownbars is always bars -- a Classic-only addition, for watching long
+--                defensive and burst cooldowns count down at a glance. Retail's
+--                Cooldown Manager has no bar mode for cooldowns.
+Const.BAR_CAPABLE_GROUPS = {
+    buffs = true,
+    cooldownbars = true,
+}
+
+-- Groups that expose the Icons/Bars toggle. cooldownbars is deliberately absent:
+-- being a bar is the whole point of it, so there is nothing to toggle.
+Const.DISPLAY_TOGGLE_GROUPS = {
+    buffs = true,
+}
+
+-- Groups whose bars follow an ability's effect duration, not just a timer: they
+-- prefer the aura the ability applies (Barkskin's 8s, Vampiric Blood's 10s) and
+-- fall back to the recharge. Only the cooldown-bars group does this; tracked
+-- buffs are already auras, and the cooldown icon groups are recharge-only.
+Const.DURATION_BAR_GROUPS = {
+    cooldownbars = true,
+}
+
+-- What a duration bar counts.
+--   Effect + Cooldown  the effect while it is up, then the recharge, dimmed
+--   Effect Only        just the effect, like Retail's Tracked Bars; empty
+--                      while the ability is down
+Const.BAR_MODES = { "Effect + Cooldown", "Effect Only" }
 
 Const.GROWTH_DIRECTIONS = { "CENTER", "LEFT", "RIGHT" }
 
@@ -214,6 +246,34 @@ Const.GROUP_APPEARANCE = {
         barHeight = 30,
         barContent = "Icon and Name",
     },
+    cooldownbars = {
+        iconSize = 30,
+        overlayInsetX = 6,
+        overlayInsetY = 5,
+        timeFont = "GameFontHighlightOutline",
+        countFont = "NumberFontNormalSmall",
+        -- Always a bar, never icons. Bars are wide, so they stack in a column
+        -- rather than a row -- the same axis the buffs group flips to when its
+        -- Display is switched to Bars.
+        display = "Bars",
+        orientation = "Vertical",
+        iconDirection = "Right",
+        barWidth = 220,
+        barHeight = 30,
+        barContent = "Icon and Name",
+        -- The global cooldown must not drive a bar: a 1.5s drain on every cast
+        -- would make the whole column flicker constantly. Off by default, and
+        -- the bar ignores GCD-length cooldowns even if it is switched on.
+        showGCD = false,
+        -- Show the effect duration, then the recharge dimmed. "Effect Only"
+        -- drops the recharge for Retail's simpler tracked-bar behaviour.
+        barMode = "Effect + Cooldown",
+        -- Unlike tracked buffs, a cooldown bar stays put when its spell is
+        -- ready rather than vanishing: the point is to watch it recharge, and a
+        -- row that collapsed every time something came off cooldown would be
+        -- unreadable.
+        hideWhenInactive = false,
+    },
 }
 
 Const.BUFF_DISPLAYS = { "Icons", "Bars" }
@@ -243,8 +303,14 @@ Const.BAR_TEMPLATE = {
 }
 
 -- BarTexture colour from the template. Blizzard tints every tracked buff bar
--- the same orange rather than colouring by spell school or dispel type.
+-- the same orange rather than colouring by spell school or dispel type. Used
+-- for an active effect and a ready cooldown.
 Const.BAR_FILL_COLOR = { 1.0, 0.5, 0.25 }
+
+-- The recharge half of a duration bar, deliberately dim and desaturated so an
+-- ability that is merely coming back reads as clearly secondary to one whose
+-- effect is currently up.
+Const.BAR_COOLDOWN_COLOR = { 0.38, 0.40, 0.48 }
 
 -- Blizzard's Cooldown Manager art. The UI code ships in the Classic Era build
 -- but is gated to the `standard` game type, so whether the atlases themselves
