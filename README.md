@@ -43,6 +43,7 @@ tracking/Cooldowns.lua  Cooldown and charge state
 tracking/Auras.lua      Player aura state
 
 ui/Icon.lua           Pooled icon widget
+ui/BuffBar.lua        Pooled buff bar widget (icon + draining bar)
 ui/Group.lua          Centred icon row, drag handling
 ui/EditMode.lua       Edit Mode integration and manual unlock
 ui/SpellPicker.lua    Spell selection interface
@@ -63,6 +64,27 @@ would break for a level 20 character. Entries are stored rank-independent:
 character actually knows. A spell the character cannot currently cast — an
 unlearned rank, or a Season of Discovery rune that is not engraved — is hidden
 rather than deleted, and reappears on its own when it becomes available.
+
+### Tracked buffs
+
+Retail draws tracked buffs two ways, through two separate Edit Mode systems:
+`BuffIconCooldownViewer` (a row of 40px icons) and `BuffBarCooldownViewer` (a
+column of 220x30 bars, each an icon, the spell name, a draining bar and the time
+left). Here that is one group with a **Display** setting of `Icons` or `Bars`,
+and the bar geometry is Blizzard's, scaled from `Const.BAR_TEMPLATE`.
+
+Both follow `CooldownViewerBuffItemMixin` rather than the cooldown mixins, which
+is a real visual difference and not an oversight:
+
+- the swipe is the dark cooldown colour, *not* the pale `ITEM_AURA_COLOR` — see
+  `CooldownViewerBuffIconItemMixin:GetCooldownSwipeColor`
+- buff icons are never desaturated and never tinted by usability; only
+  `CooldownViewerCooldownItemMixin` does that, and the buff templates do not
+  inherit it
+
+One deliberate departure: an aura with no timer fills its bar instead of leaving
+it empty. Blizzard leaves it empty, which is fine on Retail and misleading in
+Classic, where stances, aspects and the like are permanent.
 
 ### Edit Mode
 

@@ -82,7 +82,7 @@ local function CreateSlider(parent, label, option, minValue, maxValue, step)
     return slider
 end
 
-local function CreateDropdown(parent, label, option, getChoices)
+local function CreateDropdown(parent, label, option, getChoices, onSelect)
     widgetIndex = widgetIndex + 1
     local name = "CDMCPanelDropdown" .. widgetIndex
 
@@ -104,6 +104,7 @@ local function CreateDropdown(parent, label, option, getChoices)
             info.checked = (GetOption(option) == choice.value)
             info.func = function()
                 SetOption(option, choice.value)
+                if onSelect then onSelect(choice.value) end
                 CloseDropDownMenus()
             end
             UIDropDownMenu_AddButton(info)
@@ -211,27 +212,58 @@ local function BuildPanel()
     panel.showTooltips:SetPoint("TOPLEFT", 20, y)
     y = y - 32
 
+    -- Buff-only rows. Only tracked buffs can be drawn as bars, so for the
+    -- cooldown groups these are hidden and the buttons below slide up into the
+    -- space instead of leaving a hole in the middle of the panel.
+    panel.buffTop = y
+
+    panel.display = CreateDropdown(panel, "Display", "display",
+        SimpleChoices(Const.BUFF_DISPLAYS), function(value)
+            -- Bars are wide and stack downwards; icons run along a row.
+            if value == "Bars" then
+                SetOption("orientation", "Vertical")
+                SetOption("iconDirection", "Right")
+            else
+                SetOption("orientation", "Horizontal")
+                SetOption("iconDirection", "Down")
+            end
+        end)
+    panel.display:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
+
+    panel.barWidth = CreateSlider(panel, "Bar Width", "barWidth", 120, 400, 5)
+    panel.barWidth:SetPoint("TOPLEFT", 24, y)
+    y = y - 46
+
+    panel.barHeight = CreateSlider(panel, "Bar Height", "barHeight", 16, 60, 1)
+    panel.barHeight:SetPoint("TOPLEFT", 24, y)
+    y = y - 46
+
+    panel.barContent = CreateDropdown(panel, "Bar Content", "barContent",
+        SimpleChoices(Const.BAR_CONTENTS))
+    panel.barContent:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
+
+    panel.buffBottom = y
+
     local revert = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     revert:SetSize(210, 22)
-    revert:SetPoint("TOPLEFT", 20, y)
     revert:SetText("Revert Changes")
     revert:SetScript("OnClick", function() Panel:Revert() end)
-    y = y - 26
 
     local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     reset:SetSize(210, 22)
-    reset:SetPoint("TOPLEFT", 20, y)
     reset:SetText("Reset to Default Position")
     reset:SetScript("OnClick", function() Panel:ResetPosition() end)
-    y = y - 26
 
     local advanced = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     advanced:SetSize(210, 22)
-    advanced:SetPoint("TOPLEFT", 20, y)
     advanced:SetText("Advanced Cooldown Settings")
     advanced:SetScript("OnClick", function()
         ns.SpellPicker:Show(currentGroup == "buffs" and "buffs" or "cooldowns")
     end)
+
+    panel.buttons = { revert, reset, advanced }
 
     return panel
 end
@@ -283,7 +315,30 @@ function Panel:Refresh()
     local titleText = (panel.TitleContainer and panel.TitleContainer.TitleText) or panel.TitleText
     if titleText then titleText:SetText(label) end
 
-    for _, slider in ipairs({ panel.rows, panel.iconSize, panel.spacing, panel.opacity }) do
+    local isAuraGroup = Const.AURA_GROUPS[currentGroup] and true or false
+
+    local sliders = { panel.rows, panel.iconSize, panel.spacing, panel.opacity }
+    local dropdowns = { panel.orientation, panel.iconDirection, panel.visibility }
+    if isAuraGroup then
+        sliders[#sliders + 1] = panel.barWidth
+        sliders[#sliders + 1] = panel.barHeight
+        dropdowns[#dropdowns + 1] = panel.display
+        dropdowns[#dropdowns + 1] = panel.barContent
+    end
+
+    for _, widget in ipairs({ panel.display, panel.barWidth, panel.barHeight, panel.barContent }) do
+        widget:SetShown(isAuraGroup)
+    end
+
+    local buttonY = isAuraGroup and panel.buffBottom or panel.buffTop
+    for _, button in ipairs(panel.buttons) do
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", 20, buttonY)
+        buttonY = buttonY - 26
+    end
+    panel:SetHeight(math.abs(buttonY) + 24)
+
+    for _, slider in ipairs(sliders) do
         local value = tonumber(GetOption(slider.option)) or 0
         slider.settingValue = true
         slider:SetValue(value)
@@ -293,7 +348,7 @@ function Panel:Refresh()
         end
     end
 
-    for _, container in ipairs({ panel.orientation, panel.iconDirection, panel.visibility }) do
+    for _, container in ipairs(dropdowns) do
         local current = GetOption(container.option)
         local text = tostring(current)
         for _, choice in ipairs(container.getChoices()) do

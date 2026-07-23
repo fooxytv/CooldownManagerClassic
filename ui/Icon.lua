@@ -13,15 +13,10 @@ local iconCount = 0
 -- Blizzard art availability
 --------------------------------------------------------------------------------
 
--- Blizzard_CooldownViewer ships in the Classic Era build but is gated to the
--- `standard` game type, so the Lua is present while the art may or may not be.
--- Each atlas is probed once and the icon falls back to a plain trimmed square
--- when it is missing, rather than rendering an invisible texture.
-local function AtlasExists(name)
-    if not _G.C_Texture or not C_Texture.GetAtlasInfo then return false end
-    local ok, info = pcall(C_Texture.GetAtlasInfo, name)
-    return ok and info ~= nil
-end
+-- Each atlas is probed once (see Compat.AtlasExists) and the icon falls back to
+-- a plain trimmed square when it is missing, rather than rendering an invisible
+-- texture.
+local AtlasExists = Compat.AtlasExists
 
 Icon.art = {
     mask        = AtlasExists(Const.ART.mask),
@@ -49,6 +44,21 @@ ns.FormatTime = FormatTime
 --------------------------------------------------------------------------------
 -- Construction
 --------------------------------------------------------------------------------
+
+--- Blizzard's CooldownViewerItemMixin:SetTooltipsShown -- motion only, never
+--- clicks, so a widget under the cursor cannot swallow a click meant for the
+--- world behind it. Frames are created with mouse input off, so without this
+--- the tooltip scripts never fire at all.
+function ns.SetTooltipsShown(frame, shown)
+    if frame.SetMouseClickEnabled then
+        frame:SetMouseClickEnabled(false)
+    end
+    if frame.SetMouseMotionEnabled then
+        frame:SetMouseMotionEnabled(shown)
+    else
+        frame:EnableMouse(shown)
+    end
+end
 
 local function OnEnter(self)
     if not self.spellID then return end
@@ -215,6 +225,15 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
 
     ApplyFont(frame.timeText, appearance.timeFont, math.max(9, size * 0.42))
     ApplyFont(frame.countText, appearance.countFont, math.max(8, size * 0.30))
+
+    ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
+end
+
+--- Footprint of one icon. The group lays widgets out on a grid and does not
+--- care which kind it is holding, so both widget modules answer this.
+function Icon:GetItemSize(appearance)
+    local size = appearance.iconSize or Const.DEFAULT_APPEARANCE.iconSize
+    return size, size
 end
 
 --------------------------------------------------------------------------------
@@ -259,28 +278,37 @@ function Icon:Update(frame, state, appearance)
         frame.cooldown:Clear()
     end
 
-    local desaturate = appearance.desaturateUnavailable ~= false and not state.available
-    if frame.texture.SetDesaturated then
-        frame.texture:SetDesaturated(desaturate)
-    end
-
-    -- Tint follows Blizzard's RefreshIconColor: white when usable, blue when
-    -- the only thing missing is power (energy, mana, rage), grey when the spell
-    -- is unusable for any other reason.
-    local colors = Const.ITEM_COLORS
-    local tint
-    if state.aura then
-        tint = colors.usable
-    elseif appearance.colorByUsability == false then
-        tint = state.available and colors.usable or colors.notUsable
-    elseif state.usable then
-        tint = colors.usable
-    elseif state.notEnoughPower then
-        tint = colors.notEnoughPower
+    -- Tracked buffs are never greyed or tinted. Blizzard's buff items have no
+    -- RefreshIconColor and no RefreshIconDesaturation at all -- both live on
+    -- CooldownViewerCooldownItemMixin, which the buff templates do not inherit
+    -- -- so a tracked buff icon is full colour whether it is up or not.
+    if Const.AURA_GROUPS[frame.groupKey] then
+        if frame.texture.SetDesaturated then
+            frame.texture:SetDesaturated(false)
+        end
+        frame.texture:SetVertexColor(1, 1, 1)
     else
-        tint = colors.notUsable
+        local desaturate = appearance.desaturateUnavailable ~= false and not state.available
+        if frame.texture.SetDesaturated then
+            frame.texture:SetDesaturated(desaturate)
+        end
+
+        -- Tint follows Blizzard's RefreshIconColor: white when usable, blue
+        -- when the only thing missing is power (energy, mana, rage), grey when
+        -- the spell is unusable for any other reason.
+        local colors = Const.ITEM_COLORS
+        local tint
+        if appearance.colorByUsability == false then
+            tint = state.available and colors.usable or colors.notUsable
+        elseif state.usable then
+            tint = colors.usable
+        elseif state.notEnoughPower then
+            tint = colors.notEnoughPower
+        else
+            tint = colors.notUsable
+        end
+        frame.texture:SetVertexColor(tint[1], tint[2], tint[3])
     end
-    frame.texture:SetVertexColor(tint[1], tint[2], tint[3])
 
     -- No active-aura highlight. A tracked buff is only on screen while it is up
     -- (see hideWhenInactive), so a border would just be noise on top of that --

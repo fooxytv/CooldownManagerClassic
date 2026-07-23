@@ -35,6 +35,19 @@ end
 
 Compat.interfaceVersion = select(4, GetBuildInfo()) or 0
 
+--- Whether an atlas is present in this build.
+---
+--- Blizzard_CooldownViewer ships in the Classic Era client but is gated to the
+--- `standard` game type, so its Lua exists while the art may not. A missing
+--- atlas renders nothing and raises no error, which is indistinguishable from
+--- a widget that was never shown, so every Cooldown Manager atlas is probed
+--- once at load and the UI falls back to plain textures when it is absent.
+function Compat.AtlasExists(name)
+    if not name or not C_Texture or not C_Texture.GetAtlasInfo then return false end
+    local ok, info = pcall(C_Texture.GetAtlasInfo, name)
+    return ok and info ~= nil
+end
+
 -- Season of Discovery runs on the Era client, so it is only distinguishable by
 -- the engraving system being switched on.
 Compat.isSoD = false

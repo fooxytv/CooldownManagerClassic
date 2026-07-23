@@ -205,8 +205,46 @@ Const.GROUP_APPEARANCE = {
         -- allowHideWhenInactive, so a tracked buff only occupies the bar while
         -- it is actually on you. The row collapses rather than leaving a gap.
         hideWhenInactive = true,
+
+        -- Retail splits tracked buffs across two Edit Mode systems, Tracked
+        -- Buffs (icons) and Tracked Buff Bars. There is one buffs group here,
+        -- so which of the two it looks like is a setting.
+        display = "Icons",
+        barWidth = 220,
+        barHeight = 30,
+        barContent = "Icon and Name",
     },
 }
+
+Const.BUFF_DISPLAYS = { "Icons", "Bars" }
+
+-- Enum.CooldownViewerBarContent, in the order Blizzard lists it.
+Const.BAR_CONTENTS = { "Icon and Name", "Icon Only", "Name Only" }
+
+-- Geometry of CooldownViewerBuffBarItemTemplate, at its native 220x30. Every
+-- offset is scaled by barHeight/itemHeight when the bar is resized, so the art
+-- keeps its proportions instead of drifting apart.
+Const.BAR_TEMPLATE = {
+    itemHeight    = 30,
+    barHeight     = 19,   -- the StatusBar inside the 30px item
+    iconGap       = 2,    -- icon RIGHT -> bar LEFT
+    overlayInsetX = 6,    -- IconOverlay, as on the 30px utility template
+    overlayInsetY = 5,
+    -- BarBG anchors: TOPLEFT(-2, 2), BOTTOMRIGHT(4, -7).
+    bgInsetLeft   = -2,
+    bgInsetTop    = 2,
+    bgInsetRight  = 4,
+    bgInsetBottom = -7,
+    nameInsetLeft  = 5,
+    nameInsetRight = -25, -- leaves the duration its corner
+    durationInset  = -8,
+    applicationsX  = -5,
+    applicationsY  = 5,
+}
+
+-- BarTexture colour from the template. Blizzard tints every tracked buff bar
+-- the same orange rather than colouring by spell school or dispel type.
+Const.BAR_FILL_COLOR = { 1.0, 0.5, 0.25 }
 
 -- Blizzard's Cooldown Manager art. The UI code ships in the Classic Era build
 -- but is gated to the `standard` game type, so whether the atlases themselves
@@ -218,7 +256,15 @@ Const.ART = {
     oorShadow   = "UI-CooldownManager-OORshadow",
     swipe       = "Interface\\HUD\\UI-HUD-CoolDownManager-Icon-Swipe",
     edge        = "Interface\\Cooldown\\UI-HUD-ActionBar-SecondaryCooldown",
+    -- Buff bar art, from CooldownViewerBuffBarItemTemplate.
+    bar         = "UI-HUD-CoolDownManager-Bar",
+    barBG       = "UI-HUD-CoolDownManager-Bar-BG",
+    barPip      = "UI-HUD-CoolDownManager-Bar-Pip",
 }
+
+-- A statusbar texture that exists in every Classic build, used when the
+-- Cooldown Manager bar atlas is not present.
+Const.FALLBACK_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
 -- Buff swipes run in reverse and are darkened, matching
 -- CooldownViewerBuffIconItemTemplate.
@@ -227,10 +273,11 @@ Const.ART = {
 -- Retail display read as calm; Blizzard also disables the edge spark entirely
 -- (cooldownShowDrawEdge = false).
 Const.COOLDOWN_SWIPE_COLOR = { 0, 0, 0, 0.7 }        -- ITEM_COOLDOWN_COLOR
--- Blizzard's ITEM_AURA_COLOR is this at 0.7 alpha, but a pale swipe that
--- bright sits directly behind the timer text and destroys its contrast once
--- the icons are small. Kept much fainter, and tunable per group besides.
-Const.BUFF_SWIPE_COLOR = { 1, 0.95, 0.57, 0.35 }     -- ITEM_AURA_COLOR, lightened
+-- Buff icons use the *cooldown* colour, not ITEM_AURA_COLOR. Blizzard's
+-- CooldownViewerBuffIconItemMixin:GetCooldownSwipeColor says so outright
+-- ("still using the standard cooldown colors even though this is an aura"),
+-- and the template hard-codes the same 0,0,0,0.7 on its SwipeTexture.
+Const.BUFF_SWIPE_COLOR = { 0, 0, 0, 0.7 }            -- ITEM_COOLDOWN_COLOR
 
 -- The global cooldown fires on almost every cast, so it is drawn much lighter
 -- than a real cooldown: dark enough to read as a sweep, faint enough that it

@@ -133,6 +133,31 @@ end
 -- Layout
 --------------------------------------------------------------------------------
 
+--- Which widget module draws this group's entries. Retail splits tracked buffs
+--- into two Edit Mode systems, icons and bars; here it is one group with a
+--- display setting, so the module is chosen per layout rather than per group.
+function Group:GetWidget()
+    local settings = self:GetSettings()
+    if Const.AURA_GROUPS[self.key]
+        and settings
+        and settings.appearance.display == "Bars"
+    then
+        return ns.BuffBar, "bars"
+    end
+    return ns.Icon, "icons"
+end
+
+--- Hands every live widget back to its own pool. Called with the *previous*
+--- module when the display setting changes, since an icon must not be returned
+--- to the bar pool or vice versa.
+function Group:ReleaseAll(widget)
+    widget = widget or self.widget or ns.Icon
+    for i = #self.icons, 1, -1 do
+        widget:Release(self.icons[i])
+        self.icons[i] = nil
+    end
+end
+
 --- Rebuilds the icon row from the profile. Entries the character cannot cast
 --- are skipped rather than removed, so unlearned ranks and unequipped runes
 --- reappear on their own.
@@ -141,8 +166,18 @@ function Group:Layout()
     if not settings then return end
 
     local appearance = settings.appearance
-    local size = appearance.iconSize or Const.DEFAULT_APPEARANCE.iconSize
     local spacing = appearance.spacing or Const.DEFAULT_APPEARANCE.spacing
+
+    -- Switching between icons and bars empties the row first: the two widgets
+    -- come from separate pools and are not interchangeable.
+    local widget, widgetKind = self:GetWidget()
+    if widgetKind ~= self.widgetKind then
+        self:ReleaseAll(self.widget)
+        self.widgetKind = widgetKind
+    end
+    self.widget = widget
+
+    local itemWidth, itemHeight = widget:GetItemSize(appearance)
 
     -- Tracked buffs can be set to occupy the bar only while they are active, in
     -- which case the row collapses around whatever is currently up.
@@ -166,24 +201,24 @@ function Group:Layout()
     -- Recorded so Update can tell when the active set changed and relayout.
     self.activeKey = self:ComputeActiveKey()
 
-    -- Return any icons beyond the new count to the pool.
+    -- Return any widgets beyond the new count to the pool.
     for i = #resolved + 1, #self.icons do
-        ns.Icon:Release(self.icons[i])
+        widget:Release(self.icons[i])
         self.icons[i] = nil
     end
 
     for i, item in ipairs(resolved) do
         local icon = self.icons[i]
         if not icon then
-            icon = ns.Icon:Acquire(self.frame, self.key)
+            icon = widget:Acquire(self.frame, self.key)
             self.icons[i] = icon
         end
-        ns.Icon:Configure(icon, item.entry, item.spellID, appearance, self.key)
+        widget:Configure(icon, item.entry, item.spellID, appearance, self.key)
     end
 
     local count = #resolved
     if count == 0 then
-        self.frame:SetSize(size, size)
+        self.frame:SetSize(itemWidth, itemHeight)
         self:ApplyPosition()
         self:UpdateVisibility()
         return
@@ -199,9 +234,10 @@ function Group:Layout()
     local columnCount = horizontal and perLine or lines
     local rowCount = horizontal and lines or perLine
 
-    local step = size + spacing
-    local totalWidth = columnCount * size + (columnCount - 1) * spacing
-    local totalHeight = rowCount * size + (rowCount - 1) * spacing
+    local stepX = itemWidth + spacing
+    local stepY = itemHeight + spacing
+    local totalWidth = columnCount * itemWidth + (columnCount - 1) * spacing
+    local totalHeight = rowCount * itemHeight + (rowCount - 1) * spacing
     self.frame:SetSize(math.max(totalWidth, 1), math.max(totalHeight, 1))
 
     local direction = appearance.iconDirection or (horizontal and "Down" or "Right")
@@ -226,7 +262,7 @@ function Group:Layout()
         end
 
         icon:ClearAllPoints()
-        icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", column * step, -row * step)
+        icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", column * stepX, -row * stepY)
         icon:SetShown(settings.enabled ~= false)
     end
 
@@ -324,10 +360,11 @@ function Group:Update()
     local appearance = settings.appearance
     local animating = false
 
+    local widget = self.widget or ns.Icon
     for _, icon in ipairs(self.icons) do
         if icon.spellID then
             local state = tracker:GetState(icon.spellID, appearance.showGCD)
-            if ns.Icon:Update(icon, state, appearance) then
+            if widget:Update(icon, state, appearance) then
                 animating = true
             end
         end

@@ -502,6 +502,10 @@ function Core:PrintStatus()
         out("|cffffcc00Cooldown Manager atlases absent - using the plain icon fallback.|r")
     end
 
+    local barArt = ns.BuffBar.art
+    out(("Buff bar art: fill |cffffff00%s|r  background |cffffff00%s|r  pip |cffffff00%s|r")
+        :format(tostring(barArt.bar), tostring(barArt.barBG), tostring(barArt.pip)))
+
     out(("UNIT_AURA registered: |cffffff00%s|r  ticker: |cffffff00%s|r  tracked auras: |cffffff00%s|r")
         :format(tostring(self.auraEventRegistered), tostring(ticker ~= nil),
                 tostring(self:HasTrackedAuras())))

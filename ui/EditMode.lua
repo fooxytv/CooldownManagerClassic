@@ -333,6 +333,61 @@ local function BuildSettings(groupKey)
             set = function(_, value) SetOption(groupKey, "hideWhenInactive", value and true or false) end,
         }
 
+        settings[#settings + 1] = {
+            order = 12,
+            name = "Display",
+            kind = lem.SettingType.Dropdown,
+            default = "Icons",
+            values = DropdownValues(Const.BUFF_DISPLAYS),
+            get = function() return GetOption(groupKey, "display", "Icons") end,
+            set = function(_, value)
+                SetOption(groupKey, "display", value)
+                -- Bars are wide and stack downwards; icons run along a row.
+                -- Flipping the axis with the display keeps the group readable
+                -- without the player having to know that is why it looks wrong.
+                if value == "Bars" then
+                    SetOption(groupKey, "orientation", "Vertical")
+                    SetOption(groupKey, "iconDirection", "Right")
+                else
+                    SetOption(groupKey, "orientation", "Horizontal")
+                    SetOption(groupKey, "iconDirection", "Down")
+                end
+            end,
+        }
+
+        settings[#settings + 1] = {
+            order = 13,
+            name = "Bar Width",
+            kind = lem.SettingType.Slider,
+            default = 220,
+            minValue = 120,
+            maxValue = 400,
+            valueStep = 5,
+            get = function() return GetOption(groupKey, "barWidth", 220) end,
+            set = function(_, value) SetOption(groupKey, "barWidth", math.floor(value + 0.5)) end,
+        }
+
+        settings[#settings + 1] = {
+            order = 14,
+            name = "Bar Height",
+            kind = lem.SettingType.Slider,
+            default = Const.BAR_TEMPLATE.itemHeight,
+            minValue = 16,
+            maxValue = 60,
+            valueStep = 1,
+            get = function() return GetOption(groupKey, "barHeight", Const.BAR_TEMPLATE.itemHeight) end,
+            set = function(_, value) SetOption(groupKey, "barHeight", math.floor(value + 0.5)) end,
+        }
+
+        settings[#settings + 1] = {
+            order = 15,
+            name = "Bar Content",
+            kind = lem.SettingType.Dropdown,
+            default = "Icon and Name",
+            values = DropdownValues(Const.BAR_CONTENTS),
+            get = function() return GetOption(groupKey, "barContent", "Icon and Name") end,
+            set = function(_, value) SetOption(groupKey, "barContent", value) end,
+        }
     end
 
     return settings
