@@ -524,26 +524,36 @@ local function EnsureOptionWidgets(parent)
 
     optionWidgets = { groupButtons = {}, sliders = {}, toggles = {} }
 
-    -- Which group these settings apply to.
-    local previous
+    -- Which group these settings apply to. Laid out as a wrapping grid rather
+    -- than a single row: with four groups a row of full-width buttons overran
+    -- the dialog, clipping "Essential Cooldowns" and pushing the last button off
+    -- the page. Two per row keeps every label readable and every button on it.
+    local PER_ROW = 2
+    local BUTTON_GAP = 4
+    local BUTTON_W = (CONTENT_WIDTH - BUTTON_GAP) / PER_ROW
+    local BUTTON_H = 22
+    local ROW_STEP = BUTTON_H + 4
+
     for index, key in ipairs(Const.GROUP_ORDER) do
         local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-        button:SetSize(120, 22)
-        if previous then
-            button:SetPoint("LEFT", previous, "RIGHT", 4, 0)
-        else
-            button:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -4)
-        end
+        button:SetSize(BUTTON_W, BUTTON_H)
+
+        local col = (index - 1) % PER_ROW
+        local row = math.floor((index - 1) / PER_ROW)
+        button:SetPoint("TOPLEFT", parent, "TOPLEFT",
+            col * (BUTTON_W + BUTTON_GAP), -4 - row * ROW_STEP)
+
         button:SetText(Const.GROUP_LABELS[key] or key)
         button:SetScript("OnClick", function()
             optionsGroup = key
             SpellPicker:Refresh()
         end)
         optionWidgets.groupButtons[key] = button
-        previous = button
     end
 
-    local y = -46
+    -- Start the sliders below however many rows of group buttons there were.
+    local buttonRows = math.ceil(#Const.GROUP_ORDER / PER_ROW)
+    local y = -4 - buttonRows * ROW_STEP - 12
     for index, definition in ipairs(OPTION_SLIDERS) do
         local name = "CDMCOptionSlider" .. index
         local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
@@ -760,6 +770,10 @@ local function CreateFrameOnce()
         end)
         tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
         tab:SetScript("OnClick", function()
+            -- The same click the character and spellbook side tabs make.
+            if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
+                PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
+            end
             currentTab = tabKey
             SpellPicker:Refresh()
         end)
