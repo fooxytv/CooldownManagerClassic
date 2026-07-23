@@ -74,7 +74,8 @@ function Auras:GetState(spellID)
     state.aura = aura
     state.available = aura ~= nil
     state.active = aura ~= nil
-    state.charges = aura and aura.applications or nil
+    -- `applications` on the modern aura data, `count` on the legacy path.
+    state.charges = aura and (aura.applications or aura.count) or nil
     state.maxCharges = nil
     state.isGCD = false
 

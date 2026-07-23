@@ -125,21 +125,24 @@ local function CreateIcon(parent)
     frame.border:Hide()
 
     -- Proc-style pulsing outline, used when a tracked aura hits its stack
-    -- threshold. Hand-rolled rather than using ActionButton_ShowOverlayGlow so
-    -- there is no dependency on SpellActivationOverlay being present.
-    frame.glow = frame:CreateTexture(nil, "OVERLAY", nil, 2)
-    frame.glow:SetPoint("TOPLEFT", -6, 6)
-    frame.glow:SetPoint("BOTTOMRIGHT", 6, -6)
-    frame.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-    frame.glow:SetBlendMode("ADD")
-    frame.glow:SetVertexColor(1, 0.9, 0.3)
+    -- threshold.
+    --
+    -- Drawn as a plain coloured rectangle sitting behind and slightly larger
+    -- than the icon, so it reads as a halo around the edges. SetColorTexture is
+    -- used deliberately rather than a texture file: a missing or renamed art
+    -- path fails silently and renders nothing at all, which is impossible to
+    -- tell apart from the glow logic never firing.
+    frame.glow = frame:CreateTexture(nil, "BACKGROUND")
+    frame.glow:SetPoint("TOPLEFT", -4, 4)
+    frame.glow:SetPoint("BOTTOMRIGHT", 4, -4)
+    frame.glow:SetColorTexture(1, 0.85, 0.2, 1)
     frame.glow:Hide()
 
     local pulse = frame.glow:CreateAnimationGroup()
     pulse:SetLooping("BOUNCE")
     local fade = pulse:CreateAnimation("Alpha")
     fade:SetFromAlpha(1)
-    fade:SetToAlpha(0.25)
+    fade:SetToAlpha(0.3)
     fade:SetDuration(0.5)
     frame.glowPulse = pulse
 
@@ -312,7 +315,7 @@ function Icon:Update(frame, state, appearance)
     -- not merely that the aura exists.
     local threshold = appearance.glowAtStacks or 0
     local stacks = state.charges or 0
-    if threshold > 0 and stacks >= threshold then
+    if Icon.forceGlow or (threshold > 0 and stacks >= threshold) then
         if not frame.glow:IsShown() then
             frame.glow:Show()
             frame.glowPulse:Play()

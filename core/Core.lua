@@ -787,6 +787,19 @@ SlashCmdList["CDMC"] = function(input)
     elseif command == "watch" then
         Core:ToggleAuraWatch()
 
+    elseif command == "glow" then
+        -- Forces the stack glow on for a few seconds. If nothing lights up the
+        -- glow itself is broken; if it does, the threshold is simply not being
+        -- reached and the stack count is the thing to check.
+        ns.Icon.forceGlow = true
+        Core:UpdateAll()
+        ns.Print("forcing the stack glow for 5 seconds - if nothing lights up, the glow itself is broken.")
+        C_Timer.After(5, function()
+            ns.Icon.forceGlow = false
+            Core:UpdateAll()
+            ns.Print("glow test over.")
+        end)
+
     elseif command == "auras" then
         -- Lists what is on you right now with IDs, so a buff that the picker
         -- cannot discover can still be identified and entered by hand.
