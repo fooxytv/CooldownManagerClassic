@@ -96,10 +96,13 @@ function Const.IsWeaponEnchantID(spellID)
     return spellID ~= nil and Const.WEAPON_ENCHANT_BY_ID[spellID] ~= nil
 end
 
--- Cooldowns at or below this are treated as the global cooldown and ignored.
+-- Cooldowns at or below this are treated as the global cooldown.
+--
 -- Classic gives us no reliable per-class GCD spell to compare against, so a
--- threshold is the pragmatic option.
-Const.GCD_THRESHOLD = 1.5
+-- threshold is the pragmatic option. Deliberately a little above 1.5: a caster
+-- GCD reports as exactly 1.50, and an exact-boundary comparison would misread
+-- it as a real cooldown the moment floating point returned 1.5000001.
+Const.GCD_THRESHOLD = 1.6
 
 -- How often icon text is refreshed while anything is counting down.
 Const.UPDATE_INTERVAL = 0.1
