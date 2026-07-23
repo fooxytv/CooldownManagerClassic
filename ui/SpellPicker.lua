@@ -47,7 +47,10 @@ local TABS = {
     },
 }
 
-local TAB_ORDER = { "cooldowns", "buffs", "options" }
+-- The Options tab is hidden: every setting it held is also in the Edit Mode
+-- panel (unlock the groups, or /em), so a second surface for the same options
+-- was only a way for the two to disagree. The tab's code is kept but unlisted.
+local TAB_ORDER = { "cooldowns", "buffs" }
 
 -- Per-group display settings, shown on the Options tab until the Edit Mode
 -- panel takes over. Applied immediately rather than staged, because seeing the

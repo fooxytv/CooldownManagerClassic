@@ -722,7 +722,8 @@ end
 local function PrintHelp()
     ns.Print("commands:")
     local lines = {
-        "|cffffff00/cdmc|r - open the spell picker",
+        "|cffffff00/cdmc|r or |cffffff00/cdm|r - open the spell picker",
+        "|cffffff00/em|r - toggle edit mode (same as unlock / lock)",
         "|cffffff00/cdmc unlock|r / |cffffff00lock|r - move the groups",
         "|cffffff00/cdmc preset|r - load your class starter layout",
         "|cffffff00/cdmc export|r / |cffffff00import|r - share a profile",
@@ -780,6 +781,20 @@ end
 
 SLASH_CDMC1 = "/cdmc"
 SLASH_CDMC2 = "/cooldownmanager"
+SLASH_CDMC3 = "/cdm"
+
+-- Toggling edit mode is common enough to be worth its own short command rather
+-- than "/cdmc unlock" then "/cdmc lock". Prints which way it went so a bare /em
+-- is never ambiguous.
+SLASH_CDMCEDIT1 = "/em"
+SlashCmdList["CDMCEDIT"] = function()
+    local unlocked = ns.EditMode:ToggleManualUnlock()
+    if unlocked then
+        ns.Print("edit mode on - drag the groups, then /em again to finish.")
+    else
+        ns.Print("edit mode off.")
+    end
+end
 
 SlashCmdList["CDMC"] = function(input)
     input = (input or ""):gsub("^%s+", ""):gsub("%s+$", "")
