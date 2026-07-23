@@ -78,6 +78,70 @@ local function Base64Decode(input)
 end
 
 --------------------------------------------------------------------------------
+-- Scalars
+--------------------------------------------------------------------------------
+
+-- Appearance tables are flat maps of scalars, so rather than a fixed field order
+-- that silently drops anything added later, each value carries a one-character
+-- type tag. A profile written by a build that knows more settings than this one
+-- still imports; the unknown keys simply ride along.
+local function EncodeScalar(value)
+    local kind = type(value)
+    if kind == "boolean" then
+        return value and "b1" or "b0"
+    elseif kind == "number" then
+        return "n" .. tostring(value)
+    elseif kind == "string" then
+        return "s" .. value
+    end
+    return nil
+end
+
+local function DecodeScalar(text)
+    if not text or text == "" then return nil end
+
+    local tag, rest = text:sub(1, 1), text:sub(2)
+    if tag == "b" then
+        return rest == "1"
+    elseif tag == "n" then
+        return tonumber(rest)
+    elseif tag == "s" then
+        return rest
+    end
+    return nil
+end
+
+local function WritePosition(lines, prefix, position)
+    position = position or {}
+    lines[#lines + 1] = ("%s=%s|%s|%d|%d"):format(
+        prefix,
+        position.point or "CENTER",
+        position.relativePoint or "CENTER",
+        math.floor((position.x or 0) + 0.5),
+        math.floor((position.y or 0) + 0.5)
+    )
+end
+
+--- Keys are sorted so the same profile always produces the same string, which
+--- makes two exports comparable by eye.
+local function WriteAppearance(lines, prefix, appearance)
+    if type(appearance) ~= "table" then return end
+
+    local keys = {}
+    for key in pairs(appearance) do
+        if type(key) == "string" then keys[#keys + 1] = key end
+    end
+    table.sort(keys)
+
+    for _, key in ipairs(keys) do
+        local encoded = EncodeScalar(appearance[key])
+        if encoded then
+            lines[#lines + 1] = ("%s=%s=%s"):format(prefix, key, encoded)
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
 -- Export
 --------------------------------------------------------------------------------
 
@@ -90,26 +154,30 @@ function Serialization:Export(profile)
     for _, key in ipairs(Const.GROUP_ORDER) do
         local group = profile.groups[key]
         if group then
-            local appearance = group.appearance
-            local position = group.position
-
-            lines[#lines + 1] = ("G=%s|%d|%d|%s|%s|%d|%d|%d"):format(
-                key,
-                appearance.iconSize or 40,
-                appearance.spacing or 4,
-                appearance.growth or "CENTER",
-                position.relativePoint or "CENTER",
-                position.x or 0,
-                position.y or 0,
-                group.enabled == false and 0 or 1
-            )
+            lines[#lines + 1] = "G=" .. key
+            lines[#lines + 1] = "Ge=" .. (group.enabled == false and "0" or "1")
+            WritePosition(lines, "Gp", group.position)
+            WriteAppearance(lines, "Ga", group.appearance)
 
             for _, entry in ipairs(group.spells) do
-                lines[#lines + 1] = ("S=%d|%d"):format(
+                -- The name is carried so a rank-independent entry can resolve on
+                -- a character that knows a different rank, or none yet.
+                lines[#lines + 1] = ("S=%d|%d|%s"):format(
                     entry.spellID,
-                    entry.rankIndependent and 1 or 0
+                    entry.rankIndependent and 1 or 0,
+                    entry.name or ""
                 )
             end
+        end
+    end
+
+    for _, key in ipairs(Const.BAR_ORDER) do
+        local bar = profile.bars and profile.bars[key]
+        if bar then
+            lines[#lines + 1] = "B=" .. key
+            lines[#lines + 1] = "Be=" .. (bar.enabled and "1" or "0")
+            WritePosition(lines, "Bp", bar.position)
+            WriteAppearance(lines, "Ba", bar.appearance)
         end
     end
 
@@ -126,30 +194,93 @@ end
 -- Import
 --------------------------------------------------------------------------------
 
---- Returns profile, class, flavor on success, or nil plus an error message.
-function Serialization:Import(text)
-    if type(text) ~= "string" or text == "" then
-        return nil, "Nothing to import."
+--- A group seeded with this build's defaults, so a field the incoming string
+--- does not mention lands on something sane rather than nil.
+local function NewGroupShell(key)
+    local appearance = ns.DeepCopy(Const.DEFAULT_APPEARANCE)
+    for option, value in pairs(Const.GROUP_APPEARANCE[key] or {}) do
+        appearance[option] = value
     end
 
-    text = text:gsub("%s+", "")
+    return {
+        enabled = true,
+        spells = {},
+        position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 0 },
+        appearance = appearance,
+    }
+end
 
-    local version, class, flavor, payload = text:match("^CDMC(%d+):([^:]+):([^:]+):(.+)$")
-    if not version then
-        return nil, "That does not look like a Cooldown Manager Classic string."
+local function NewBarShell()
+    return {
+        enabled = false,
+        position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 0 },
+        appearance = ns.DeepCopy(Const.DEFAULT_BAR_APPEARANCE),
+    }
+end
+
+local function ParsePosition(body)
+    local point, relativePoint, x, y = body:match("^([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
+    if not point then return nil end
+
+    return {
+        point = point ~= "" and point or "CENTER",
+        relativePoint = relativePoint ~= "" and relativePoint or "CENTER",
+        x = tonumber(x) or 0,
+        y = tonumber(y) or 0,
+    }
+end
+
+--- Format 2: every appearance field, positions, spell names and the bars.
+local function ParseV2(blob)
+    local profile = { version = 2, groups = {}, bars = {} }
+    local current, currentIsGroup
+
+    for line in blob:gmatch("[^\n]+") do
+        local tag, body = line:match("^(%a+)=(.*)$")
+
+        if tag == "G" then
+            current, currentIsGroup = NewGroupShell(body), true
+            profile.groups[body] = current
+
+        elseif tag == "B" then
+            current, currentIsGroup = NewBarShell(), false
+            profile.bars[body] = current
+
+        elseif current and (tag == "Ge" or tag == "Be") then
+            current.enabled = body == "1"
+
+        elseif current and (tag == "Gp" or tag == "Bp") then
+            current.position = ParsePosition(body) or current.position
+
+        elseif current and (tag == "Ga" or tag == "Ba") then
+            local key, encoded = body:match("^(.-)=(.*)$")
+            if key and key ~= "" then
+                local value = DecodeScalar(encoded)
+                if value ~= nil then current.appearance[key] = value end
+            end
+
+        elseif current and currentIsGroup and tag == "S" then
+            -- Negative IDs are the weapon-enchant pseudo-spells, so the sign is
+            -- part of the pattern. The name is whatever remains on the line.
+            local spellID, rankIndependent, name = body:match("^(%-?%d+)|([01])|(.*)$")
+            spellID = tonumber(spellID)
+            if spellID then
+                current.spells[#current.spells + 1] = {
+                    spellID = spellID,
+                    rankIndependent = rankIndependent ~= "0",
+                    name = name ~= "" and name or nil,
+                }
+            end
+        end
     end
 
-    version = tonumber(version)
-    if version > Const.PROFILE_FORMAT_VERSION then
-        return nil, ("That profile was exported by a newer version (format %d)."):format(version)
-    end
+    return profile
+end
 
-    local blob = Base64Decode(payload)
-    if not blob then
-        return nil, "The profile string is corrupt."
-    end
-
-    local profile = { version = version, groups = {} }
+--- Format 1: the original, which carried only the spell list plus icon size,
+--- spacing, growth and position. Kept so strings shared before v2 still import.
+local function ParseV1(blob)
+    local profile = { version = 1, groups = {} }
     local currentGroup
 
     for line in blob:gmatch("[^\n]+") do
@@ -160,17 +291,11 @@ function Serialization:Import(text)
                 body:match("^([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
 
             if key then
-                currentGroup = {
-                    enabled = enabled ~= "0",
-                    spells = {},
-                    position = {
-                        point = "CENTER",
-                        relativePoint = relativePoint,
-                        x = tonumber(x) or 0,
-                        y = tonumber(y) or 0,
-                    },
-                    appearance = ns.DeepCopy(Const.DEFAULT_APPEARANCE),
-                }
+                currentGroup = NewGroupShell(key)
+                currentGroup.enabled = enabled ~= "0"
+                currentGroup.position.relativePoint = relativePoint
+                currentGroup.position.x = tonumber(x) or 0
+                currentGroup.position.y = tonumber(y) or 0
                 currentGroup.appearance.iconSize = tonumber(iconSize) or currentGroup.appearance.iconSize
                 currentGroup.appearance.spacing = tonumber(spacing) or currentGroup.appearance.spacing
                 currentGroup.appearance.growth = growth
@@ -189,7 +314,37 @@ function Serialization:Import(text)
         end
     end
 
-    if not next(profile.groups) then
+    return profile
+end
+
+--- Returns profile, class, flavor on success, or nil plus an error message.
+function Serialization:Import(text)
+    if type(text) ~= "string" or text == "" then
+        return nil, "Nothing to import."
+    end
+
+    -- Whitespace is stripped wholesale: the string is one line as exported, but
+    -- pasting it through chat or a wrapped edit box can fold newlines into it.
+    text = text:gsub("%s+", "")
+
+    local version, class, flavor, payload = text:match("^CDMC(%d+):([^:]+):([^:]+):(.+)$")
+    if not version then
+        return nil, "That does not look like a Cooldown Manager Classic string."
+    end
+
+    version = tonumber(version)
+    if version > Const.PROFILE_FORMAT_VERSION then
+        return nil, ("That profile was exported by a newer version (format %d)."):format(version)
+    end
+
+    local blob = Base64Decode(payload)
+    if not blob then
+        return nil, "The profile string is corrupt."
+    end
+
+    local profile = (version >= 2) and ParseV2(blob) or ParseV1(blob)
+
+    if not profile or not next(profile.groups) then
         return nil, "The profile string contained no groups."
     end
 

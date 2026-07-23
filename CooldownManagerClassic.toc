@@ -43,6 +43,7 @@ ui\ResourceBar.lua
 ui\EditMode.lua
 ui\EditModePanel.lua
 ui\SpellPicker.lua
+ui\ProfileShare.lua
 
 # Data
 data\Presets.lua

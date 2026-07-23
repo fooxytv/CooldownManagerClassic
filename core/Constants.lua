@@ -13,7 +13,9 @@ Const.SHORT_NAME = "CDMC"
 Const.DB_VERSION = 3
 
 -- Bumped when the exported profile string format changes.
-Const.PROFILE_FORMAT_VERSION = 1
+--   1: spell list plus icon size, spacing, growth and position
+--   2: every appearance field, spell names, and the resource bars
+Const.PROFILE_FORMAT_VERSION = 2
 
 -- Display order of the groups. Anything iterating groups should use this
 -- rather than pairs() so the layout is stable.

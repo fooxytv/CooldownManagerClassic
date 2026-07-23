@@ -47,6 +47,7 @@ ui/BuffBar.lua        Pooled buff bar widget (icon + draining bar)
 ui/Group.lua          Centred icon row, drag handling
 ui/EditMode.lua       Edit Mode integration and manual unlock
 ui/SpellPicker.lua    Spell selection interface
+ui/ProfileShare.lua   Import / export window
 
 data/Presets.lua      Class starter layouts
 ```
@@ -119,21 +120,37 @@ client has no Edit Mode, `/cdmc unlock` gives the same behaviour.
 ### Profile strings
 
 ```
-CDMC1:DRUID:era:<base64 payload>
+CDMC2:DRUID:era:<base64 payload>
 ```
 
-A fixed line-based grammar rather than serialised Lua — addons cannot
-`loadstring`, so a general format would need a general parser. Not compatible
-with Retail Cooldown Manager strings, which encode internal cooldown IDs.
+A line-based grammar rather than serialised Lua — addons cannot `loadstring`, so
+a general format would need a general parser. Not compatible with Retail Cooldown
+Manager strings, which encode internal cooldown IDs.
+
+Format 2 carries the whole profile: every appearance field, each group's
+position and enabled state, spell names alongside their IDs, and the resource
+bars. Format 1 carried only the spell list plus icon size, spacing, growth and
+position, so anything else silently reverted to defaults on import — including,
+once bars existed, every bar setting.
+
+Appearance fields are written as sorted `key=<typed value>` lines rather than a
+fixed field order, each value tagged `b`/`n`/`s` for its type. A string written
+by a build that knows more settings than yours still imports; the keys it does
+not recognise simply ride along. Format 1 strings are still read, and a string
+claiming a newer format is refused rather than half-parsed.
+
+Import never overwrites the active profile: it lands in a new one named after
+the exporting class and switches to it, so a bad string costs nothing.
 
 ## Commands
 
 | Command | Effect |
 | --- | --- |
-| `/cdmc` | Open the spell picker |
+| `/cdmc` or `/cdm` | Open the spell picker |
+| `/em` | Toggle edit mode |
 | `/cdmc unlock` / `lock` | Move the groups |
 | `/cdmc preset` | Load the class starter layout |
-| `/cdmc export` / `import` | Share a profile |
+| `/cdmc export` / `import` | Share a profile (or the Share Profile button) |
 | `/cdmc profile list \| use \| new \| copy \| delete <name>` | Profile management |
 | `/cdmc reset` | Reset the current profile |
 

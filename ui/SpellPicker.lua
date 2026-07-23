@@ -814,7 +814,7 @@ local function CreateFrameOnce()
     -- The bottom strip ButtonFrameTemplate reserves is where Blizzard puts
     -- Save, so the buttons go there rather than floating over the inset.
     local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    save:SetSize(110, 22)
+    save:SetSize(100, 22)
     save:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 4)
     save:SetText("Done")
     save:SetScript("OnClick", function()
@@ -824,7 +824,7 @@ local function CreateFrameOnce()
     frame.saveButton = save
 
     local revert = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    revert:SetSize(110, 22)
+    revert:SetSize(100, 22)
     revert:SetPoint("RIGHT", save, "LEFT", -6, 0)
     revert:SetText("Revert")
     revert:SetScript("OnClick", function()
@@ -832,6 +832,17 @@ local function CreateFrameOnce()
         SpellPicker:Refresh()
     end)
     frame.revertButton = revert
+
+    -- Profile sharing was reachable only by /cdmc export, which meant nobody
+    -- found it. It gets a button on the dialog everyone already opens.
+    local share = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    share:SetSize(100, 22)
+    share:SetPoint("RIGHT", revert, "LEFT", -6, 0)
+    share:SetText("Share Profile")
+    share:SetScript("OnClick", function()
+        ns.ProfileShare:ShowExport()
+    end)
+    frame.shareButton = share
 
     -- Manual ID entry, for auras that appear nowhere the picker can find them.
     local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -854,9 +865,10 @@ local function CreateFrameOnce()
     end)
     frame.addBox = addBox
 
+    -- Kept short: the bottom strip also carries three buttons.
     frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 10)
-    frame.hint:SetText("Drag icons between sections, or click to move.")
+    frame.hint:SetText("Drag icons to move.")
 
     return frame
 end
@@ -923,9 +935,7 @@ function SpellPicker:Refresh()
     frame.search:SetShown(not isOptions)
     frame.saveButton:SetShown(not isOptions)
     frame.revertButton:SetShown(not isOptions)
-    frame.hint:SetText(isOptions
-        and "Changes apply immediately."
-        or "Drag icons between sections, or click to move. Changes apply immediately.")
+    frame.hint:SetText(isOptions and "Changes apply immediately." or "Drag icons to move.")
 
     if isOptions then
         frame.content:SetHeight(math.max(ShowOptions(frame.content), 350))

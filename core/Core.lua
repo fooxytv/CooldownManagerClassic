@@ -360,55 +360,12 @@ function Core:Initialize()
 end
 
 --------------------------------------------------------------------------------
--- Import / export dialogs
+-- Import / export
 --------------------------------------------------------------------------------
 
-StaticPopupDialogs["CDMC_EXPORT"] = {
-    text = "Copy this profile string:",
-    button1 = CLOSE or "Close",
-    hasEditBox = true,
-    editBoxWidth = 350,
-    OnShow = function(self, data)
-        local editBox = self.editBox or self.EditBox
-        if not editBox then return end
-        editBox:SetText(data or "")
-        editBox:HighlightText()
-        editBox:SetFocus()
-    end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
-
-StaticPopupDialogs["CDMC_IMPORT"] = {
-    text = "Paste a profile string:",
-    button1 = ACCEPT or "Accept",
-    button2 = CANCEL or "Cancel",
-    hasEditBox = true,
-    editBoxWidth = 350,
-    OnShow = function(self)
-        local editBox = self.editBox or self.EditBox
-        if editBox then
-            editBox:SetText("")
-            editBox:SetFocus()
-        end
-    end,
-    OnAccept = function(self)
-        local editBox = self.editBox or self.EditBox
-        Core:ImportString(editBox and editBox:GetText() or "")
-    end,
-    EditBoxOnEnterPressed = function(self)
-        Core:ImportString(self:GetText())
-        self:GetParent():Hide()
-    end,
-    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
+-- The dialogs themselves live in ui/ProfileShare.lua. They used to be
+-- StaticPopups with a single-line edit box, which a format-2 string is far too
+-- long to show or verify in.
 
 function Core:ImportString(text)
     -- On failure the second return is the error message rather than a class.
@@ -816,15 +773,10 @@ SlashCmdList["CDMC"] = function(input)
         ns.Presets:ApplyDefaultForPlayer(true)
 
     elseif command == "export" then
-        local text, err = ns.Serialization:Export()
-        if text then
-            StaticPopup_Show("CDMC_EXPORT", nil, nil, text)
-        else
-            ns.Print("|cffff5555" .. tostring(err) .. "|r")
-        end
+        ns.ProfileShare:ShowExport()
 
     elseif command == "import" then
-        StaticPopup_Show("CDMC_IMPORT")
+        ns.ProfileShare:ShowImport()
 
     elseif command == "profile" then
         local action, name = rest:match("^(%S*)%s*(.*)$")
