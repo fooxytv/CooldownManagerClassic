@@ -42,12 +42,14 @@ function Auras:RefreshIndex(force)
     wipe(indexByID)
     wipe(indexByName)
 
-    for _, aura in ipairs(Compat.GetPlayerAuras(true, true)) do
-        if aura.spellID then indexByID[aura.spellID] = aura end
+    -- Full aura data, not the picker's projection: the duration, expiration and
+    -- stack count are exactly what the display needs.
+    Compat.ForEachPlayerAura(function(aura)
+        if aura.spellId then indexByID[aura.spellId] = aura end
         if aura.name and not indexByName[aura.name] then
             indexByName[aura.name] = aura
         end
-    end
+    end)
 
     indexDirty = false
     indexBuiltAt = now

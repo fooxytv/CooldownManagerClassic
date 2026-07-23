@@ -218,6 +218,45 @@ local function ScanPlayerAuraByName(auraName, filter)
     return nil
 end
 
+--- Walks every aura on the player, passing full aura data to the callback.
+---
+--- Deliberately separate from GetPlayerAuras, which projects down to just
+--- spellID/name/icon for the picker. Anything that needs to *display* an aura
+--- needs its duration, expiration and stack count too, and indexing the
+--- projection instead of the real thing silently drops all three.
+function Compat.ForEachPlayerAura(callback)
+    local function Walk(filter)
+        for i = 1, 40 do
+            if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
+                local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
+                if not data then return end
+                callback(data)
+            elseif _G.UnitAura then
+                local name, icon, count, dispelType, duration, expirationTime,
+                      source, isStealable, _, auraSpellID, _, _, _, _, timeMod = UnitAura("player", i, filter)
+                if not name then return end
+                callback({
+                    name = name,
+                    icon = icon,
+                    applications = count,
+                    dispelName = dispelType,
+                    duration = duration,
+                    expirationTime = expirationTime,
+                    sourceUnit = source,
+                    isStealable = isStealable,
+                    spellId = auraSpellID,
+                    timeMod = timeMod,
+                })
+            else
+                return
+            end
+        end
+    end
+
+    Walk("HELPFUL")
+    Walk("HARMFUL")
+end
+
 --- Returns an aura data table for a buff or debuff on the player, or nil.
 function Compat.GetPlayerAura(spellID)
     if not spellID then return nil end
