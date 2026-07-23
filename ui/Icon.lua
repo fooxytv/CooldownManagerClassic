@@ -313,9 +313,22 @@ function Icon:Update(frame, state, appearance)
 
     -- The stack glow is the exception: it marks a threshold worth reacting to,
     -- not merely that the aura exists.
+    -- Two ways to trigger. An explicit stack threshold wins when set; otherwise
+    -- the aura glows once it reaches the highest count seen for it, which makes
+    -- "glow when it is full" work with no configuration at all.
     local threshold = appearance.glowAtStacks or 0
     local stacks = state.charges or 0
-    if Icon.forceGlow or (threshold > 0 and stacks >= threshold) then
+
+    local shouldGlow = Icon.forceGlow
+    if not shouldGlow then
+        if threshold > 0 then
+            shouldGlow = stacks >= threshold
+        else
+            shouldGlow = appearance.glowAtMaxStacks ~= false and state.atMaxStacks
+        end
+    end
+
+    if shouldGlow then
         if not frame.glow:IsShown() then
             frame.glow:Show()
             frame.glowPulse:Play()

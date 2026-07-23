@@ -154,10 +154,15 @@ Const.DEFAULT_APPEARANCE = {
     -- sweep is competing with the timer text for legibility.
     swipeOpacity = 100,
 
-    -- Pulse an outline once a tracked aura reaches this many stacks. 0 is off.
-    -- Built for things like Maelstrom Weapon, where the stack count is the
-    -- whole point and five is the moment you care about.
+    -- Pulse an outline once a tracked aura reaches this many stacks. 0 means
+    -- "use glowAtMaxStacks instead", which needs no configuring.
     glowAtStacks = 0,
+
+    -- Glow when a stacking aura reaches the highest count seen for it. Built
+    -- for things like Maelstrom Weapon, where being full is the moment you care
+    -- about, and inferred rather than configured because auras do not report
+    -- their own cap.
+    glowAtMaxStacks = true,
 }
 
 Const.ORIENTATIONS = { "Horizontal", "Vertical" }

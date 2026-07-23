@@ -334,8 +334,17 @@ local function BuildSettings(groupKey)
         }
 
         settings[#settings + 1] = {
+            order = 11.5,
+            name = "Glow When Stacks Are Full",
+            kind = lem.SettingType.Checkbox,
+            default = true,
+            get = function() return GetOption(groupKey, "glowAtMaxStacks", true) and true or false end,
+            set = function(_, value) SetOption(groupKey, "glowAtMaxStacks", value and true or false) end,
+        }
+
+        settings[#settings + 1] = {
             order = 12,
-            name = "Glow At Stacks (0 = off)",
+            name = "Glow At Stacks (0 = auto)",
             kind = lem.SettingType.Slider,
             default = 0,
             minValue = 0,

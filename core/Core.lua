@@ -813,7 +813,29 @@ SlashCmdList["CDMC"] = function(input)
         -- reached and the stack count is the thing to check.
         ns.Icon.forceGlow = true
         Core:UpdateAll()
-        ns.Print("forcing the stack glow for 5 seconds - if nothing lights up, the glow itself is broken.")
+        ns.Print("forcing the stack glow for 5 seconds. Current stack state:")
+
+        -- Printed alongside so a glow that never fires can be diagnosed without
+        -- a separate status call: this is every number the trigger looks at.
+        for _, key in ipairs(Const.GROUP_ORDER) do
+            if Const.AURA_GROUPS[key] then
+                local settings = ns.DB:GetGroup(key)
+                local group = ns.groups[key]
+                if settings and group then
+                    for _, icon in ipairs(group.icons) do
+                        if icon.spellID then
+                            local state = ns.Auras:GetState(icon.spellID)
+                            DEFAULT_CHAT_FRAME:AddMessage(("  %s stacks=%s maxSeen=%s atMax=%s glowAt=%s glowWhenFull=%s")
+                                :format(tostring(ns.Spellbook:GetName(icon.spellID)),
+                                        tostring(state.charges), tostring(state.maxStacksSeen),
+                                        tostring(state.atMaxStacks),
+                                        tostring(settings.appearance.glowAtStacks or 0),
+                                        tostring(settings.appearance.glowAtMaxStacks ~= false)))
+                        end
+                    end
+                end
+            end
+        end
         C_Timer.After(5, function()
             ns.Icon.forceGlow = false
             Core:UpdateAll()
