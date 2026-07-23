@@ -733,9 +733,23 @@ local function CreateFrameOnce()
         background:SetSize(64, 64)
         background:SetPoint("TOPLEFT", -3, 11)
 
-        tab:SetNormalTexture(meta.icon)
+        -- The icon is its own ARTWORK texture rather than the button's normal
+        -- texture. A bare CheckButton stops drawing its normal texture while it
+        -- is checked, which blanked the icon on exactly the selected tab; an
+        -- explicit texture is shown regardless of check state.
+        local icon = tab:CreateTexture(nil, "ARTWORK")
+        icon:SetTexture(meta.icon)
+        icon:SetAllPoints()
+        tab.icon = icon
+
         tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        tab:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight", "ADD")
+        -- Drawn behind the icon so "selected" reads as a glow around it, not a
+        -- square on top of it.
+        local checked = tab:CreateTexture(nil, "BORDER")
+        checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+        checked:SetBlendMode("ADD")
+        checked:SetAllPoints()
+        tab:SetCheckedTexture(checked)
 
         tab.tooltipText = meta.label
         tab:SetScript("OnEnter", function(self)

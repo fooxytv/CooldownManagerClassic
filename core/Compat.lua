@@ -524,6 +524,14 @@ local RUNE_SLOTS = { 1, 3, 5, 6, 7, 8, 9, 10, 15 }
 function Compat.GetEngravedRuneAbilities()
     local results = {}
 
+    -- The C_Engraving table exists on every Era client, Season of Discovery or
+    -- not, so its mere presence is not enough. Without this a standard Era
+    -- character had SoD rune abilities offered in the picker -- spells it can
+    -- never cast. isSoD is gated on IsEngravingEnabled, which is the real test.
+    if not Compat.isSoD then
+        return results
+    end
+
     if not _G.C_Engraving or not C_Engraving.GetRuneForEquipmentSlot then
         return results
     end
