@@ -146,6 +146,10 @@ Const.DEFAULT_APPEARANCE = {
     opacity = 100,
     visibility = "Always",
 
+    -- Scales the swipe's alpha. Lower it when the icons are small and the
+    -- sweep is competing with the timer text for legibility.
+    swipeOpacity = 100,
+
     -- Pulse an outline once a tracked aura reaches this many stacks. 0 is off.
     -- Built for things like Maelstrom Weapon, where the stack count is the
     -- whole point and five is the moment you care about.
@@ -224,7 +228,10 @@ Const.ART = {
 -- Retail display read as calm; Blizzard also disables the edge spark entirely
 -- (cooldownShowDrawEdge = false).
 Const.COOLDOWN_SWIPE_COLOR = { 0, 0, 0, 0.7 }        -- ITEM_COOLDOWN_COLOR
-Const.BUFF_SWIPE_COLOR = { 1, 0.95, 0.57, 0.7 }      -- ITEM_AURA_COLOR
+-- Blizzard's ITEM_AURA_COLOR is this at 0.7 alpha, but a pale swipe that
+-- bright sits directly behind the timer text and destroys its contrast once
+-- the icons are small. Kept much fainter, and tunable per group besides.
+Const.BUFF_SWIPE_COLOR = { 1, 0.95, 0.57, 0.35 }     -- ITEM_AURA_COLOR, lightened
 
 -- The global cooldown fires on almost every cast, so it is drawn much lighter
 -- than a real cooldown: dark enough to read as a sweep, faint enough that it

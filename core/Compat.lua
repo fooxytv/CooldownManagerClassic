@@ -531,8 +531,33 @@ end
 -- Tooltips
 --------------------------------------------------------------------------------
 
+--- Shows the right tooltip for anything we track, including pseudo-spells.
+---
+--- Weapon enchants use reserved negative IDs, which SetSpellByID rejects
+--- outright with "Invalid spell ID", so they are routed to the weapon's own
+--- item tooltip instead.
+function Compat.SetTooltipForTracked(tooltip, spellID)
+    if not tooltip or type(spellID) ~= "number" then return end
+
+    local enchant = ns.Constants.WEAPON_ENCHANT_BY_ID[spellID]
+    if enchant then
+        if tooltip.SetInventoryItem and GetInventoryItemLink("player", enchant.inventorySlot) then
+            tooltip:SetInventoryItem("player", enchant.inventorySlot)
+        else
+            tooltip:SetText(enchant.label)
+        end
+        return
+    end
+
+    Compat.SetTooltipSpellByID(tooltip, spellID)
+end
+
 function Compat.SetTooltipSpellByID(tooltip, spellID)
-    if not tooltip or not spellID then return end
+    if not tooltip or type(spellID) ~= "number" then return end
+
+    -- Negative and zero IDs are our own pseudo-spells; the API errors on them.
+    if spellID <= 0 then return end
+
     if tooltip.SetSpellByID then
         tooltip:SetSpellByID(spellID)
     elseif _G.C_TooltipInfo and C_TooltipInfo.GetSpellByID then

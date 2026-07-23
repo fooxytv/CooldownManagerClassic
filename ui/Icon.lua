@@ -56,7 +56,7 @@ local function OnEnter(self)
     if group and group.appearance.showTooltips == false then return end
 
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    Compat.SetTooltipSpellByID(GameTooltip, self.spellID)
+    Compat.SetTooltipForTracked(GameTooltip, self.spellID)
     GameTooltip:Show()
 end
 
@@ -260,7 +260,8 @@ function Icon:Update(frame, state, appearance)
             else
                 color = Const.COOLDOWN_SWIPE_COLOR
             end
-            frame.cooldown:SetSwipeColor(color[1], color[2], color[3], color[4])
+            local scale = (appearance.swipeOpacity or 100) / 100
+            frame.cooldown:SetSwipeColor(color[1], color[2], color[3], color[4] * scale)
         end
 
         -- Always a filled sweep, never the edge spark. CMC renders the GCD as

@@ -296,7 +296,7 @@ local buttonPool = {}
 local function OnIconEnter(self)
     if not self.spellID then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    Compat.SetTooltipSpellByID(GameTooltip, self.spellID)
+    Compat.SetTooltipForTracked(GameTooltip, self.spellID)
     GameTooltip:Show()
 end
 

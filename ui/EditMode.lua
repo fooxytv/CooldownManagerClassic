@@ -287,6 +287,17 @@ local function BuildSettings(groupKey)
             end,
         },
         {
+            order = 7.5,
+            name = "Swipe Opacity",
+            kind = lem.SettingType.Slider,
+            default = 100,
+            minValue = 0,
+            maxValue = 100,
+            valueStep = 5,
+            get = function() return GetOption(groupKey, "swipeOpacity", 100) end,
+            set = function(_, value) SetOption(groupKey, "swipeOpacity", math.floor(value + 0.5)) end,
+        },
+        {
             order = 8,
             name = "Show Timer",
             kind = lem.SettingType.Checkbox,
