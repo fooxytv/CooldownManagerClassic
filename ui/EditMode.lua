@@ -321,6 +321,18 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "hideWhenInactive", true) and true or false end,
             set = function(_, value) SetOption(groupKey, "hideWhenInactive", value and true or false) end,
         }
+
+        settings[#settings + 1] = {
+            order = 12,
+            name = "Glow At Stacks (0 = off)",
+            kind = lem.SettingType.Slider,
+            default = 0,
+            minValue = 0,
+            maxValue = 10,
+            valueStep = 1,
+            get = function() return GetOption(groupKey, "glowAtStacks", 0) end,
+            set = function(_, value) SetOption(groupKey, "glowAtStacks", math.floor(value + 0.5)) end,
+        }
     end
 
     return settings

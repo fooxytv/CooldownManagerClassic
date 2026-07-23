@@ -51,6 +51,36 @@ Presets.byClass = {
         },
     },
 
+    -- Base Era abilities only. Season of Discovery runes are deliberately not
+    -- listed: they resolve through C_Engraving and appear in the picker under
+    -- their real names, so hard-coding rune IDs would only add entries that
+    -- break whenever a slot is re-engraved.
+    SHAMAN = {
+        name = "Shaman",
+        groups = {
+            essential = {
+                403,    -- Lightning Bolt
+                421,    -- Chain Lightning
+                8042,   -- Earth Shock
+                8050,   -- Flame Shock
+                8056,   -- Frost Shock
+            },
+            utility = {
+                370,    -- Purge
+                2645,   -- Ghost Wolf
+                331,    -- Healing Wave
+                8004,   -- Lesser Healing Wave
+                2484,   -- Earthbind Totem
+                8017,   -- Rockbiter Weapon
+            },
+            buffs = {
+                324,    -- Lightning Shield
+                8017,   -- Rockbiter Weapon
+                8232,   -- Windfury Weapon
+            },
+        },
+    },
+
     DRUID = {
         name = "Balance Druid",
         groups = {

@@ -124,6 +124,25 @@ local function CreateIcon(parent)
     frame.border:SetColorTexture(1, 1, 1, 1)
     frame.border:Hide()
 
+    -- Proc-style pulsing outline, used when a tracked aura hits its stack
+    -- threshold. Hand-rolled rather than using ActionButton_ShowOverlayGlow so
+    -- there is no dependency on SpellActivationOverlay being present.
+    frame.glow = frame:CreateTexture(nil, "OVERLAY", nil, 2)
+    frame.glow:SetPoint("TOPLEFT", -6, 6)
+    frame.glow:SetPoint("BOTTOMRIGHT", 6, -6)
+    frame.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    frame.glow:SetBlendMode("ADD")
+    frame.glow:SetVertexColor(1, 0.9, 0.3)
+    frame.glow:Hide()
+
+    local pulse = frame.glow:CreateAnimationGroup()
+    pulse:SetLooping("BOUNCE")
+    local fade = pulse:CreateAnimation("Alpha")
+    fade:SetFromAlpha(1)
+    fade:SetToAlpha(0.25)
+    fade:SetDuration(0.5)
+    frame.glowPulse = pulse
+
     frame.timeText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightOutline")
     frame.timeText:SetPoint("CENTER", frame, "CENTER", 0, 0)
     frame.timeText:SetJustifyH("CENTER")
@@ -159,6 +178,8 @@ function Icon:Release(frame)
     frame.entry = nil
     frame.groupKey = nil
     frame.cooldown:Clear()
+    frame.glowPulse:Stop()
+    frame.glow:Hide()
     iconPool[#iconPool + 1] = frame
 end
 
@@ -285,6 +306,20 @@ function Icon:Update(frame, state, appearance)
     -- (see hideWhenInactive), so a border would just be noise on top of that --
     -- the swipe and the timer already say everything.
     frame.border:Hide()
+
+    -- The stack glow is the exception: it marks a threshold worth reacting to,
+    -- not merely that the aura exists.
+    local threshold = appearance.glowAtStacks or 0
+    local stacks = state.charges or 0
+    if threshold > 0 and stacks >= threshold then
+        if not frame.glow:IsShown() then
+            frame.glow:Show()
+            frame.glowPulse:Play()
+        end
+    elseif frame.glow:IsShown() then
+        frame.glowPulse:Stop()
+        frame.glow:Hide()
+    end
 
     local showText = appearance.showCountdownText ~= false and not state.suppressText
     if showText and state.remaining and state.remaining > 0 then

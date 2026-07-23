@@ -35,6 +35,13 @@ local function ApplyDefaults(target, defaults)
 end
 ns.ApplyDefaults = ApplyDefaults
 
+--- The profile a character uses unless it has been pointed elsewhere. Keyed on
+--- class, so all your rogues share one layout but your shaman gets its own.
+function DB.GetDefaultProfileNameForPlayer()
+    local localizedClass = UnitClass("player")
+    return localizedClass or "Default"
+end
+
 function DB.GetCharacterKey()
     local name = UnitName("player") or "Unknown"
     local realm = GetRealmName() or "Unknown"
@@ -210,10 +217,17 @@ function DB:Initialize()
     -- After the profile table exists, since migrations rewrite stored profiles.
     self.migratedFrom = self:RunMigrations(root)
 
+    -- A new character gets a profile named after its class rather than sharing
+    -- one global Default. The tracked spells are class abilities, so a shared
+    -- profile means every alt inherits another class's list and looks broken.
+    -- Characters that already have an assignment keep it.
     local charKey = DB.GetCharacterKey()
     local profileName = root.profileKeys[charKey]
     if not profileName or not root.profiles[profileName] then
-        profileName = "Default"
+        profileName = DB.GetDefaultProfileNameForPlayer()
+        if not root.profiles[profileName] then
+            root.profiles[profileName] = DefaultProfile()
+        end
         root.profileKeys[charKey] = profileName
     end
 

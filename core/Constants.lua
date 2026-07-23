@@ -120,6 +120,11 @@ Const.DEFAULT_APPEARANCE = {
 
     opacity = 100,
     visibility = "Always",
+
+    -- Pulse an outline once a tracked aura reaches this many stacks. 0 is off.
+    -- Built for things like Maelstrom Weapon, where the stack count is the
+    -- whole point and five is the moment you care about.
+    glowAtStacks = 0,
 }
 
 Const.ORIENTATIONS = { "Horizontal", "Vertical" }
