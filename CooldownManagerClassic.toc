@@ -38,6 +38,7 @@ tracking\Auras.lua
 # UI
 ui\Icon.lua
 ui\Group.lua
+ui\ResourceBar.lua
 ui\EditMode.lua
 ui\EditModePanel.lua
 ui\SpellPicker.lua

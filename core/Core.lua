@@ -127,6 +127,11 @@ function Core:RefreshAll()
         if group then group:Layout() end
     end
 
+    for _, key in ipairs(Const.BAR_ORDER) do
+        local bar = ns.bars[key]
+        if bar then bar:Layout() end
+    end
+
     self:UpdateAll()
     if ns.SpellPicker then ns.SpellPicker:Refresh() end
 end
@@ -164,6 +169,14 @@ local EVENTS = {
     "PLAYER_EQUIPMENT_CHANGED",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_REGEN_DISABLED",
+    -- Resource bars
+    "UNIT_HEALTH",
+    "UNIT_MAXHEALTH",
+    "UNIT_POWER_UPDATE",
+    "UNIT_POWER_FREQUENT",
+    "UNIT_MAXPOWER",
+    "UNIT_DISPLAYPOWER",
+    "PLAYER_TARGET_CHANGED",
     "RUNE_UPDATED",
     "ENGRAVING_SUCCESS",
 }
@@ -222,6 +235,20 @@ local function OnEvent(_, event, arg1)
         for _, group in pairs(ns.groups) do
             group:UpdateVisibility()
         end
+        for _, bar in pairs(ns.bars) do
+            bar:UpdateVisibility()
+        end
+    end
+
+    -- A shapeshift changes which power the resource bar is showing, so the bar
+    -- has to be rebuilt rather than just refreshed.
+    if event == "UNIT_DISPLAYPOWER" then
+        local bar = ns.bars.power
+        if bar then bar:Layout() end
+    end
+
+    for _, bar in pairs(ns.bars) do
+        bar:Update()
     end
 
     Core:UpdateAll()
@@ -250,6 +277,10 @@ function Core:Initialize()
 
     for _, key in ipairs(Const.GROUP_ORDER) do
         ns.Group.Create(key)
+    end
+
+    for _, key in ipairs(Const.BAR_ORDER) do
+        ns.ResourceBar.Create(key)
     end
 
     self.initialized = true

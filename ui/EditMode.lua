@@ -327,6 +327,140 @@ local function BuildSettings(groupKey)
 end
 
 --------------------------------------------------------------------------------
+-- Resource bar settings
+--------------------------------------------------------------------------------
+
+local function BarAppearance(key)
+    local settings = ns.DB:GetBar(key)
+    return settings and settings.appearance or nil
+end
+
+local function GetBarOption(key, option, fallback)
+    local appearance = BarAppearance(key)
+    local value = appearance and appearance[option]
+    if value == nil then value = Const.DEFAULT_BAR_APPEARANCE[option] end
+    if value == nil then value = fallback end
+    return value
+end
+
+local function SetBarOption(key, option, value)
+    local appearance = BarAppearance(key)
+    if not appearance then return end
+
+    appearance[option] = value
+    local bar = ns.bars[key]
+    if bar then bar:Layout() end
+end
+
+local function BuildBarSettings(key)
+    local settings = {
+        {
+            order = 1,
+            name = "Enabled",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function()
+                local bar = ns.DB:GetBar(key)
+                return bar and bar.enabled and true or false
+            end,
+            set = function(_, value)
+                local bar = ns.DB:GetBar(key)
+                if bar then bar.enabled = value and true or false end
+                if ns.bars[key] then ns.bars[key]:Layout() end
+            end,
+        },
+        {
+            order = 2,
+            name = "Width",
+            kind = lem.SettingType.Slider,
+            default = Const.DEFAULT_BAR_APPEARANCE.width,
+            minValue = 60,
+            maxValue = 500,
+            valueStep = 5,
+            get = function() return GetBarOption(key, "width") end,
+            set = function(_, value) SetBarOption(key, "width", math.floor(value + 0.5)) end,
+        },
+        {
+            order = 3,
+            name = "Height",
+            kind = lem.SettingType.Slider,
+            default = Const.DEFAULT_BAR_APPEARANCE.height,
+            minValue = 4,
+            maxValue = 60,
+            valueStep = 1,
+            get = function() return GetBarOption(key, "height") end,
+            set = function(_, value) SetBarOption(key, "height", math.floor(value + 0.5)) end,
+        },
+        {
+            order = 4,
+            name = "Opacity",
+            kind = lem.SettingType.Slider,
+            default = 100,
+            minValue = 10,
+            maxValue = 100,
+            valueStep = 5,
+            get = function() return GetBarOption(key, "opacity", 100) end,
+            set = function(_, value) SetBarOption(key, "opacity", math.floor(value + 0.5)) end,
+        },
+        {
+            order = 5,
+            name = "Visibility",
+            kind = lem.SettingType.Dropdown,
+            default = "Always Visible",
+            values = (function()
+                local values = {}
+                for _, option in ipairs(Const.VISIBILITY_OPTIONS) do
+                    values[#values + 1] = { text = option.label }
+                end
+                return values
+            end)(),
+            get = function()
+                local current = GetBarOption(key, "visibility", "Always")
+                for _, option in ipairs(Const.VISIBILITY_OPTIONS) do
+                    if option.value == current then return option.label end
+                end
+                return "Always Visible"
+            end,
+            set = function(_, value)
+                for _, option in ipairs(Const.VISIBILITY_OPTIONS) do
+                    if option.label == value then
+                        SetBarOption(key, "visibility", option.value)
+                        return
+                    end
+                end
+            end,
+        },
+    }
+
+    -- Combo points show pips rather than a value, so the text toggle is
+    -- replaced by pip spacing.
+    if key == "combo" then
+        settings[#settings + 1] = {
+            order = 6,
+            name = "Pip Spacing",
+            kind = lem.SettingType.Slider,
+            default = Const.DEFAULT_BAR_APPEARANCE.pipSpacing,
+            minValue = 0,
+            maxValue = 12,
+            valueStep = 1,
+            get = function() return GetBarOption(key, "pipSpacing") end,
+            set = function(_, value) SetBarOption(key, "pipSpacing", math.floor(value + 0.5)) end,
+        }
+    else
+        settings[#settings + 1] = {
+            order = 6,
+            name = "Show Text",
+            kind = lem.SettingType.Checkbox,
+            default = true,
+            get = function() return GetBarOption(key, "showText", true) and true or false end,
+            set = function(_, value) SetBarOption(key, "showText", value and true or false) end,
+        }
+    end
+
+    return settings
+end
+
+--------------------------------------------------------------------------------
 -- Registration
 --------------------------------------------------------------------------------
 
@@ -395,6 +529,38 @@ function EditMode:RegisterWithLibEQOL()
                     ns.SpellPicker:Show(key == "buffs" and "buffs" or "cooldowns")
                 end,
             })
+        end
+    end
+
+    for _, key in ipairs(Const.BAR_ORDER) do
+        local bar = ns.bars[key]
+        local settings = ns.DB:GetBar(key)
+
+        if bar and settings then
+            local defaults = {
+                point = settings.position.point or "CENTER",
+                relativePoint = settings.position.relativePoint or "CENTER",
+                x = settings.position.x or 0,
+                y = settings.position.y or 0,
+            }
+
+            lem:AddFrame(bar.frame, function(...)
+                local point, relativePoint, x, y = ParsePositionArgs(...)
+                if not point then return end
+                settings.position.point = point
+                settings.position.relativePoint = relativePoint
+                settings.position.x = x
+                settings.position.y = y
+            end, defaults)
+
+            local selection = bar.frame.Selection
+            if selection and not selection.system then
+                local label = Const.BAR_LABELS[key] or key
+                selection.system = { GetSystemName = function() return label end }
+            end
+
+            lem:AddFrameSettings(bar.frame, BuildBarSettings(key))
+            lem:SetFrameResetVisible(bar.frame, true)
         end
     end
 

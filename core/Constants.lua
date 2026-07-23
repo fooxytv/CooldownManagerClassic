@@ -32,6 +32,48 @@ Const.AURA_GROUPS = {
 
 Const.GROWTH_DIRECTIONS = { "CENTER", "LEFT", "RIGHT" }
 
+--------------------------------------------------------------------------------
+-- Resource bars
+--------------------------------------------------------------------------------
+
+-- Health, primary resource and combo points, each an independently positioned
+-- and sized Edit Mode system so a Classic UI can be laid out like a Retail one.
+Const.BAR_ORDER = { "health", "power", "combo" }
+
+Const.BAR_LABELS = {
+    health = "Health Bar",
+    power  = "Resource Bar",
+    combo  = "Combo Points",
+}
+
+Const.DEFAULT_BAR_APPEARANCE = {
+    width = 220,
+    height = 18,
+    opacity = 100,
+    visibility = "Always",
+    showText = true,
+    -- Combo points only: drawn as separate pips rather than a filled bar.
+    pipSpacing = 2,
+}
+
+Const.BAR_DEFAULT_Y = {
+    health = -300,
+    power  = -322,
+    combo  = -344,
+}
+
+-- Fallbacks for clients where PowerBarColor is missing a token.
+Const.POWER_COLORS = {
+    MANA        = { 0.00, 0.55, 1.00 },
+    RAGE        = { 0.90, 0.15, 0.15 },
+    ENERGY      = { 1.00, 0.85, 0.10 },
+    FOCUS       = { 1.00, 0.50, 0.25 },
+    RUNIC_POWER = { 0.00, 0.82, 1.00 },
+}
+
+Const.HEALTH_COLOR = { 0.15, 0.75, 0.15 }
+Const.COMBO_COLOR = { 1.00, 0.85, 0.10 }
+
 -- Cooldowns at or below this are treated as the global cooldown and ignored.
 -- Classic gives us no reliable per-class GCD spell to compare against, so a
 -- threshold is the pragmatic option.

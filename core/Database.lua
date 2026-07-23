@@ -75,13 +75,32 @@ local function DefaultGroup(key)
     }
 end
 
+local function DefaultBar(key)
+    return {
+        -- Off by default: resource bars duplicate the stock player frame, so
+        -- they are opt-in for people replacing it rather than adding to it.
+        enabled = false,
+        position = {
+            point = "CENTER",
+            relativePoint = "CENTER",
+            x = 0,
+            y = Const.BAR_DEFAULT_Y[key] or 0,
+        },
+        appearance = DeepCopy(Const.DEFAULT_BAR_APPEARANCE),
+    }
+end
+
 local function DefaultProfile()
     local profile = {
         version = Const.PROFILE_FORMAT_VERSION,
         groups = {},
+        bars = {},
     }
     for _, key in ipairs(Const.GROUP_ORDER) do
         profile.groups[key] = DefaultGroup(key)
+    end
+    for _, key in ipairs(Const.BAR_ORDER) do
+        profile.bars[key] = DefaultBar(key)
     end
     return profile
 end
@@ -211,6 +230,14 @@ end
 function DB:NormalizeProfile(profile)
     profile.version = profile.version or Const.PROFILE_FORMAT_VERSION
     profile.groups = profile.groups or {}
+    profile.bars = profile.bars or {}
+
+    for _, key in ipairs(Const.BAR_ORDER) do
+        if type(profile.bars[key]) ~= "table" then
+            profile.bars[key] = DefaultBar(key)
+        end
+        ApplyDefaults(profile.bars[key], DefaultBar(key))
+    end
 
     for _, key in ipairs(Const.GROUP_ORDER) do
         local group = profile.groups[key]
@@ -242,6 +269,10 @@ end
 
 function DB:GetGroup(key)
     return self.profile and self.profile.groups[key]
+end
+
+function DB:GetBar(key)
+    return self.profile and self.profile.bars and self.profile.bars[key]
 end
 
 function DB:GetGlobal()

@@ -46,6 +46,7 @@
         "HUD_EDIT_MODE_RESET_POSITION",
         "ColorPickerFrame",
         "CreateFramePool",
-        "TooltipDataProcessor"
+        "TooltipDataProcessor",
+        "PowerBarColor"
     ]
 }
