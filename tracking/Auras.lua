@@ -22,9 +22,6 @@ local cache = {}
 -- The snapshot is rebuilt only when UNIT_AURA says something changed, or after
 -- a slow safety interval, and every lookup is then a hash lookup.
 
--- spellID -> highest stack count observed this session.
-local maxStacksSeen = {}
-
 local indexByID = {}
 local indexByName = {}
 local indexDirty = true
@@ -148,18 +145,6 @@ function Auras:GetState(spellID)
     -- `applications` on the modern aura data, `count` on the legacy path.
     local charges = aura and (aura.applications or aura.count) or nil
     state.charges = charges
-
-    -- The highest stack count ever seen for this aura, learned by observation.
-    -- Auras do not report their own cap, and hard-coding one per spell would
-    -- not survive Season of Discovery, so "full" is inferred instead.
-    if charges and charges > (maxStacksSeen[spellID] or 0) then
-        maxStacksSeen[spellID] = charges
-    end
-
-    state.maxStacksSeen = maxStacksSeen[spellID]
-    state.atMaxStacks = charges ~= nil
-        and charges > 1
-        and charges >= (maxStacksSeen[spellID] or 0)
     state.maxCharges = nil
     state.isGCD = false
 

@@ -539,13 +539,12 @@ function Core:PrintStatus()
                 elseif id and isAuraGroup then
                     local aura = Compat.GetPlayerAura(id)
                     local stacks = aura and (aura.applications or aura.count) or 0
-                    out(("    %s %s (%s) aura=%s%s stacks=%s glowAt=%s")
+                    out(("    %s %s (%s) aura=%s%s stacks=%s")
                         :format(aura and "|cff55ff55up|r" or "|cffff5555--|r",
                                 tostring(ns.Spellbook:GetName(id) or entry.name), tostring(id),
                                 aura and "FOUND" or "not on player",
                                 aura and (" id=" .. tostring(aura.spellId)) or "",
-                                tostring(stacks),
-                                tostring(settings.appearance.glowAtStacks or 0)))
+                                tostring(stacks)))
                 elseif not id then
                     out(("    |cffff5555--|r stored=%s name=%q live=%s -> unresolved")
                         :format(tostring(entry.spellID), tostring(entry.name), tostring(liveName)))
@@ -806,41 +805,6 @@ SlashCmdList["CDMC"] = function(input)
 
     elseif command == "watch" then
         Core:ToggleAuraWatch()
-
-    elseif command == "glow" then
-        -- Forces the stack glow on for a few seconds. If nothing lights up the
-        -- glow itself is broken; if it does, the threshold is simply not being
-        -- reached and the stack count is the thing to check.
-        ns.Icon.forceGlow = true
-        Core:UpdateAll()
-        ns.Print("forcing the stack glow for 5 seconds. Current stack state:")
-
-        -- Printed alongside so a glow that never fires can be diagnosed without
-        -- a separate status call: this is every number the trigger looks at.
-        for _, key in ipairs(Const.GROUP_ORDER) do
-            if Const.AURA_GROUPS[key] then
-                local settings = ns.DB:GetGroup(key)
-                local group = ns.groups[key]
-                if settings and group then
-                    for _, icon in ipairs(group.icons) do
-                        if icon.spellID then
-                            local state = ns.Auras:GetState(icon.spellID)
-                            DEFAULT_CHAT_FRAME:AddMessage(("  %s stacks=%s maxSeen=%s atMax=%s glowAt=%s glowWhenFull=%s")
-                                :format(tostring(ns.Spellbook:GetName(icon.spellID)),
-                                        tostring(state.charges), tostring(state.maxStacksSeen),
-                                        tostring(state.atMaxStacks),
-                                        tostring(settings.appearance.glowAtStacks or 0),
-                                        tostring(settings.appearance.glowAtMaxStacks ~= false)))
-                        end
-                    end
-                end
-            end
-        end
-        C_Timer.After(5, function()
-            ns.Icon.forceGlow = false
-            Core:UpdateAll()
-            ns.Print("glow test over.")
-        end)
 
     elseif command == "auras" then
         -- Lists what is on you right now with IDs, so a buff that the picker
