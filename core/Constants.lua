@@ -74,6 +74,28 @@ Const.POWER_COLORS = {
 Const.HEALTH_COLOR = { 0.15, 0.75, 0.15 }
 Const.COMBO_COLOR = { 1.00, 0.85, 0.10 }
 
+--------------------------------------------------------------------------------
+-- Temporary weapon enchants
+--------------------------------------------------------------------------------
+
+-- Shaman weapon buffs, rogue poisons and sharpening stones are not auras on the
+-- player and are invisible to every aura API. They come from
+-- GetWeaponEnchantInfo instead, so they are tracked as pseudo-spells under
+-- reserved negative IDs that cannot collide with a real spell.
+Const.WEAPON_ENCHANTS = {
+    { id = -1, hand = "main", inventorySlot = 16, label = "Main Hand Enchant" },
+    { id = -2, hand = "off",  inventorySlot = 17, label = "Off Hand Enchant" },
+}
+
+Const.WEAPON_ENCHANT_BY_ID = {}
+for _, enchant in ipairs(Const.WEAPON_ENCHANTS) do
+    Const.WEAPON_ENCHANT_BY_ID[enchant.id] = enchant
+end
+
+function Const.IsWeaponEnchantID(spellID)
+    return spellID ~= nil and Const.WEAPON_ENCHANT_BY_ID[spellID] ~= nil
+end
+
 -- Cooldowns at or below this are treated as the global cooldown and ignored.
 -- Classic gives us no reliable per-class GCD spell to compare against, so a
 -- threshold is the pragmatic option.

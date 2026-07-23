@@ -146,6 +146,12 @@ local function GetNotDisplayed(tabKey)
         for _, aura in ipairs(ns.Compat.GetPlayerAuras()) do
             Add(aura.spellID, aura.name)
         end
+
+        -- Weapon enchants are always offered, whether or not one is currently
+        -- applied: they are a slot to watch rather than a spell you know.
+        for _, enchant in ipairs(Const.WEAPON_ENCHANTS) do
+            Add(enchant.id, enchant.label)
+        end
     end
 
     return results

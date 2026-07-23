@@ -28,13 +28,29 @@ Spellbook.iconOverrides = {}
 -- applies no aura, so resolving to it silently tracks nothing.
 Spellbook.runeAbilityByName = {}
 
---- The icon to display for a spell.
+--- The icon to display for a spell. Weapon enchants borrow the weapon's own
+--- icon, since the enchant itself has no artwork of its own.
 function Spellbook:GetIcon(spellID)
+    local enchant = ns.Constants.WEAPON_ENCHANT_BY_ID[spellID]
+    if enchant then
+        return GetInventoryItemTexture("player", enchant.inventorySlot)
+            or "Interface\\Icons\\INV_Misc_QuestionMark"
+    end
+
     local override = self.iconOverrides[spellID]
     if override then return override end
 
     local _, icon = Compat.GetSpellInfo(spellID)
     return icon
+end
+
+--- The display name for a tracked entry, covering pseudo-spells that
+--- GetSpellInfo knows nothing about.
+function Spellbook:GetName(spellID)
+    local enchant = ns.Constants.WEAPON_ENCHANT_BY_ID[spellID]
+    if enchant then return enchant.label end
+
+    return (Compat.GetSpellInfo(spellID))
 end
 
 --- Engraved runes appear in the spellbook as per-slot placeholders whose spell
@@ -210,6 +226,12 @@ end
 function Spellbook:Resolve(entry)
     if not entry or not entry.spellID then return nil end
 
+    -- Weapon enchants are always "known": there is no spellbook entry to check
+    -- them against, only whether one is currently applied.
+    if ns.Constants.IsWeaponEnchantID(entry.spellID) then
+        return entry.spellID
+    end
+
     if entry.rankIndependent then
         -- Prefer the name recorded at save time; fall back to whatever the
         -- stored ID resolves to now, which covers profiles written before the
@@ -261,8 +283,7 @@ function Spellbook:ResolveInfo(entry, isAuraGroup)
     local spellID = self:ResolveForGroup(entry, isAuraGroup)
     if not spellID then return nil end
 
-    local name = Compat.GetSpellInfo(spellID)
-    return spellID, name, self:GetIcon(spellID)
+    return spellID, self:GetName(spellID), self:GetIcon(spellID)
 end
 
 --- Every castable spell, deduplicated to the highest known rank. This is what

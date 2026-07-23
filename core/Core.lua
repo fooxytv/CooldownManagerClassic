@@ -179,6 +179,9 @@ local EVENTS = {
     "PLAYER_TARGET_CHANGED",
     "RUNE_UPDATED",
     "ENGRAVING_SUCCESS",
+    -- Weapon swaps change which enchant is on which hand, and the enchant icon
+    -- is the weapon's own.
+    "UNIT_INVENTORY_CHANGED",
 }
 
 -- Events that mean "the set of castable spells may have changed".
@@ -506,7 +509,14 @@ function Core:PrintStatus()
                 -- For a buff, whether the aura is found matters more than the
                 -- cooldown: an unfound aura is invisible when hideWhenInactive
                 -- is on, which looks identical to it not being tracked at all.
-                if id and isAuraGroup then
+                if id and Const.IsWeaponEnchantID(id) then
+                    local state = ns.Auras:GetState(id)
+                    out(("    %s %s enchant=%s remaining=%.0fs")
+                        :format(state.active and "|cff55ff55on|r" or "|cffff5555--|r",
+                                ns.Spellbook:GetName(id),
+                                state.active and "APPLIED" or "none",
+                                state.remaining or 0))
+                elseif id and isAuraGroup then
                     local aura = Compat.GetPlayerAura(id)
                     out(("    %s %s (%s) aura=%s%s")
                         :format(aura and "|cff55ff55up|r" or "|cffff5555--|r",

@@ -438,6 +438,35 @@ function Compat.GetPlayerAuras(includeHarmful)
     return results
 end
 
+--- Returns hasEnchant, remainingSeconds, charges for a weapon hand.
+---
+--- GetWeaponEnchantInfo gained the enchantID returns partway through WoW's
+--- history, so the arity is checked rather than assumed: reading the modern
+--- layout on a client using the old one would treat the off-hand flag as an
+--- enchant ID and report nonsense.
+function Compat.GetWeaponEnchant(hand)
+    if not _G.GetWeaponEnchantInfo then return false, 0, 0 end
+
+    local count = select("#", GetWeaponEnchantInfo())
+    local hasMain, mainExpiration, mainCharges,
+          hasOff, offExpiration, offCharges
+
+    if count >= 8 then
+        hasMain, mainExpiration, mainCharges, _,
+        hasOff, offExpiration, offCharges = GetWeaponEnchantInfo()
+    else
+        hasMain, mainExpiration, mainCharges,
+        hasOff, offExpiration, offCharges = GetWeaponEnchantInfo()
+    end
+
+    if hand == "off" then
+        -- Expiration is milliseconds.
+        return hasOff and true or false, (offExpiration or 0) / 1000, offCharges or 0
+    end
+
+    return hasMain and true or false, (mainExpiration or 0) / 1000, mainCharges or 0
+end
+
 --------------------------------------------------------------------------------
 -- Season of Discovery runes
 --------------------------------------------------------------------------------

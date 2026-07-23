@@ -204,8 +204,8 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
     frame.spellID = spellID
     frame.groupKey = groupKey or frame.groupKey
 
-    -- Via Spellbook so rune abilities get their engraving art rather than the
-    -- generic texture the underlying spell carries.
+    -- Via Spellbook so rune abilities get their engraving art, and weapon
+    -- enchants borrow the weapon's icon.
     local texture = ns.Spellbook:GetIcon(spellID)
     frame.texture:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
 
