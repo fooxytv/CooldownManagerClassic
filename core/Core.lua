@@ -171,12 +171,15 @@ end
 
 local eventFrame = CreateFrame("Frame")
 
--- Some of these do not exist on every client (RUNE_UPDATED is SoD only), and
--- registering an unknown event raises an error, so each registration is
--- attempted individually.
+-- Some of these do not exist on every client (RUNE_UPDATED is SoD only), so
+-- each registration is checked and attempted individually -- see
+-- RegisterIfValid, because pcall alone is not enough.
 local EVENTS = {
     "PLAYER_ENTERING_WORLD",
     "SPELLS_CHANGED",
+    -- 1.15 renamed LEARNED_SPELL_IN_TAB to LEARNED_SPELL_IN_SKILL_LINE. Both
+    -- are listed; only the one this client knows about is registered.
+    "LEARNED_SPELL_IN_SKILL_LINE",
     "LEARNED_SPELL_IN_TAB",
     "SPELL_UPDATE_COOLDOWN",
     "SPELL_UPDATE_CHARGES",
@@ -204,6 +207,7 @@ local EVENTS = {
 -- Events that mean "the set of castable spells may have changed".
 local RESCAN_EVENTS = {
     SPELLS_CHANGED = true,
+    LEARNED_SPELL_IN_SKILL_LINE = true,
     LEARNED_SPELL_IN_TAB = true,
     PLAYER_TALENT_UPDATE = true,
     CHARACTER_POINTS_CHANGED = true,
@@ -211,6 +215,20 @@ local RESCAN_EVENTS = {
     RUNE_UPDATED = true,
     ENGRAVING_SUCCESS = true,
 }
+
+--- Registers an event only if this client actually has it.
+---
+--- Registering an unknown event is not a catchable Lua error: the client hands
+--- the message to the error handler itself, so it reaches the player's screen
+--- (or BugSack) even when the call is wrapped in pcall. Asking
+--- C_EventUtils.IsEventValid first is the only way to stay quiet. The pcall is
+--- kept for clients old enough to have neither.
+local function RegisterIfValid(event)
+    if C_EventUtils and C_EventUtils.IsEventValid then
+        if not C_EventUtils.IsEventValid(event) then return false end
+    end
+    return pcall(eventFrame.RegisterEvent, eventFrame, event)
+end
 
 -- Rescans are debounced because SPELLS_CHANGED fires in bursts during login
 -- and on every talent change.
@@ -322,7 +340,7 @@ function Core:Initialize()
     self:RefreshAll()
 
     for _, event in ipairs(EVENTS) do
-        pcall(eventFrame.RegisterEvent, eventFrame, event)
+        RegisterIfValid(event)
     end
 
     -- Recorded so /cdmc status can show whether aura events are actually
