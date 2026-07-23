@@ -518,11 +518,14 @@ function Core:PrintStatus()
                                 state.remaining or 0))
                 elseif id and isAuraGroup then
                     local aura = Compat.GetPlayerAura(id)
-                    out(("    %s %s (%s) aura=%s%s")
+                    local stacks = aura and (aura.applications or aura.count) or 0
+                    out(("    %s %s (%s) aura=%s%s stacks=%s glowAt=%s")
                         :format(aura and "|cff55ff55up|r" or "|cffff5555--|r",
-                                tostring(liveName or entry.name), tostring(id),
+                                tostring(ns.Spellbook:GetName(id) or entry.name), tostring(id),
                                 aura and "FOUND" or "not on player",
-                                aura and (" id=" .. tostring(aura.spellId)) or ""))
+                                aura and (" id=" .. tostring(aura.spellId)) or "",
+                                tostring(stacks),
+                                tostring(settings.appearance.glowAtStacks or 0)))
                 elseif not id then
                     out(("    |cffff5555--|r stored=%s name=%q live=%s -> unresolved")
                         :format(tostring(entry.spellID), tostring(entry.name), tostring(liveName)))
@@ -602,7 +605,7 @@ function Core:ReportCooldownProbe(samples)
     ns.Print("peak cooldown seen over the probe window:")
 
     for spellID, record in pairs(samples) do
-        local name = ns.Compat.GetSpellInfo(spellID)
+        local name = ns.Spellbook:GetName(spellID)
         local verdict
         if record.maxDuration <= 0 then
             verdict = "|cffff5555never reported a cooldown|r"

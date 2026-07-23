@@ -8,8 +8,9 @@ local Compat = ns.Compat
 -- sections or reorder it within one, and a search that dims non-matches in
 -- place instead of filtering them away.
 --
--- Edits are staged in a working copy and only written to the profile on Save,
--- so Revert costs nothing and a mis-drag is never destructive.
+-- Edits commit immediately. Revert restores whatever the profile looked like
+-- when the dialog was opened, so a mis-drag is still cheap to undo without
+-- risking silent loss of everything added since.
 
 local SpellPicker = {}
 ns.SpellPicker = SpellPicker
@@ -89,6 +90,10 @@ local function LoadWorking()
     end
 end
 
+-- The state of every group when the dialog was opened, so Revert has something
+-- to go back to now that edits commit immediately.
+local openSnapshot = {}
+
 local function SaveWorking()
     for _, key in ipairs(Const.GROUP_ORDER) do
         local group = ns.DB:GetGroup(key)
@@ -97,6 +102,31 @@ local function SaveWorking()
         end
     end
     ns.Core:RefreshAll()
+end
+
+--- Every edit commits straight away.
+---
+--- This used to stage changes until Save was pressed, which meant closing the
+--- window silently threw away everything you had just dragged in -- a very easy
+--- mistake to make and impossible to notice, because the result looks identical
+--- to the spell simply not being tracked.
+local function CommitEdit()
+    SaveWorking()
+end
+
+local function TakeOpenSnapshot()
+    wipe(openSnapshot)
+    for _, key in ipairs(Const.GROUP_ORDER) do
+        local group = ns.DB:GetGroup(key)
+        openSnapshot[key] = group and ns.DeepCopy(group.spells) or {}
+    end
+end
+
+local function RestoreOpenSnapshot()
+    for _, key in ipairs(Const.GROUP_ORDER) do
+        working[key] = ns.DeepCopy(openSnapshot[key] or {})
+    end
+    SaveWorking()
 end
 
 --- Whether a spell is already tracked *by the sections of this tab*.
@@ -262,6 +292,7 @@ local function DropInto(targetGroup, targetIndex)
     end
 
     EndDrag()
+    CommitEdit()
     SpellPicker:Refresh()
 end
 
@@ -338,6 +369,7 @@ local function CreateIconButton(parent)
                 })
             end
         end
+        CommitEdit()
         SpellPicker:Refresh()
     end)
 
@@ -752,10 +784,10 @@ local function CreateFrameOnce()
     local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     save:SetSize(110, 22)
     save:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 4)
-    save:SetText("Save")
+    save:SetText("Done")
     save:SetScript("OnClick", function()
-        SaveWorking()
-        ns.Print("layout saved.")
+        -- Edits already committed; this just closes the dialog.
+        SpellPicker:Hide()
     end)
     frame.saveButton = save
 
@@ -764,7 +796,7 @@ local function CreateFrameOnce()
     revert:SetPoint("RIGHT", save, "LEFT", -6, 0)
     revert:SetText("Revert")
     revert:SetScript("OnClick", function()
-        LoadWorking()
+        RestoreOpenSnapshot()
         SpellPicker:Refresh()
     end)
     frame.revertButton = revert
@@ -828,7 +860,8 @@ function SpellPicker:AddByID(spellID)
         rankIndependent = false,
     })
 
-    ns.Print(("added %s (%d) to %s - press Save to keep it.")
+    CommitEdit()
+    ns.Print(("added %s (%d) to %s.")
         :format(name and ("|cffffff00" .. name .. "|r") or "unknown spell", spellID,
                 Const.GROUP_LABELS[target] or target))
 
@@ -860,7 +893,7 @@ function SpellPicker:Refresh()
     frame.revertButton:SetShown(not isOptions)
     frame.hint:SetText(isOptions
         and "Changes apply immediately."
-        or "Drag icons between sections, or click to move.")
+        or "Drag icons between sections, or click to move. Changes apply immediately.")
 
     if isOptions then
         frame.content:SetHeight(math.max(ShowOptions(frame.content), 350))
@@ -882,6 +915,7 @@ function SpellPicker:Show(tabKey)
     CreateFrameOnce()
     if tabKey and TABS[tabKey] then currentTab = tabKey end
     LoadWorking()
+    TakeOpenSnapshot()
     frame:Show()
     self:Refresh()
 end
