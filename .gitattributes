@@ -1,0 +1,4 @@
+# Shell scripts must always use LF line endings so their `#!/usr/bin/env bash`
+# shebang works on Linux / in CI containers. Without this, core.autocrlf=true
+# rewrites them to CRLF on checkout and `env` fails with `bash\r: No such file`.
+*.sh text eol=lf

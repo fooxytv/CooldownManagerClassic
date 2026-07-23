@@ -1,0 +1,125 @@
+# Cooldown Manager Classic
+
+A Retail-style grouped cooldown, charge and buff display for WoW Classic, without
+the configuration burden of WeakAuras or TellMeWhen.
+
+Install it, open the picker, tick the abilities that matter, and you get centred
+rows of icons with swipes, countdowns and buff highlights.
+
+```
+       Essential cooldowns
+    [ Starfire ] [ Wrath ] [ Innervate ]
+
+           Utility
+       [ Barkskin ] [ Rebirth ]
+
+         Tracked buffs
+       [ Clearcasting ] [ Thorns ]
+```
+
+## Status
+
+Early alpha. Targets **Classic Era 1.15.9** (`## Interface: 11509`), which also
+covers Season of Discovery since SoD runs on the Era client.
+
+## Design
+
+Blizzard's Retail Cooldown Manager is backed by `C_CooldownViewer`, a curated
+ability database plus a layout service that Classic does not have. So this is
+not a port of `Blizzard_CooldownViewer`; it reproduces the *experience* on top of
+ordinary Classic APIs — the spellbook, `GetSpellCooldown`, `GetSpellCharges` and
+the player's auras.
+
+```
+core/Compat.lua       API wrappers - the only file that touches C_Spell,
+                      C_SpellBook, C_UnitAuras or their pre-1.15 equivalents
+core/Constants.lua    Group order, labels, defaults
+core/Database.lua     SavedVariables, profiles, spell list editing
+core/Serialization.lua  Profile import/export strings
+core/Spellbook.lua    Spellbook scan and rank resolution
+core/Core.lua         Events, refresh loop, slash commands
+
+tracking/Cooldowns.lua  Cooldown and charge state
+tracking/Auras.lua      Player aura state
+
+ui/Icon.lua           Pooled icon widget
+ui/Group.lua          Centred icon row, drag handling
+ui/EditMode.lua       Edit Mode integration and manual unlock
+ui/SpellPicker.lua    Spell selection interface
+
+data/Presets.lua      Class starter layouts
+```
+
+### Spell ranks
+
+Classic gives every rank of a spell its own ID, so a profile exported at level 60
+would break for a level 20 character. Entries are stored rank-independent:
+
+```lua
+{ spellID = 9912, name = "Wrath", rankIndependent = true }
+```
+
+`Spellbook:Resolve()` looks the entry up by name and returns whichever rank the
+character actually knows. A spell the character cannot currently cast — an
+unlearned rank, or a Season of Discovery rune that is not engraved — is hidden
+rather than deleted, and reappears on its own when it becomes available.
+
+### Edit Mode
+
+Blizzard has no supported way for an addon to register its own Edit Mode system,
+so the groups hook `EditMode.Enter` / `EditMode.Exit` and draw their own drag
+handles, with `SaveLayouts` and `RevertAllChanges` hooked for persistence. If the
+client has no Edit Mode, `/cdmc unlock` gives the same behaviour.
+
+### Profile strings
+
+```
+CDMC1:DRUID:era:<base64 payload>
+```
+
+A fixed line-based grammar rather than serialised Lua — addons cannot
+`loadstring`, so a general format would need a general parser. Not compatible
+with Retail Cooldown Manager strings, which encode internal cooldown IDs.
+
+## Commands
+
+| Command | Effect |
+| --- | --- |
+| `/cdmc` | Open the spell picker |
+| `/cdmc unlock` / `lock` | Move the groups |
+| `/cdmc preset` | Load the class starter layout |
+| `/cdmc export` / `import` | Share a profile |
+| `/cdmc profile list \| use \| new \| copy \| delete <name>` | Profile management |
+| `/cdmc reset` | Reset the current profile |
+
+## Development
+
+```bash
+./ci/scripts/lint.sh                  # luacheck
+./ci/scripts/package.sh               # build ci/dist/<addon>-<version>.zip
+./ci/scripts/repackage.sh             # rewrap with the top-level folder for CurseForge
+./ci/scripts/deploy.sh era            # package and install into Classic Era
+./ci/scripts/deploy.sh anniversary    # ... or Anniversary
+./ci/scripts/version.sh minor alpha   # bump the version in every .toc
+./ci/scripts/publish.sh patch         # bump, commit and tag
+```
+
+Copy `.env` and point the `wow_addons_dir_*` entries at your own installs.
+`package.sh` and `repackage.sh` use `zip` when it is available and fall back to
+Python otherwise, so the pipeline runs in Git Bash on Windows as well as in the
+CI container (`ci/build/scripts/DockerBuild.ps1`).
+
+Pushing a `v*.*.*` tag triggers `.github/workflows/main.yaml`, which lints,
+packages and uploads to CurseForge using the `CURSEFORGE_PROJECT_ID` and
+`CURSEFORGE_TOKEN` secrets.
+
+## Roadmap
+
+- Buff bars alongside buff icons
+- Trinket and consumable tracking (`GetInventoryItemCooldown`)
+- Keybind text on icons, read from the action bars
+- Per-ability overrides: custom colours, hide the aura, always show
+- Drag-to-reorder inside a group, rather than the arrow buttons
+- Class presets beyond Balance Druid, keyed on talent distribution
+- Talent- and rune-aware automatic profile switching
+- Anniversary / TBC support from the same codebase
