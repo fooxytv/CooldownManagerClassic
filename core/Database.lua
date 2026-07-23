@@ -355,6 +355,12 @@ function DB:DeleteProfile(name)
     if name == self.currentProfileName then
         return false, "Cannot delete the profile currently in use."
     end
+    -- Deleting a profile repoints its characters at "Default", so Default has to
+    -- outlive them. It is otherwise only recreated on the next login, leaving
+    -- those characters pointing at a profile that does not exist until then.
+    if name == "Default" then
+        return false, "Cannot delete the Default profile."
+    end
 
     self.root.profiles[name] = nil
     -- Any character pointing at the deleted profile falls back to Default.
@@ -438,4 +444,18 @@ function DB:SetGroupPosition(groupKey, point, relativePoint, x, y)
     group.position.relativePoint = relativePoint or point
     group.position.x = x or 0
     group.position.y = y or 0
+end
+
+--- The bar equivalent. Exists so Edit Mode's drag callback resolves the profile
+--- when the drag happens rather than closing over the table that was current
+--- when the frame was registered: after a profile switch that stale table is a
+--- different profile's, and the new position was saved into the old profile.
+function DB:SetBarPosition(barKey, point, relativePoint, x, y)
+    local bar = self:GetBar(barKey)
+    if not bar then return end
+
+    bar.position.point = point
+    bar.position.relativePoint = relativePoint or point
+    bar.position.x = x or 0
+    bar.position.y = y or 0
 end

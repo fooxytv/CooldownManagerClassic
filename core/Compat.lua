@@ -167,9 +167,16 @@ end
 -- Auras
 --------------------------------------------------------------------------------
 
+-- Upper bound on an aura walk. Every loop below stops at the first nil index, so
+-- this only ever caps a unit that really does carry this many auras -- it costs
+-- nothing on the common case. Era caps buffs at 32, but the modern
+-- C_UnitAuras path has no such limit and the addon is meant to reach the other
+-- Classic flavours, where a hard 40 would silently truncate the scan.
+local MAX_AURA_INDEX = 255
+
 local function ScanPlayerAura(spellID, filter)
     if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
-        for i = 1, 40 do
+        for i = 1, MAX_AURA_INDEX do
             local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
             if not data then break end
             if data.spellId == spellID then return data end
@@ -178,7 +185,7 @@ local function ScanPlayerAura(spellID, filter)
     end
 
     if not _G.UnitAura then return nil end
-    for i = 1, 40 do
+    for i = 1, MAX_AURA_INDEX do
         local name, icon, count, dispelType, duration, expirationTime,
               source, isStealable, nameplateShowPersonal, auraSpellID = UnitAura("player", i, filter)
         if not name then break end
@@ -201,7 +208,7 @@ end
 
 local function ScanPlayerAuraByName(auraName, filter)
     if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
-        for i = 1, 40 do
+        for i = 1, MAX_AURA_INDEX do
             local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
             if not data then break end
             if data.name == auraName then return data end
@@ -210,7 +217,7 @@ local function ScanPlayerAuraByName(auraName, filter)
     end
 
     if not _G.UnitAura then return nil end
-    for i = 1, 40 do
+    for i = 1, MAX_AURA_INDEX do
         local name, icon, count, dispelType, duration, expirationTime,
               source, isStealable, _, auraSpellID = UnitAura("player", i, filter)
         if not name then break end
@@ -239,7 +246,7 @@ end
 --- projection instead of the real thing silently drops all three.
 function Compat.ForEachPlayerAura(callback)
     local function Walk(filter)
-        for i = 1, 40 do
+        for i = 1, MAX_AURA_INDEX do
             if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
                 local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
                 if not data then return end
@@ -456,7 +463,7 @@ function Compat.GetPlayerAuras(includeHarmful)
     local results, seen = {}, {}
 
     local function Collect(filter)
-        for i = 1, 40 do
+        for i = 1, MAX_AURA_INDEX do
             if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
                 local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
                 if not data then return end

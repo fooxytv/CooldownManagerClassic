@@ -17,10 +17,15 @@ fi
 
 echo "Running Lua lint checks on directory: $(pwd)"
 
-# Ignore the diagnostics that are noise in a WoW addon:
-# 111 - setting an undefined global variable
-# 112 - mutating an undefined global variable
-# 113 - accessing an undefined global variable
+# The 11x undefined-global diagnostics are deliberately NOT ignored.
+#
+# Ignoring them made the globals list in .luacheckrc decorative and let a
+# mistyped API name -- GetSepllInfo -- through CI to surface as an in-game
+# error instead. Every global the addon touches is enumerated there, so these
+# now catch typos for free. If a legitimate new API trips this, add it to
+# .luacheckrc rather than restoring the ignore.
+#
+# Still ignored, because they are noise in a WoW addon:
 # 211 - unused local variable
 # 212 - unused argument
 # 432 - shadowing upvalue argument
@@ -28,9 +33,6 @@ echo "Running Lua lint checks on directory: $(pwd)"
 luacheck "$ADDON_DIR" \
     --std max \
     --codes \
-    --ignore 111 \
-    --ignore 112 \
-    --ignore 113 \
     --ignore 211 \
     --ignore 212 \
     --ignore 432 \

@@ -140,12 +140,23 @@ end
 --- with things like Blade Dance that are cast on a cooldown and also apply an
 --- aura worth watching. Checking every group would hide it from the Buffs tab
 --- as soon as it appeared on the Cooldowns one.
+--- Matched by name as well as ID, mirroring DB:GroupContains.
+---
+--- An exact-ID test alone is not enough: entries are stored rank-independent and
+--- the presets store rank 1, while the picker offers the best rank the character
+--- knows. Once you out-level rank 1 the two IDs differ, so the spell showed both
+--- in its tracked section and in Not Displayed -- and adding it from there wrote
+--- a second entry straight into the working copy, past GroupContains's own
+--- name-based check, leaving two icons for one spell.
 local function IsTracked(spellID, tabKey)
+    local name = Compat.GetSpellInfo(spellID)
+
     for _, definition in ipairs(TABS[tabKey].sections) do
         local entries = definition.key and working[definition.key]
         if entries then
             for _, entry in ipairs(entries) do
                 if entry.spellID == spellID then return true end
+                if entry.rankIndependent and name and entry.name == name then return true end
             end
         end
     end
@@ -918,6 +929,14 @@ end
 
 function SpellPicker:Refresh()
     if not frame or not frame:IsShown() then return end
+
+    -- Re-read the profile every time rather than trusting the copy taken when
+    -- the dialog opened. Anything that replaces the profile underneath an open
+    -- dialog -- import, preset, profile use, reset -- refreshes us through
+    -- Core:RefreshAll, and rendering from the stale copy would not only show the
+    -- old lists but write them back over the new profile on the next click.
+    -- Edits commit as they happen, so there is never unsaved work to lose here.
+    LoadWorking()
 
     local tab = TABS[currentTab]
     SetDialogTitle(frame, tab.title)

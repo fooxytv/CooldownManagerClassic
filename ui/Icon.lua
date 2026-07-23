@@ -29,13 +29,21 @@ Icon.art.available = Icon.art.mask or Icon.art.iconOverlay
 -- Formatting
 --------------------------------------------------------------------------------
 
+--- Rounds up rather than to nearest, so the displayed time is never less than
+--- the time that actually remains.
+---
+--- Rounding to nearest read "1m" with 89 seconds left, which matters most on a
+--- buff bar: being told a minute of protection remains when it is really 89
+--- seconds is a worse error than being told two. Counting up also means the
+--- display reaches "1m" and then counts through the seconds rather than
+--- skipping from "1m" straight to expiry.
 local function FormatTime(seconds)
     if seconds >= 3600 then
-        return ("%dh"):format(math.floor(seconds / 3600 + 0.5))
+        return ("%dh"):format(math.ceil(seconds / 3600))
     elseif seconds >= 60 then
-        return ("%dm"):format(math.floor(seconds / 60 + 0.5))
+        return ("%dm"):format(math.ceil(seconds / 60))
     elseif seconds >= 10 then
-        return ("%d"):format(math.floor(seconds))
+        return ("%d"):format(math.ceil(seconds))
     end
     return ("%.1f"):format(seconds)
 end

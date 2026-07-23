@@ -630,10 +630,9 @@ function EditMode:RegisterWithLibEQOL()
             lem:AddFrame(bar.frame, function(...)
                 local point, relativePoint, x, y = ParsePositionArgs(...)
                 if not point then return end
-                settings.position.point = point
-                settings.position.relativePoint = relativePoint
-                settings.position.x = x
-                settings.position.y = y
+                -- Through the accessor, not the captured `settings`: see
+                -- DB:SetBarPosition.
+                ns.DB:SetBarPosition(key, point, relativePoint, x, y)
             end, defaults)
 
             local selection = bar.frame.Selection

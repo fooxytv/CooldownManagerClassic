@@ -189,19 +189,39 @@ local EVENTS = {
     "PLAYER_EQUIPMENT_CHANGED",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_REGEN_DISABLED",
-    -- Resource bars
+    "PLAYER_TARGET_CHANGED",
+    "RUNE_UPDATED",
+    "ENGRAVING_SUCCESS",
+}
+
+-- Unit events, registered for the player alone.
+--
+-- These fire per unit, so an unfiltered registration means every raid member's
+-- health and power reaches us -- UNIT_POWER_FREQUENT from forty people, many
+-- times a second. RegisterUnitEvent filters in the client, before Lua runs.
+local UNIT_EVENTS = {
     "UNIT_HEALTH",
     "UNIT_MAXHEALTH",
     "UNIT_POWER_UPDATE",
     "UNIT_POWER_FREQUENT",
     "UNIT_MAXPOWER",
     "UNIT_DISPLAYPOWER",
-    "PLAYER_TARGET_CHANGED",
-    "RUNE_UPDATED",
-    "ENGRAVING_SUCCESS",
     -- Weapon swaps change which enchant is on which hand, and the enchant icon
     -- is the weapon's own.
     "UNIT_INVENTORY_CHANGED",
+}
+
+-- Events that move the resource bars and nothing else. They stop there rather
+-- than falling through to UpdateAll: re-reading every cooldown and re-rendering
+-- every icon because the player's energy ticked is exactly the unbounded
+-- refresh loop the idle ticker exists to avoid.
+local RESOURCE_ONLY_EVENTS = {
+    UNIT_HEALTH = true,
+    UNIT_MAXHEALTH = true,
+    UNIT_POWER_UPDATE = true,
+    UNIT_POWER_FREQUENT = true,
+    UNIT_MAXPOWER = true,
+    UNIT_DISPLAYPOWER = true,
 }
 
 -- Events that mean "the set of castable spells may have changed".
@@ -226,6 +246,20 @@ local RESCAN_EVENTS = {
 local function RegisterIfValid(event)
     if C_EventUtils and C_EventUtils.IsEventValid then
         if not C_EventUtils.IsEventValid(event) then return false end
+    end
+    return pcall(eventFrame.RegisterEvent, eventFrame, event)
+end
+
+--- As above, but filtered to one unit in the client so the handler is never
+--- called for anyone else. Falls back to an unfiltered registration on a build
+--- without RegisterUnitEvent, where the handler still has to cope.
+local function RegisterUnitIfValid(event, unit)
+    if C_EventUtils and C_EventUtils.IsEventValid then
+        if not C_EventUtils.IsEventValid(event) then return false end
+    end
+    if eventFrame.RegisterUnitEvent then
+        local ok = pcall(eventFrame.RegisterUnitEvent, eventFrame, event, unit)
+        if ok then return true end
     end
     return pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
@@ -258,11 +292,32 @@ local function OnEvent(_, event, arg1)
 
     if not Core.initialized then return end
 
+    -- Unit events are filtered to the player at registration, but a build
+    -- without RegisterUnitEvent falls back to an unfiltered one, so anything
+    -- about another unit is dropped here instead.
+    if arg1 ~= nil and event:sub(1, 5) == "UNIT_" and arg1 ~= "player" then
+        return
+    end
+
     if event == "UNIT_AURA" then
         -- The aura snapshot is rebuilt on demand rather than every tick, so
         -- this is what tells it the world moved.
         ns.Auras:MarkDirty()
         Core:CheckAuraWatch()
+    end
+
+    -- The resource bars own these outright; they never reach the icons.
+    if RESOURCE_ONLY_EVENTS[event] then
+        -- A shapeshift changes which power the bar is showing, so it has to be
+        -- rebuilt rather than just refreshed.
+        if event == "UNIT_DISPLAYPOWER" then
+            local bar = ns.bars.power
+            if bar then bar:Layout() end
+        end
+        for _, bar in pairs(ns.bars) do
+            bar:Update()
+        end
+        return
     end
 
     if RESCAN_EVENTS[event] then
@@ -279,13 +334,6 @@ local function OnEvent(_, event, arg1)
         for _, bar in pairs(ns.bars) do
             bar:UpdateVisibility()
         end
-    end
-
-    -- A shapeshift changes which power the resource bar is showing, so the bar
-    -- has to be rebuilt rather than just refreshed.
-    if event == "UNIT_DISPLAYPOWER" then
-        local bar = ns.bars.power
-        if bar then bar:Layout() end
     end
 
     for _, bar in pairs(ns.bars) do
@@ -343,12 +391,13 @@ function Core:Initialize()
         RegisterIfValid(event)
     end
 
+    for _, event in ipairs(UNIT_EVENTS) do
+        RegisterUnitIfValid(event, "player")
+    end
+
     -- Recorded so /cdmc status can show whether aura events are actually
     -- reaching us; a silent failure here makes every tracked buff invisible.
-    self.auraEventRegistered = pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_AURA", "player")
-    if not self.auraEventRegistered then
-        self.auraEventRegistered = pcall(eventFrame.RegisterEvent, eventFrame, "UNIT_AURA")
-    end
+    self.auraEventRegistered = RegisterUnitIfValid("UNIT_AURA", "player")
 
     ns.Print(("loaded (%s). Type /cdmc to choose your spells."):format(ns.Compat.GetProfileFlavor()))
 
@@ -680,7 +729,7 @@ local function PrintHelp()
     ns.Print("commands:")
     local lines = {
         "|cffffff00/cdmc|r or |cffffff00/cdm|r - open the spell picker",
-        "|cffffff00/em|r - toggle edit mode (same as unlock / lock)",
+        "|cffffff00/cdme|r - toggle edit mode (same as unlock / lock)",
         "|cffffff00/cdmc unlock|r / |cffffff00lock|r - move the groups",
         "|cffffff00/cdmc preset|r - load your class starter layout",
         "|cffffff00/cdmc export|r / |cffffff00import|r - share a profile",
@@ -691,6 +740,8 @@ local function PrintHelp()
         "|cffffff00/cdmc add <id>|r - track a spell or aura ID by hand",
         "|cffffff00/cdmc ids|r - toggle spell IDs on tooltips",
         "|cffffff00/cdmc status|r - diagnostics",
+        "|cffffff00/cdmc probe|r - arm the cooldown probe",
+        "|cffffff00/cdmc debug|r - toggle debug output",
     }
     for _, line in ipairs(lines) do
         DEFAULT_CHAT_FRAME:AddMessage("  " .. line)
@@ -730,7 +781,15 @@ local function HandleProfileCommand(action, name)
     end
 
     if ok then
-        ns.Print(("profile %q %sd."):format(name, action))
+        -- Spelled out per action: appending "d" to the verb gave "newd" and
+        -- "copyd".
+        local PAST_TENSE = {
+            use = "is now in use",
+            new = "created",
+            copy = "copied",
+            delete = "deleted",
+        }
+        ns.Print(("profile %q %s."):format(name, PAST_TENSE[action] or action))
     else
         ns.Print("|cffff5555" .. tostring(err) .. "|r")
     end
@@ -741,13 +800,18 @@ SLASH_CDMC2 = "/cooldownmanager"
 SLASH_CDMC3 = "/cdm"
 
 -- Toggling edit mode is common enough to be worth its own short command rather
--- than "/cdmc unlock" then "/cdmc lock". Prints which way it went so a bare /em
--- is never ambiguous.
-SLASH_CDMCEDIT1 = "/em"
+-- than "/cdmc unlock" then "/cdmc lock". Prints which way it went so a bare
+-- /cdme is never ambiguous.
+--
+-- Deliberately not "/em": that is a stock alias for /emote on every client.
+-- Whichever way the chat parser resolved the clash we would lose -- either the
+-- command silently never fires, or the addon breaks emotes for the player.
+SLASH_CDMCEDIT1 = "/cdme"
+SLASH_CDMCEDIT2 = "/cdmedit"
 SlashCmdList["CDMCEDIT"] = function()
     local unlocked = ns.EditMode:ToggleManualUnlock()
     if unlocked then
-        ns.Print("edit mode on - drag the groups, then /em again to finish.")
+        ns.Print("edit mode on - drag the groups, then /cdme again to finish.")
     else
         ns.Print("edit mode off.")
     end

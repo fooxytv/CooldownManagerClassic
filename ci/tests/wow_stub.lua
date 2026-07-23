@@ -1,0 +1,348 @@
+-- Minimal WoW client stub: enough of the widget and C_* API for the addon's
+-- load path, a layout pass and an update tick to run outside the game.
+
+unpack = unpack or table.unpack
+loadstring = loadstring or load
+
+-- WoW ships LuaJIT's bit library; Lua 5.4 does not.
+bit = bit or {
+    band   = function(a, b) return a & b end,
+    bor    = function(a, b) return a | b end,
+    bxor   = function(a, b) return a ~ b end,
+    lshift = function(a, n) return (a << n) & 0xFFFFFFFF end,
+    rshift = function(a, n) return (a & 0xFFFFFFFF) >> n end,
+    bnot   = function(a) return ~a & 0xFFFFFFFF end,
+}
+
+local calls = {}
+_G.__calls = calls
+
+local function record(name)
+    calls[name] = (calls[name] or 0) + 1
+end
+
+--------------------------------------------------------------------------------
+-- Widgets
+--------------------------------------------------------------------------------
+
+local Widget = {}
+Widget.__index = Widget
+
+local frameLevelSeed = 1
+
+local function newWidget(kind, name, parent)
+    local self = setmetatable({}, Widget)
+    self.__kind = kind
+    self.__name = name
+    self.__parent = parent
+    self.__shown = true
+    self.__points = {}
+    self.__width, self.__height = 40, 40
+    frameLevelSeed = frameLevelSeed + 1
+    self.__level = frameLevelSeed
+    self.__min, self.__max, self.__value = 0, 1, 0
+    self.__text = ""
+    return self
+end
+
+-- Any widget method not spelled out below is a no-op returning nil. Every call
+-- is counted, so a test can assert that something was actually invoked.
+-- Widget methods are PascalCase; the fields this addon hangs off a frame
+-- (frame.overlay, frame.bar, frame.timeText, ...) are not. So an unknown
+-- PascalCase key is treated as a method the stub has not bothered to
+-- implement, and anything else stays nil -- which is what an absent child
+-- widget looks like in the real client, and what the addon's `if frame.overlay
+-- then` guards are testing for.
+setmetatable(Widget, {
+    __index = function(_, key)
+        if type(key) ~= "string" then return nil end
+        local first = key:sub(1, 1)
+        if first ~= first:upper() or first == "_" then return nil end
+        return function(...)
+            record(key)
+            return nil
+        end
+    end,
+})
+
+function Widget:SetPoint(point, ...) record("SetPoint") self.__points[#self.__points + 1] = { point, ... } end
+function Widget:ClearAllPoints() record("ClearAllPoints") self.__points = {} end
+function Widget:SetAllPoints() record("SetAllPoints") end
+function Widget:GetPoint() return self.__points[1] and self.__points[1][1] or "CENTER", nil, "CENTER", 0, 0 end
+function Widget:GetNumPoints() return #self.__points end
+
+function Widget:SetSize(w, h) self.__width, self.__height = w, h end
+function Widget:SetWidth(w) self.__width = w end
+function Widget:SetHeight(h) self.__height = h end
+function Widget:GetSize() return self.__width, self.__height end
+function Widget:GetWidth() return self.__width end
+function Widget:GetHeight() return self.__height end
+function Widget:GetCenter() return 400, 300 end
+function Widget:GetEffectiveScale() return 1 end
+
+function Widget:Show() self.__shown = true end
+function Widget:Hide() self.__shown = false end
+function Widget:SetShown(shown) self.__shown = shown and true or false end
+function Widget:IsShown() return self.__shown end
+function Widget:IsVisible() return self.__shown end
+
+function Widget:SetFrameLevel(level) self.__level = level end
+function Widget:GetFrameLevel() return self.__level end
+
+function Widget:SetScript(script, handler) self.__scripts = self.__scripts or {}; self.__scripts[script] = handler end
+function Widget:GetScript(script) return self.__scripts and self.__scripts[script] end
+function Widget:HookScript(script, handler) self:SetScript(script, handler) end
+function Widget:RegisterEvent() end
+function Widget:UnregisterEvent() end
+function Widget:SetParent(parent) self.__parent = parent end
+function Widget:GetParent() return self.__parent end
+function Widget:GetName() return self.__name end
+
+function Widget:CreateTexture(name, layer)
+    record("CreateTexture")
+    return newWidget("Texture", name, self)
+end
+
+function Widget:CreateMaskTexture(name)
+    record("CreateMaskTexture")
+    return newWidget("MaskTexture", name, self)
+end
+
+function Widget:CreateFontString(name, layer, inherits)
+    record("CreateFontString")
+    local fs = newWidget("FontString", name, self)
+    fs.__font = inherits or "GameFontNormal"
+    return fs
+end
+
+-- FontString
+function Widget:SetText(text) self.__text = text end
+function Widget:GetText() return self.__text end
+function Widget:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "" end
+function Widget:SetFont(file, size, flags) self.__fontSize = size end
+function Widget:SetFontObject(object) self.__font = object end
+
+-- StatusBar
+function Widget:SetMinMaxValues(min, max) self.__min, self.__max = min, max end
+function Widget:GetMinMaxValues() return self.__min, self.__max end
+function Widget:SetValue(value) self.__value = value end
+function Widget:GetValue() return self.__value end
+function Widget:SetStatusBarTexture(texture) self.__barTexture = texture end
+function Widget:GetStatusBarTexture()
+    self.__barTexture = self.__barTexture or newWidget("Texture", nil, self)
+    return self.__barTexture
+end
+function Widget:SetStatusBarColor(r, g, b, a) self.__barColor = { r, g, b, a } end
+
+-- Texture
+function Widget:SetAtlas(atlas, useSize) record("SetAtlas") self.__atlas = atlas end
+function Widget:SetTexture(file) self.__texture = file end
+function Widget:GetTexture() return self.__texture end
+function Widget:SetColorTexture(r, g, b, a) self.__color = { r, g, b, a } end
+function Widget:SetVertexColor(r, g, b, a) self.__vertex = { r, g, b, a } end
+function Widget:SetDesaturated(value) self.__desaturated = value end
+function Widget:AddMaskTexture(mask) self.__mask = mask end
+
+-- Cooldown
+function Widget:SetCooldown(start, duration, modRate) self.__cooldown = { start, duration, modRate } end
+function Widget:Clear() self.__cooldown = nil end
+function Widget:SetSwipeColor(r, g, b, a) self.__swipeColor = { r, g, b, a } end
+
+function Widget:SetMouseClickEnabled(enabled) self.__mouseClick = enabled end
+function Widget:SetMouseMotionEnabled(enabled) self.__mouseMotion = enabled end
+function Widget:EnableMouse(enabled) self.__mouse = enabled end
+
+_G.CreateFrame = function(kind, name, parent, template)
+    record("CreateFrame")
+    local frame = newWidget(kind, name, parent)
+    if name then _G[name] = frame end
+    -- Templates the addon leans on for named children.
+    if template and template:find("OptionsSliderTemplate") and name then
+        _G[name .. "Text"] = newWidget("FontString", name .. "Text", frame)
+        _G[name .. "Low"] = newWidget("FontString", name .. "Low", frame)
+        _G[name .. "High"] = newWidget("FontString", name .. "High", frame)
+    end
+    if template and template:find("UICheckButtonTemplate") and name then
+        _G[name .. "Text"] = newWidget("FontString", name .. "Text", frame)
+    end
+    if template and template:find("ButtonFrameTemplate") then
+        frame.Inset = newWidget("Frame", nil, frame)
+        frame.TitleContainer = { TitleText = newWidget("FontString", nil, frame) }
+        frame.PortraitContainer = { portrait = newWidget("Texture", nil, frame) }
+        frame.SetTitle = function(_, title) frame.__title = title end
+    end
+    return frame
+end
+
+_G.UIParent = newWidget("Frame", "UIParent")
+_G.GameTooltip = newWidget("GameTooltip", "GameTooltip")
+_G.DEFAULT_CHAT_FRAME = newWidget("Frame", "DEFAULT_CHAT_FRAME")
+
+--------------------------------------------------------------------------------
+-- Globals the addon reads
+--------------------------------------------------------------------------------
+
+for _, font in ipairs({
+    "GameFontNormal", "GameFontNormalSmall", "GameFontHighlight",
+    "GameFontHighlightOutline", "GameFontHighlightHugeOutline",
+    "NumberFontNormal", "NumberFontNormalSmall", "NumberFontNormalHuge",
+}) do
+    _G[font] = { __fontObject = font }
+end
+
+_G.WOW_PROJECT_ID = 2
+_G.WOW_PROJECT_CLASSIC = 2
+_G.WOW_PROJECT_MAINLINE = 1
+
+local now = 1000
+_G.GetTime = function() return now end
+_G.__advance = function(seconds) now = now + seconds end
+
+_G.GetBuildInfo = function() return "1.15.9", "60000", "Jul 2026", 11509 end
+_G.GetRealmName = function() return "Test" end
+_G.UnitName = function() return "Tester" end
+_G.UnitClass = function() return "SHAMAN", "SHAMAN", 7 end
+_G.UnitAffectingCombat = function() return false end
+_G.InCombatLockdown = function() return false end
+_G.UnitPowerType = function() return 0, "MANA" end
+_G.UnitHealth = function() return 100 end
+_G.UnitHealthMax = function() return 100 end
+_G.UnitPower = function() return 50 end
+_G.UnitPowerMax = function() return 100 end
+_G.GetComboPoints = function() return 0 end
+_G.GetInventoryItemLink = function() return nil end
+_G.GetInventoryItemTexture = function() return nil end
+_G.GetItemInfo = function() return nil end
+_G.GetWeaponEnchantInfo = function() return false end
+_G.IsPlayerSpell = function() return true end
+_G.IsSpellKnown = function() return true end
+_G.IsPassiveSpell = function() return false end
+_G.GetNumSpellTabs = function() return 0 end
+_G.GetSpellTabInfo = function() return nil end
+_G.CloseDropDownMenus = function() end
+_G.UIDropDownMenu_SetWidth = function() end
+_G.UIDropDownMenu_Initialize = function() end
+_G.UIDropDownMenu_CreateInfo = function() return {} end
+_G.UIDropDownMenu_AddButton = function() end
+_G.UIDropDownMenu_SetText = function() end
+_G.StaticPopup_Show = function() end
+_G.StaticPopupDialogs = {}
+_G.PowerBarColor = {}
+_G.hooksecurefunc = function() end
+_G.PlaySound = function() end
+_G.SOUNDKIT = { IG_CHARACTER_INFO_TAB = 841 }
+_G.UISpecialFrames = {}
+_G.SlashCmdList = {}
+_G.SLASH_CDMC1 = nil
+_G.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
+_G.tinsert = table.insert
+_G.tremove = table.remove
+_G.tContains = function(t, v) for _, x in ipairs(t) do if x == v then return true end end return false end
+_G.strsplit = function(sep, str) return str end
+_G.GenerateClosure = function(fn, ...) local args = { ... } return function(...) return fn(unpack(args), ...) end end
+
+_G.C_Timer = {
+    After = function(_, fn) _G.__pendingTimers = _G.__pendingTimers or {}; table.insert(_G.__pendingTimers, fn) end,
+    NewTicker = function() return { Cancel = function() end } end,
+}
+
+-- The Cooldown Manager atlases, as they would be on a client that has them.
+local atlases = {
+    ["UI-HUD-CoolDownManager-Mask"] = true,
+    ["UI-HUD-CoolDownManager-IconOverlay"] = true,
+    ["UI-CooldownManager-OORshadow"] = true,
+    ["UI-HUD-CoolDownManager-Bar"] = true,
+    ["UI-HUD-CoolDownManager-Bar-BG"] = true,
+    ["UI-HUD-CoolDownManager-Bar-Pip"] = true,
+}
+_G.__setAtlasesPresent = function(present)
+    if present then return end
+    for key in pairs(atlases) do atlases[key] = nil end
+end
+
+_G.C_Texture = {
+    GetAtlasInfo = function(name) return atlases[name] and { width = 32, height = 32 } or nil end,
+}
+
+--------------------------------------------------------------------------------
+-- Spell and aura data
+--------------------------------------------------------------------------------
+
+local SPELLS = {
+    [187880] = { name = "Maelstrom Weapon", icon = "Interface\\Icons\\Spell_Shaman_MaelstromWeapon" },
+    [324] = { name = "Lightning Shield", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
+    [2645] = { name = "Ghost Wolf", icon = "Interface\\Icons\\Spell_Nature_SpiritWolf" },
+}
+
+_G.C_Spell = {
+    GetSpellInfo = function(id)
+        local spell = SPELLS[id]
+        if not spell then return nil end
+        return { name = spell.name, iconID = spell.icon, spellID = id }
+    end,
+    GetSpellTexture = function(id) return SPELLS[id] and SPELLS[id].icon end,
+    -- Driveable cooldown: __cd = { start=, duration= }. Empty means ready.
+    GetSpellCooldown = function()
+        local cd = _G.__cd or {}
+        return { startTime = cd.start or 0, duration = cd.duration or 0, isEnabled = true, modRate = 1 }
+    end,
+    GetSpellCharges = function() return nil end,
+    IsSpellUsable = function()
+        local cd = _G.__cd or {}
+        -- On a real (non-GCD) cooldown reads as unusable, as the live API does.
+        if (cd.duration or 0) > 1.6 then return false, false end
+        return true, false
+    end,
+    DoesSpellExist = function(id) return SPELLS[id] ~= nil end,
+    IsSpellDataCached = function() return true end,
+    RequestLoadSpellData = function() end,
+}
+
+_G.C_SpellBook = {
+    GetNumSpellBookSkillLines = function() return 0 end,
+    GetSpellBookSkillLineInfo = function() return nil end,
+    GetSpellBookItemInfo = function() return nil end,
+    GetSpellBookItemName = function() return nil end,
+}
+
+-- One stacking aura on the player, with a timer, so the bar has something to
+-- draw. Stacks and remaining time are pokeable from the test.
+_G.__aura = {
+    spellId = 187880,
+    name = "Maelstrom Weapon",
+    icon = "Interface\\Icons\\Spell_Shaman_MaelstromWeapon",
+    applications = 5,
+    duration = 30,
+    expirationTime = now + 12,
+    timeMod = 1,
+}
+
+_G.C_UnitAuras = {
+    GetAuraDataByIndex = function(unit, index, filter)
+        if index == 1 and filter ~= "HARMFUL" then return _G.__aura end
+        return nil
+    end,
+    GetPlayerAuraBySpellID = function(id)
+        if id == _G.__aura.spellId then return _G.__aura end
+        return nil
+    end,
+    ForEachAura = function(unit, filter, max, fn)
+        if filter ~= "HARMFUL" then fn(_G.__aura) end
+    end,
+}
+
+_G.UnitAura = function(unit, index, filter)
+    if index ~= 1 or filter == "HARMFUL" then return nil end
+    local a = _G.__aura
+    return a.name, a.icon, a.applications, nil, a.duration, a.expirationTime, nil, nil, nil, a.spellId
+end
+
+_G.GetSpellInfo = function(id)
+    local spell = SPELLS[id]
+    if not spell then return nil end
+    return spell.name, nil, spell.icon
+end
+_G.GetSpellCooldown = function() return 0, 0, 1 end
+_G.GetSpellCharges = function() return nil end
+_G.GetSpellTexture = function(id) return SPELLS[id] and SPELLS[id].icon end
+_G.IsUsableSpell = function() return true, false end

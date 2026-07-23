@@ -147,7 +147,7 @@ the exporting class and switches to it, so a bad string costs nothing.
 | Command | Effect |
 | --- | --- |
 | `/cdmc` or `/cdm` | Open the spell picker |
-| `/em` | Toggle edit mode |
+| `/cdme` or `/cdmedit` | Toggle edit mode |
 | `/cdmc unlock` / `lock` | Move the groups |
 | `/cdmc preset` | Load the class starter layout |
 | `/cdmc export` / `import` | Share a profile (or the Share Profile button) |
@@ -158,6 +158,8 @@ the exporting class and switches to it, so a bad string costs nothing.
 
 ```bash
 ./ci/scripts/lint.sh                  # luacheck
+python ci/scripts/check_globals.py    # undeclared globals / typo'd API names
+python ci/tests/smoke_test.py         # load and drive the addon headlessly
 ./ci/scripts/package.sh               # build ci/dist/<addon>-<version>.zip
 ./ci/scripts/repackage.sh             # rewrap with the top-level folder for CurseForge
 ./ci/scripts/deploy.sh era            # package and install into Classic Era
