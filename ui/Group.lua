@@ -288,17 +288,19 @@ end
 --- when a hide-when-inactive group needs rebuilding.
 function Group:ComputeActiveKey()
     local settings = self:GetSettings()
-    if not settings or not Const.AURA_GROUPS[self.key] then return "" end
-    if settings.appearance.hideWhenInactive == false then return "" end
+    if not settings or not Const.AURA_GROUPS[self.key] then return 0 end
+    if settings.appearance.hideWhenInactive == false then return 0 end
 
-    local parts = {}
+    -- A running numeric hash rather than a table plus table.concat: this runs on
+    -- every update tick, and building a string there is needless garbage.
+    local hash = 0
     for _, entry in ipairs(settings.spells) do
         local spellID = ns.Spellbook:ResolveForGroup(entry, true)
         if spellID and ns.Auras:GetState(spellID).active then
-            parts[#parts + 1] = spellID
+            hash = (hash * 31 + spellID) % 2147483647
         end
     end
-    return table.concat(parts, ",")
+    return hash
 end
 
 --- Refreshes every icon. Returns true if anything is counting down and the

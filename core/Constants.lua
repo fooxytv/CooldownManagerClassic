@@ -107,6 +107,10 @@ Const.GCD_THRESHOLD = 1.6
 -- How often icon text is refreshed while anything is counting down.
 Const.UPDATE_INTERVAL = 0.1
 
+-- The slower rate used when a buff is tracked but nothing is animating. Aura
+-- changes arrive by event, so this only exists as a safety net.
+Const.IDLE_UPDATE_INTERVAL = 0.5
+
 Const.COLORS = {
     ready       = { 1.0, 1.0, 1.0 },
     unavailable = { 0.4, 0.4, 0.4 },

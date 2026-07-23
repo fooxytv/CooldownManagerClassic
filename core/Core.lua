@@ -26,10 +26,24 @@ end
 --------------------------------------------------------------------------------
 
 local ticker
+local tickerInterval
 
-function Core:StartTicker()
-    if ticker then return end
-    ticker = C_Timer.NewTicker(Const.UPDATE_INTERVAL, function()
+--- Two rates.
+---
+--- The fast rate is only needed while something is visibly counting down. When
+--- the display is merely waiting for a buff to appear, aura changes arrive by
+--- event anyway and the timer is just a safety net, so polling ten times a
+--- second there is pure waste.
+function Core:StartTicker(interval)
+    if ticker and tickerInterval == interval then return end
+
+    if ticker then
+        ticker:Cancel()
+        ticker = nil
+    end
+
+    tickerInterval = interval
+    ticker = C_Timer.NewTicker(interval, function()
         Core:UpdateAll()
     end)
 end
@@ -38,6 +52,7 @@ function Core:StopTicker()
     if not ticker then return end
     ticker:Cancel()
     ticker = nil
+    tickerInterval = nil
 end
 
 --- Pushes live cooldown and aura state into the icons. The ticker only runs
@@ -85,8 +100,10 @@ function Core:UpdateAll()
     -- is counting down. Aura changes otherwise reach us only through UNIT_AURA,
     -- so a single missed or unregistered event leaves a tracked buff invisible
     -- indefinitely. Polling a handful of icons is far cheaper than that failure.
-    if animating or self:HasTrackedAuras() then
-        self:StartTicker()
+    if animating then
+        self:StartTicker(Const.UPDATE_INTERVAL)
+    elseif self:HasTrackedAuras() then
+        self:StartTicker(Const.IDLE_UPDATE_INTERVAL)
     else
         self:StopTicker()
     end
@@ -224,6 +241,9 @@ local function OnEvent(_, event, arg1)
     if not Core.initialized then return end
 
     if event == "UNIT_AURA" then
+        -- The aura snapshot is rebuilt on demand rather than every tick, so
+        -- this is what tells it the world moved.
+        ns.Auras:MarkDirty()
         Core:CheckAuraWatch()
     end
 

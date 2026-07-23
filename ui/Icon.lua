@@ -327,7 +327,16 @@ function Icon:Update(frame, state, appearance)
 
     local showText = appearance.showCountdownText ~= false and not state.suppressText
     if showText and state.remaining and state.remaining > 0 then
-        frame.timeText:SetText(FormatTime(state.remaining))
+        -- Only touched when the rendered string actually changes. Formatting
+        -- and setting text for every icon on every tick is the single largest
+        -- source of garbage in this addon, and most ticks produce the same
+        -- string as the last one.
+        local text = FormatTime(state.remaining)
+        if frame.lastTimeText ~= text then
+            frame.timeText:SetText(text)
+            frame.lastTimeText = text
+        end
+
         if state.remaining <= 5 then
             local c = Const.COLORS.expiring
             frame.timeText:SetTextColor(c[1], c[2], c[3])
