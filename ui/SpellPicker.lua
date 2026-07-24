@@ -3,14 +3,8 @@ local addonName, ns = ...
 local Const = ns.Constants
 local Compat = ns.Compat
 
--- The settings dialog, modelled on Blizzard's Advanced Cooldown Settings:
--- sections of icons rather than a list, drag and drop to move a spell between
--- sections or reorder it within one, and a search that dims non-matches in
--- place instead of filtering them away.
---
--- Edits commit immediately. Revert restores whatever the profile looked like
--- when the dialog was opened, so a mis-drag is still cheap to undo without
--- risking silent loss of everything added since.
+-- Modelled on Blizzard's Advanced Cooldown Settings. Edits commit immediately;
+-- Revert restores the profile as it was when the dialog opened.
 
 local SpellPicker = {}
 ns.SpellPicker = SpellPicker
@@ -47,19 +41,16 @@ local TABS = {
     },
 }
 
--- The Options tab is hidden: every setting it held is also in the Edit Mode
--- panel (unlock the groups, or /em), so a second surface for the same options
--- was only a way for the two to disagree. The tab's code is kept but unlisted.
+-- The Options tab is hidden, not deleted: every setting it held is also in the
+-- Edit Mode panel, and two surfaces for the same options only disagree.
 local TAB_ORDER = { "cooldowns", "buffs" }
 
--- Per-group display settings, shown on the Options tab until the Edit Mode
--- panel takes over. Applied immediately rather than staged, because seeing the
--- icons resize as you drag a slider is the whole point.
+-- Applied immediately rather than staged: seeing the icons resize as you drag
+-- the slider is the point.
 local OPTION_SLIDERS = {
     { option = "iconSize", label = "Icon Size", min = 16, max = 72, step = 1 },
-    -- Negative padding is allowed on purpose: the Blizzard bevel overhangs the
-    -- icon by several pixels, so zero padding still reads as a gap. Going
-    -- negative is what lets the icons actually touch or overlap.
+    -- Negative minimum on purpose: the Blizzard bevel overhangs the icon by
+    -- several pixels, so zero padding still reads as a gap.
     { option = "spacing",  label = "Icon Padding", min = -12, max = 24, step = 1 },
 }
 
@@ -82,10 +73,6 @@ local working = {}
 -- In-flight drag: { spellID, fromGroup, fromIndex, entry, handled }
 local drag = nil
 
---------------------------------------------------------------------------------
--- Working copy
---------------------------------------------------------------------------------
-
 local function LoadWorking()
     wipe(working)
     for _, key in ipairs(Const.GROUP_ORDER) do
@@ -94,8 +81,7 @@ local function LoadWorking()
     end
 end
 
--- The state of every group when the dialog was opened, so Revert has something
--- to go back to now that edits commit immediately.
+-- What Revert goes back to, now that edits commit immediately.
 local openSnapshot = {}
 
 local function SaveWorking()
@@ -108,12 +94,9 @@ local function SaveWorking()
     ns.Core:RefreshAll()
 end
 
---- Every edit commits straight away.
----
---- This used to stage changes until Save was pressed, which meant closing the
---- window silently threw away everything you had just dragged in -- a very easy
---- mistake to make and impossible to notice, because the result looks identical
---- to the spell simply not being tracked.
+-- Commits immediately. Staging until a Save press meant closing the window
+-- silently discarded everything just dragged in, which looks identical to the
+-- spell never having been tracked.
 local function CommitEdit()
     SaveWorking()
 end
@@ -133,21 +116,15 @@ local function RestoreOpenSnapshot()
     SaveWorking()
 end
 
---- Whether a spell is already tracked *by the sections of this tab*.
----
---- Deliberately scoped to the tab rather than the whole profile: a spell can be
---- both an Essential cooldown and a Tracked Buff, which is exactly what happens
---- with things like Blade Dance that are cast on a cooldown and also apply an
---- aura worth watching. Checking every group would hide it from the Buffs tab
---- as soon as it appeared on the Cooldowns one.
---- Matched by name as well as ID, mirroring DB:GroupContains.
----
---- An exact-ID test alone is not enough: entries are stored rank-independent and
---- the presets store rank 1, while the picker offers the best rank the character
---- knows. Once you out-level rank 1 the two IDs differ, so the spell showed both
---- in its tracked section and in Not Displayed -- and adding it from there wrote
---- a second entry straight into the working copy, past GroupContains's own
---- name-based check, leaving two icons for one spell.
+-- Scoped to the tab, not the whole profile: a spell can be both an Essential
+-- cooldown and a Tracked Buff, and checking every group would hide it from the
+-- Buffs tab the moment it appeared on the Cooldowns one.
+--
+-- The name test alongside the ID is not belt-and-braces. Entries are stored
+-- rank-independent and presets store rank 1, while the picker offers the best
+-- rank known; once you out-level rank 1 the IDs differ, and an ID-only test
+-- listed the spell as both tracked and Not Displayed -- adding it from there
+-- left two icons for one spell.
 local function IsTracked(spellID, tabKey)
     local name = Compat.GetSpellInfo(spellID)
 
@@ -163,7 +140,6 @@ local function IsTracked(spellID, tabKey)
     return false
 end
 
---- Everything this tab could track but is not tracking yet.
 local function GetNotDisplayed(tabKey)
     local results, seen = {}, {}
 
@@ -183,10 +159,9 @@ local function GetNotDisplayed(tabKey)
         Add(spell.spellID, spell.name)
     end
 
-    -- On the buff tab, anything currently on the player is offered too. Some
-    -- auras -- Season of Discovery runes especially -- apply a buff whose spell
-    -- ID is not the ability you cast and is nowhere in the spellbook, so this
-    -- is the only way to reach them.
+    -- Anything currently on the player is offered too: SoD runes especially
+    -- apply a buff whose ID is not the ability cast and is nowhere in the
+    -- spellbook, so this is the only way to reach them.
     if tabKey == "buffs" then
         for _, aura in ipairs(ns.Compat.GetPlayerAuras()) do
             Add(aura.spellID, aura.name)
@@ -211,10 +186,6 @@ local function RemoveFrom(groupKey, spellID)
     end
     return nil
 end
-
---------------------------------------------------------------------------------
--- Drag and drop
---------------------------------------------------------------------------------
 
 local dragVisual
 
@@ -261,12 +232,9 @@ local function EndDrag()
     if dragVisual then dragVisual:Hide() end
 end
 
---- The frame under the mouse right now.
----
---- OnReceiveDrag is not usable here: it only fires when something is actually
---- on the cursor (a spell or item picked up through the Blizzard APIs). A drag
---- of a plain frame carries no cursor payload, so the drop has to be resolved
---- by hit-testing on OnDragStop instead.
+-- Hit-testing rather than OnReceiveDrag, which only fires when something is
+-- genuinely on the cursor. Dragging a plain frame carries no cursor payload, so
+-- the drop has to be resolved on OnDragStop instead.
 local function GetFrameUnderCursor()
     if _G.GetMouseFoci then
         local foci = GetMouseFoci()
@@ -278,8 +246,7 @@ local function GetFrameUnderCursor()
     return nil
 end
 
---- Moves the dragged spell into targetGroup at targetIndex. A nil targetGroup
---- means the "Not Displayed" bucket, i.e. remove it from wherever it was.
+-- A nil targetGroup is the "Not Displayed" bucket: remove it from wherever it was.
 local function DropInto(targetGroup, targetIndex)
     if not drag then return end
     drag.handled = true
@@ -290,8 +257,7 @@ local function DropInto(targetGroup, targetIndex)
     if targetGroup and working[targetGroup] then
         local list = working[targetGroup]
 
-        -- Clear any copy already in the destination so a cross-group move
-        -- cannot leave a duplicate behind.
+        -- Or a cross-group move leaves a duplicate behind.
         for index, existing in ipairs(list) do
             if existing.spellID == entry.spellID then
                 table.remove(list, index)
@@ -311,9 +277,8 @@ local function DropInto(targetGroup, targetIndex)
     SpellPicker:Refresh()
 end
 
---- Called when the mouse is released after a drag. Walks up from whatever is
---- under the cursor until it finds an icon (insert at that position) or a
---- section (append), and cancels if it finds neither.
+-- Walks up from whatever is under the cursor until it finds an icon (insert at
+-- that position) or a section (append), and cancels if it finds neither.
 local function ResolveDrop()
     if not drag then return end
 
@@ -332,10 +297,6 @@ local function ResolveDrop()
 
     EndDrag()
 end
-
---------------------------------------------------------------------------------
--- Icon buttons
---------------------------------------------------------------------------------
 
 local buttonPool = {}
 
@@ -408,10 +369,6 @@ local function ReleaseButton(button)
     buttonPool[#buttonPool + 1] = button
 end
 
---------------------------------------------------------------------------------
--- Sections
---------------------------------------------------------------------------------
-
 local sectionPool = {}
 local activeSections = {}
 
@@ -455,7 +412,7 @@ local function MatchesSearch(name)
     return name ~= nil and name:lower():find(searchText:lower(), 1, true) ~= nil
 end
 
---- Renders one section and returns its height.
+-- Returns the section's height.
 local function BuildSection(parent, definition, entries, yOffset)
     local section = table.remove(sectionPool) or CreateSection(parent)
     section:SetParent(parent)
@@ -513,10 +470,6 @@ local function BuildSection(parent, definition, entries, yOffset)
     return height
 end
 
---------------------------------------------------------------------------------
--- Options tab
---------------------------------------------------------------------------------
-
 local optionsGroup = Const.GROUP_ORDER[1]
 local optionWidgets
 
@@ -538,10 +491,8 @@ local function EnsureOptionWidgets(parent)
 
     optionWidgets = { groupButtons = {}, sliders = {}, toggles = {} }
 
-    -- Which group these settings apply to. Laid out as a wrapping grid rather
-    -- than a single row: with four groups a row of full-width buttons overran
-    -- the dialog, clipping "Essential Cooldowns" and pushing the last button off
-    -- the page. Two per row keeps every label readable and every button on it.
+    -- A wrapping grid, not a row: with four groups a single row overran the
+    -- dialog, clipping "Essential Cooldowns" and pushing the last button off.
     local PER_ROW = 2
     local BUTTON_GAP = 4
     local BUTTON_W = (CONTENT_WIDTH - BUTTON_GAP) / PER_ROW
@@ -661,10 +612,6 @@ local function HideOptions()
     for _, check in ipairs(optionWidgets.toggles) do check:Hide() end
 end
 
---------------------------------------------------------------------------------
--- Frame construction
---------------------------------------------------------------------------------
-
 -- ButtonFrameTemplate gives the portrait, title bar, close button, inset and
 -- bottom button strip that Blizzard's own dialogs use. Its keys moved around
 -- between versions, so both the mixin and the direct paths are tried.
@@ -730,10 +677,8 @@ local function CreateFrameOnce()
         frame.Inset:SetPoint("BOTTOMRIGHT", -6, 30)
     end
 
-    -- Cooldowns / Buffs switch, mirroring Blizzard's two side buttons.
-    -- Side tabs down the right edge, matching Blizzard's own dialog rather than
-    -- a row of buttons across the top -- which also stops them colliding with
-    -- the portrait, which deliberately overhangs the top-left corner.
+    -- Side tabs down the right edge, as Blizzard's own dialog has them. A row
+    -- across the top would collide with the overhanging portrait.
     local TABS_META = {
         cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
         buffs     = { label = "Buffs",     icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
@@ -844,8 +789,6 @@ local function CreateFrameOnce()
     end)
     frame.revertButton = revert
 
-    -- Profile sharing was reachable only by /cdmc export, which meant nobody
-    -- found it. It gets a button on the dialog everyone already opens.
     local share = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     share:SetSize(100, 22)
     share:SetPoint("RIGHT", revert, "LEFT", -6, 0)
@@ -884,9 +827,8 @@ local function CreateFrameOnce()
     return frame
 end
 
---- Adds a spell or aura ID straight into this tab's first tracked section.
---- Nothing is validated against the spellbook: the whole point is to reach IDs
---- the picker cannot discover.
+-- Deliberately unvalidated against the spellbook: the point is to reach IDs the
+-- picker cannot discover.
 function SpellPicker:AddByID(spellID)
     if not spellID or spellID <= 0 then
         ns.Print("|cffff5555Enter a numeric spell ID.|r")
@@ -923,19 +865,13 @@ function SpellPicker:AddByID(spellID)
     self:Refresh()
 end
 
---------------------------------------------------------------------------------
--- Refresh
---------------------------------------------------------------------------------
-
 function SpellPicker:Refresh()
     if not frame or not frame:IsShown() then return end
 
-    -- Re-read the profile every time rather than trusting the copy taken when
-    -- the dialog opened. Anything that replaces the profile underneath an open
-    -- dialog -- import, preset, profile use, reset -- refreshes us through
-    -- Core:RefreshAll, and rendering from the stale copy would not only show the
-    -- old lists but write them back over the new profile on the next click.
-    -- Edits commit as they happen, so there is never unsaved work to lose here.
+    -- Re-read every time, never the copy taken when the dialog opened. Import,
+    -- preset, profile switch and reset all replace the profile underneath an
+    -- open dialog, and the stale copy would be written back over the new one on
+    -- the next click. Edits commit as they happen, so nothing is lost here.
     LoadWorking()
 
     local tab = TABS[currentTab]

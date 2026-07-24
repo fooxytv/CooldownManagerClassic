@@ -99,6 +99,34 @@ cdgroup:Layout(); cdgroup:Update()
 R.cooldownBarKind = cdgroup.widgetKind
 R.cooldownBarPhase = ns.Cooldowns:GetBarState(187880).phase
 
+-- Resource bars. Disabled is the default, and a disabled bar must still become
+-- visible and draggable when unlocked -- otherwise the only setting that can
+-- enable it sits behind a frame nobody can click.
+local health = ns.ResourceBar.Create("health")
+ns.DB:GetBar("health").enabled = false
+health:Layout()
+R.barHiddenWhenDisabled = health.frame:IsShown()
+
+ns.EditMode:SetManualUnlock(true)
+R.barShownWhenUnlocked = health.frame:IsShown()
+R.barDraggable = health.unlocked and true or false
+R.barRendersWhenUnlocked = health.text:GetText()
+
+ns.EditMode:SetManualUnlock(false)
+R.barHiddenAgain = health.frame:IsShown()
+
+ns.DB:GetBar("health").enabled = true
+health:Layout()
+R.barShownWhenEnabled = health.frame:IsShown()
+
+-- Revert has to restore bar positions too, now that bars can be dragged.
+ns.DB:SetBarPosition("health", "CENTER", "CENTER", 11, 22)
+ns.EditMode:Enter()
+ns.DB:SetBarPosition("health", "CENTER", "CENTER", 999, 999)
+ns.EditMode:RevertChanges()
+R.barPositionReverted = ns.DB:GetBar("health").position.x
+ns.EditMode:Exit()
+
 -- Profile round trip: everything out, everything back.
 buffs.appearance.barWidth = 317
 local exported = ns.Serialization:Export()
@@ -139,6 +167,13 @@ def run(with_art):
     check("back to icons", results["backToIcons"], "icons")
     check("cooldown bar widget", results["cooldownBarKind"], "bars")
     check("cooldown bar phase", results["cooldownBarPhase"], "active")
+    check("bar hidden when disabled", results["barHiddenWhenDisabled"], False)
+    check("bar shown when unlocked", results["barShownWhenUnlocked"], True)
+    check("bar draggable when unlocked", results["barDraggable"], True)
+    check("bar renders when unlocked", results["barRendersWhenUnlocked"], "100 / 100")
+    check("bar hidden again when locked", results["barHiddenAgain"], False)
+    check("bar shown when enabled", results["barShownWhenEnabled"], True)
+    check("bar position reverted", results["barPositionReverted"], 11)
     check("export format", results["exportPrefix"], "CDMC2:")
     check("round-trip bar width", results["importedBarWidth"], 317)
     check("round-trip spell name", results["importedSpellName"], "Maelstrom Weapon")

@@ -2,16 +2,9 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- The import/export window.
---
--- Replaces the single-line StaticPopup the profile string used to be shown in.
--- A format-2 string runs to a few thousand characters, which a one-line edit box
--- can neither display nor let you check before pasting, so this is a proper
--- window with a scrolling multi-line box.
---
--- One box serves both directions: export fills it and selects the contents ready
--- to copy, import empties it and waits for a paste.
-
+-- A real window rather than a StaticPopup: a format-2 string runs to a few
+-- thousand characters, which a one-line edit box can neither show nor let you
+-- check before pasting. One box serves both directions.
 local ProfileShare = {}
 ns.ProfileShare = ProfileShare
 
@@ -20,10 +13,6 @@ local mode = "export"
 
 local EXPORT_HINT = "Your profile, as a shareable string. Press Ctrl+C to copy it."
 local IMPORT_HINT = "Paste a profile string here (Ctrl+V), then press Import."
-
---------------------------------------------------------------------------------
--- Construction
---------------------------------------------------------------------------------
 
 local function SetDialogTitle(dialog, text)
     if dialog.SetTitle and pcall(dialog.SetTitle, dialog, text) then return end
@@ -59,7 +48,6 @@ local function Build()
     frame.hint:SetPoint("TOPRIGHT", -14, -34)
     frame.hint:SetJustifyH("LEFT")
 
-    -- The string itself, in a scrolling multi-line box.
     local scroll = CreateFrame("ScrollFrame", "CDMCProfileShareScroll", frame,
         "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 16, -58)
@@ -82,8 +70,8 @@ local function Build()
     scroll:SetScrollChild(edit)
     frame.edit = edit
 
-    -- Clicking anywhere in the box area focuses it, which is what people expect
-    -- when the edit box itself is only as tall as its text.
+    -- The edit box is only as tall as its text, so the scroll frame catches
+    -- clicks in the empty area below it.
     scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
 
     frame.action = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -99,8 +87,6 @@ local function Build()
         frame.edit:HighlightText()
     end)
 
-    -- Both directions live in one window, so whichever way you opened it the
-    -- other is one click away rather than another slash command.
     frame.switch = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     frame.switch:SetSize(140, 22)
     frame.switch:SetPoint("LEFT", frame.selectAll, "RIGHT", 8, 0)
@@ -114,10 +100,6 @@ local function Build()
 
     return frame
 end
-
---------------------------------------------------------------------------------
--- Modes
---------------------------------------------------------------------------------
 
 function ProfileShare:ShowExport()
     Build()

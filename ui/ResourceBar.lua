@@ -2,13 +2,6 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Health, primary resource and combo point bars.
---
--- Classic's resource model is far simpler than Retail's -- no specialisations,
--- a handful of power types, and combo points that live on the target rather
--- than the player -- so this is implemented directly against UnitPower and
--- friends rather than ported from a Retail resource addon.
-
 local Bar = {}
 Bar.__index = Bar
 ns.ResourceBar = Bar
@@ -16,10 +9,6 @@ ns.ResourceBar = Bar
 ns.bars = {}
 
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
-
---------------------------------------------------------------------------------
--- Resource reading
---------------------------------------------------------------------------------
 
 local function GetPowerColor(token)
     local blizzard = _G.PowerBarColor and PowerBarColor[token]
@@ -35,8 +24,8 @@ local function GetPowerColor(token)
     return 0.6, 0.6, 0.6
 end
 
---- Combo points sit on the target in Classic rather than being a player power,
---- so GetComboPoints is tried before the modern power type.
+-- Classic keeps combo points on the target rather than as a player power, so
+-- GetComboPoints is tried before the modern power type.
 local function GetComboPoints()
     if _G.GetComboPoints then
         local points = GetComboPoints("player", "target")
@@ -58,7 +47,6 @@ local function GetMaxComboPoints()
     return _G.MAX_COMBO_POINTS or 5
 end
 
---- Returns current, max, r, g, b, text for a bar.
 local function ReadResource(key)
     if key == "health" then
         local current = UnitHealth("player") or 0
@@ -68,8 +56,8 @@ local function ReadResource(key)
     end
 
     if key == "power" then
-        -- UnitPowerType follows druid shapeshifts, so this tracks form changes
-        -- without any class-specific handling.
+        -- UnitPowerType follows druid shapeshifts, so form changes need no
+        -- class-specific handling.
         local powerType, powerToken = UnitPowerType("player")
         local current = UnitPower("player", powerType) or 0
         local max = UnitPowerMax("player", powerType) or 0
@@ -84,10 +72,6 @@ local function ReadResource(key)
 
     return 0, 0, 0.6, 0.6, 0.6
 end
-
---------------------------------------------------------------------------------
--- Construction
---------------------------------------------------------------------------------
 
 function Bar.Create(key)
     local self = setmetatable({}, Bar)
@@ -105,7 +89,7 @@ function Bar.Create(key)
     frame.background:SetAllPoints()
     frame.background:SetColorTexture(0, 0, 0, 0.5)
 
-    -- Combo points render as pips; every other bar is a single status bar.
+    -- Created for every bar, but hidden for combo points, which draw as pips.
     local statusBar = CreateFrame("StatusBar", nil, frame)
     statusBar:SetAllPoints()
     statusBar:SetStatusBarTexture(BAR_TEXTURE)
@@ -130,10 +114,6 @@ end
 function Bar:GetSettings()
     return ns.DB:GetBar(self.key)
 end
-
---------------------------------------------------------------------------------
--- Position and layout
---------------------------------------------------------------------------------
 
 function Bar:ApplyPosition()
     local settings = self:GetSettings()
@@ -180,8 +160,6 @@ function Bar:Layout()
     self:Update()
 end
 
---- Combo points are drawn as one pip per point rather than a continuous bar,
---- which is how they read at a glance.
 function Bar:LayoutPips(width, height, appearance)
     self.statusBar:Hide()
 
@@ -207,13 +185,14 @@ function Bar:LayoutPips(width, height, appearance)
     end
 end
 
---------------------------------------------------------------------------------
--- Update
---------------------------------------------------------------------------------
-
 function Bar:Update()
     local settings = self:GetSettings()
-    if not settings or settings.enabled == false then return end
+    if not settings then return end
+
+    -- A disabled bar still renders while unlocked. It is forced visible so it
+    -- can be positioned and switched on, and an empty box gives no clue which
+    -- resource it is or whether the setting took effect.
+    if settings.enabled == false and not self.unlocked then return end
 
     local appearance = settings.appearance
     local current, max, r, g, b = ReadResource(self.key)
@@ -242,10 +221,6 @@ function Bar:Update()
         self.text:Hide()
     end
 end
-
---------------------------------------------------------------------------------
--- Visibility
---------------------------------------------------------------------------------
 
 local function InCombat()
     return InCombatLockdown() or UnitAffectingCombat("player")
@@ -278,18 +253,13 @@ function Bar:UpdateVisibility()
         visible = not InCombat()
     end
 
-    -- A combo point bar on a class that has none would otherwise sit there as
-    -- an empty row of pips forever.
+    -- Or a class with no combo points shows an empty row of pips forever.
     if visible and self.key == "combo" and GetMaxComboPoints() == 0 then
         visible = false
     end
 
     self.frame:SetShown(visible)
 end
-
---------------------------------------------------------------------------------
--- Unlocked (drag) mode
---------------------------------------------------------------------------------
 
 local function OnDragStart(frame)
     frame:StartMoving()
@@ -318,4 +288,8 @@ function Bar:SetUnlocked(unlocked)
 
     self.label:SetShown(unlocked)
     self:UpdateVisibility()
+
+    -- Contents too, not just visibility: a disabled bar renders nothing, so
+    -- unlocking one would otherwise reveal an empty box.
+    self:Update()
 end

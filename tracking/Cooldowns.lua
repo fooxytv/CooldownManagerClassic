@@ -6,24 +6,14 @@ local Compat = ns.Compat
 local Cooldowns = {}
 ns.Cooldowns = Cooldowns
 
---- Reads the live cooldown and charge state for a spell.
----
---- The returned table is reused per spell ID rather than allocated fresh, so
---- callers must consume it before asking for another spell.
+-- State tables are reused per spell ID, not allocated fresh, so a caller must
+-- consume one before asking for another spell.
 local cache = {}
 
---------------------------------------------------------------------------------
--- Global cooldown
---------------------------------------------------------------------------------
-
--- The GCD is tracked once for the whole display rather than per spell.
---
--- Classic has no equivalent of retail's spell 61304 to read the GCD from, and
--- detecting it per spell fails whenever a particular spell ID does not report
--- one -- rune placeholders being the obvious case. Instead, any tracked spell
--- showing a short cooldown identifies the GCD, and that single timer is then
--- applied to every icon that is not on a real cooldown of its own.
-
+-- Tracked once for the whole display: Classic has no equivalent of retail's
+-- spell 61304 to read the GCD from, and detecting it per spell fails whenever a
+-- given spell ID does not report one -- rune placeholders being the obvious
+-- case. Any tracked spell showing a short cooldown identifies it instead.
 Cooldowns.gcdStart = 0
 Cooldowns.gcdDuration = 0
 
@@ -32,10 +22,9 @@ function Cooldowns:IsGlobalCooldownActive()
         and (self.gcdStart + self.gcdDuration) > GetTime()
 end
 
---- Finds the current global cooldown from any of the given spells.
 function Cooldowns:RefreshGlobalCooldown(spellIDs)
-    -- A GCD already in flight needs no re-detection; re-reading it every tick
-    -- would only risk latching onto a different spell's short cooldown.
+    -- Re-reading one already in flight risks latching onto a different spell's
+    -- short cooldown.
     if self:IsGlobalCooldownActive() then return end
 
     self.gcdStart = 0
@@ -71,13 +60,13 @@ function Cooldowns:GetState(spellID, showGCD)
     state.charges = charges
     state.maxCharges = maxCharges
 
-    -- A spell on the global cooldown is still usable as far as the display is
-    -- concerned, so it must not be drawn as unavailable.
+    -- Still usable as far as the display is concerned, so not drawn as
+    -- unavailable.
     state.isGCD = duration > 0 and duration <= Const.GCD_THRESHOLD
 
     if charges and maxCharges and maxCharges > 1 then
-        -- With charges available the icon stays lit; the swipe shows progress
-        -- towards the next charge instead.
+        -- The icon stays lit while charges remain; the swipe shows progress
+        -- towards the next one instead.
         state.available = charges > 0
         state.swipeStart = chargeStart or 0
         state.swipeDuration = (charges < maxCharges and chargeDuration) or 0
@@ -95,10 +84,8 @@ function Cooldowns:GetState(spellID, showGCD)
             state.swipeDuration = duration
             state.swipeModRate = modRate
         elseif showGCD and self:IsGlobalCooldownActive() then
-            -- Not on a cooldown of its own, so show the shared global cooldown.
-            -- Taking it from the global timer rather than this spell's own
-            -- reading means icons whose spell ID reports no cooldown still
-            -- sweep along with everything else.
+            -- From the shared timer, not this spell's own reading: icons whose
+            -- spell ID reports no cooldown still sweep with everything else.
             state.swipeStart = self.gcdStart
             state.swipeDuration = self.gcdDuration
             state.swipeModRate = 1
@@ -118,8 +105,8 @@ function Cooldowns:GetState(spellID, showGCD)
     -- A GCD sweep should not print a countdown over every icon.
     state.suppressText = state.isGCD
 
-    -- Cooldowns paused by the client (enabled == false) read as a running
-    -- cooldown of unknown length; treat them as unavailable but static.
+    -- enabled == false is a cooldown the client has paused: it reads as running
+    -- but of unknown length, so it is unavailable but static.
     if not enabled then
         state.available = false
     end
@@ -129,19 +116,14 @@ function Cooldowns:GetState(spellID, showGCD)
     return state
 end
 
--- Merged state for a duration bar: the effect the ability applies takes
--- precedence over its recharge. `phase` tells the widget which it is.
+-- Effect takes precedence over recharge. `phase` tells the widget which:
+--   active    the aura is up -- show its remaining duration, bright
+--   cooldown  no effect, but recharging -- show the recharge, dimmed
+--   ready     available now
 --
---   active    the ability's aura is on the player -- show its remaining
---             duration (Barkskin's 8s), bright
---   cooldown  no effect up but the ability is recharging -- show the recharge,
---             dimmed
---   ready     neither: the ability is available now
---
--- The aura is matched by the ability's own spell ID, which is the same ID for
--- the great majority of self-buff defensives (Barkskin, Vampiric Blood, Ignore
--- Pain). Where the applied aura has a different ID it simply is not found and
--- the bar shows the recharge, which is no worse than an icon would manage.
+-- Matched on the ability's own spell ID, which is the same ID for most
+-- self-buff defensives. Where the applied aura differs it is simply not found
+-- and the bar shows the recharge, which is no worse than an icon manages.
 local barCache = {}
 function Cooldowns:GetBarState(spellID)
     local state = barCache[spellID]
@@ -156,7 +138,6 @@ function Cooldowns:GetBarState(spellID)
         state.swipeDuration = aura.swipeDuration
         state.remaining = aura.remaining
         state.active = true
-        -- The effect is up, so the icon reads as "on" rather than greyed.
         state.available = true
         state.usable = true
         state.notEnoughPower = false

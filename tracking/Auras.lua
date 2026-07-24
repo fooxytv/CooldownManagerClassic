@@ -7,21 +7,10 @@ ns.Auras = Auras
 
 local cache = {}
 
---------------------------------------------------------------------------------
--- Aura index
---------------------------------------------------------------------------------
-
--- A snapshot of the player's auras, keyed by spell ID and by name.
---
--- Without this, every tracked buff scanned the whole aura list up to three times
--- (by ID helpful, by ID harmful, then by name) on every single update. With a
--- handful of buffs at ten updates a second that is thousands of API calls and
--- table allocations per second, which is exactly how this addon reached 2% CPU
--- and double-digit megabytes.
---
--- The snapshot is rebuilt only when UNIT_AURA says something changed, or after
--- a slow safety interval, and every lookup is then a hash lookup.
-
+-- Snapshot of the player's auras, keyed by ID and by name, rebuilt only when
+-- UNIT_AURA says something changed. Without it each tracked buff walked the
+-- whole aura list three times (ID helpful, ID harmful, name) per update, which
+-- is how this addon once reached 2% CPU and double-digit megabytes.
 local indexByID = {}
 local indexByName = {}
 local indexDirty = true
@@ -42,8 +31,8 @@ function Auras:RefreshIndex(force)
     wipe(indexByID)
     wipe(indexByName)
 
-    -- Full aura data, not the picker's projection: the duration, expiration and
-    -- stack count are exactly what the display needs.
+    -- Full aura data, not the picker's projection, which drops the duration,
+    -- expiration and stack count the display needs.
     Compat.ForEachPlayerAura(function(aura)
         if aura.spellId then indexByID[aura.spellId] = aura end
         if aura.name and not indexByName[aura.name] then
@@ -55,11 +44,8 @@ function Auras:RefreshIndex(force)
     indexBuiltAt = now
 end
 
---- Finds an aura by exact ID, falling back to name.
----
---- The name fallback matters because the aura a spell applies very often has a
---- different spell ID from the spell you cast -- true of most Season of
---- Discovery runes.
+-- The name fallback is load-bearing: the aura a spell applies often has a
+-- different ID from the spell cast, true of most SoD runes.
 function Auras:Lookup(spellID)
     self:RefreshIndex()
 
@@ -72,16 +58,13 @@ function Auras:Lookup(spellID)
     return indexByName[name]
 end
 
---- Reads the player's current aura state for a spell. Mirrors the shape of
---- Cooldowns:GetState so the icon widget can render either without branching
---- on which tracker produced it.
--- The longest remaining time seen per weapon hand. GetWeaponEnchantInfo reports
--- only what is left, never the original duration, so the swipe needs a
--- high-water mark to sweep against. It self-corrects on the next reapplication.
+-- Longest remaining time seen per hand. GetWeaponEnchantInfo reports only what
+-- is left, never the original duration, so the swipe needs a high-water mark to
+-- sweep against. Self-corrects on the next reapplication.
 local enchantMaxSeen = {}
 
---- Weapon enchants are not auras, so they are read separately and shaped to
---- look like one for the rest of the addon.
+-- Weapon enchants are not auras; this shapes one to look like Auras:GetState so
+-- the icon widget renders either without branching.
 function Auras:GetWeaponEnchantState(spellID)
     local Const = ns.Constants
     local enchant = Const.WEAPON_ENCHANT_BY_ID[spellID]
@@ -94,7 +77,7 @@ function Auras:GetWeaponEnchantState(spellID)
 
     local hasEnchant, remaining, charges = Compat.GetWeaponEnchant(enchant.hand)
 
-    -- Reused rather than reallocated: this runs on every update tick.
+    -- Reused, not reallocated: this runs on every update tick.
     state.enchantAura = state.enchantAura or { name = enchant.label }
 
     state.spellID = spellID

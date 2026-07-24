@@ -2,10 +2,8 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- The per-group settings panel shown while the groups are unlocked, modelled on
--- Blizzard's Edit Mode dialog. Blizzard has no supported way to register a
--- third-party Edit Mode system, so this is our own frame that appears alongside
--- theirs rather than inside it.
+-- Our own frame alongside Blizzard's Edit Mode dialog rather than inside it:
+-- there is no supported way to register a third-party Edit Mode system.
 
 local Panel = {}
 ns.EditModePanel = Panel
@@ -13,10 +11,6 @@ ns.EditModePanel = Panel
 local panel
 local currentGroup
 local snapshot
-
---------------------------------------------------------------------------------
--- Settings access
---------------------------------------------------------------------------------
 
 local function Settings()
     return currentGroup and ns.DB:GetGroup(currentGroup) or nil
@@ -42,10 +36,6 @@ local function SetOption(option, value)
     ns.Core:RefreshGroup(currentGroup)
     Panel:Refresh()
 end
-
---------------------------------------------------------------------------------
--- Widget helpers
---------------------------------------------------------------------------------
 
 local widgetIndex = 0
 
@@ -133,10 +123,6 @@ local function CreateCheckbox(parent, label, option)
     return check
 end
 
---------------------------------------------------------------------------------
--- Construction
---------------------------------------------------------------------------------
-
 local function SimpleChoices(values)
     return function()
         local choices = {}
@@ -212,14 +198,13 @@ local function BuildPanel()
     panel.showTooltips:SetPoint("TOPLEFT", 20, y)
     y = y - 32
 
-    -- Buff-only rows. Only tracked buffs can be drawn as bars, so for the
-    -- cooldown groups these are hidden and the buttons below slide up into the
-    -- space instead of leaving a hole in the middle of the panel.
+    -- Buff-only rows. Hidden for the cooldown groups, with the buttons below
+    -- sliding up rather than leaving a hole mid-panel.
     panel.buffTop = y
 
     panel.display = CreateDropdown(panel, "Display", "display",
         SimpleChoices(Const.BUFF_DISPLAYS), function(value)
-            -- Bars are wide and stack downwards; icons run along a row.
+            -- Flipped with the display: bars are wide and stack downwards.
             if value == "Bars" then
                 SetOption("orientation", "Vertical")
                 SetOption("iconDirection", "Right")
@@ -273,10 +258,6 @@ local function BuildPanel()
     return panel
 end
 
---------------------------------------------------------------------------------
--- Actions
---------------------------------------------------------------------------------
-
 function Panel:Revert()
     if not snapshot or not currentGroup then return end
 
@@ -306,10 +287,6 @@ function Panel:ResetPosition()
     if group then group:ApplyPosition() end
 end
 
---------------------------------------------------------------------------------
--- Show / refresh
---------------------------------------------------------------------------------
-
 function Panel:Refresh()
     if not panel or not panel:IsShown() then return end
 
@@ -320,9 +297,9 @@ function Panel:Refresh()
     local titleText = (panel.TitleContainer and panel.TitleContainer.TitleText) or panel.TitleText
     if titleText then titleText:SetText(label) end
 
-    -- Bar sizing appears for any bar-capable group (tracked buffs, cooldown
-    -- bars); the Icons/Bars toggle only for the one group that has both; the
-    -- Effect/Cooldown mode only for a duration-bar group.
+    -- Three different predicates, not one: bar sizing applies to any bar-capable
+    -- group, the Icons/Bars toggle only to the group that has both, and the
+    -- Effect/Cooldown mode only to a duration-bar group.
     local isBarGroup = Const.BAR_CAPABLE_GROUPS[currentGroup] and true or false
     local hasDisplayToggle = Const.DISPLAY_TOGGLE_GROUPS[currentGroup] and true or false
     local hasBarMode = Const.DURATION_BAR_GROUPS[currentGroup] and true or false
@@ -341,9 +318,7 @@ function Panel:Refresh()
         dropdowns[#dropdowns + 1] = panel.barMode
     end
 
-    -- Lay out only the rows this group actually has, top-down, so a hidden
-    -- Display dropdown (cooldown bars have no toggle) leaves no gap and the
-    -- buttons sit directly under whatever the last visible row is.
+    -- Only the rows this group has, top-down, so a hidden row leaves no gap.
     local BAR_ROW = 46
     local rowY = panel.buffTop
 
