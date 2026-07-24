@@ -1155,8 +1155,8 @@ function SpellPicker:Refresh()
 
     -- Side tabs are CheckButtons, so the active one is shown checked rather
     -- than disabled.
-    for key, tab in pairs(frame.tabButtons) do
-        tab:SetChecked(key == currentTab)
+    for key, button in pairs(frame.tabButtons) do
+        button:SetChecked(key == currentTab)
     end
 
     ReleaseSections()

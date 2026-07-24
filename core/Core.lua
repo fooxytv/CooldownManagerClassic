@@ -804,7 +804,7 @@ SlashCmdList["CDMC"] = function(input)
 
     elseif command == "ids" then
         local global = ns.DB:GetGlobal()
-        global.showTooltipIDs = not (global.showTooltipIDs ~= false)
+        global.showTooltipIDs = (global.showTooltipIDs == false)
         ns.Print("tooltip spell IDs " .. (global.showTooltipIDs and "on" or "off") .. ".")
 
     elseif command == "debug" then

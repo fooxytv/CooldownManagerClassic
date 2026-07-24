@@ -5,6 +5,10 @@ max_line_length = false
 
 exclude_files = {
     "ci/**",
+    -- Third-party and vendored: 148 of the 165 warnings on the first CI run
+    -- came from here, and none of them are ours to fix. Linting code we cannot
+    -- change only buries the handful that are.
+    "libs/**",
 }
 
 globals = {
@@ -50,7 +54,13 @@ globals = {
     "IsPassiveSpell",
     "IsSpellKnown",
     "IsPlayerSpell",
+    "IsUsableSpell",
     "PickupSpellBookItem",
+    "GetWeaponEnchantInfo",
+    "UnitPower",
+    "UnitPowerMax",
+    "GetComboPoints",
+    "MAX_COMBO_POINTS",
     "hooksecurefunc",
     "wipe",
     "tinsert",
@@ -59,6 +69,11 @@ globals = {
     -- UI globals
     "UIParent",
     "GameTooltip",
+    "TooltipDataProcessor",
+    "PowerBarColor",
+    "GetMouseFoci",
+    "GetMouseFocus",
+    "LibStub",
     "DEFAULT_CHAT_FRAME",
     "UISpecialFrames",
     "StaticPopupDialogs",

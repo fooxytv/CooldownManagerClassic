@@ -55,7 +55,12 @@
       "Bash(grep -n \"EditModeManagerFrame\\\\|NewLibrary\\\\|WOW_PROJECT\\\\|IsEditMode\\\\|return$\" libs/LibEQOL/LibEQOLEditMode.lua)",
       "Read(//c/Program Files \\\\\\(x86\\\\\\)/World of Warcraft/_classic_era_/WTF/Account//**)",
       "Read(//c/Program Files \\\\\\(x86\\\\\\)/World of Warcraft/_classic_era_/WTF/**)",
-      "Bash(awk '/\\\\[\"profiles\"\\\\]/{f=1} f && /^\\\\t\\\\t\\\\[\"[A-Za-z]/{print NR\": \"$0}' CooldownManagerClassic.lua)"
+      "Bash(awk '/\\\\[\"profiles\"\\\\]/{f=1} f && /^\\\\t\\\\t\\\\[\"[A-Za-z]/{print NR\": \"$0}' CooldownManagerClassic.lua)",
+      "Read(//c/Users/simon/workspaces/home-projects/**)",
+      "Bash(gh secret *)",
+      "Bash(gh run *)",
+      "Bash(command -v luacheck)",
+      "Read(//tmp/**)"
     ]
   }
 }
