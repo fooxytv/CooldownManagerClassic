@@ -60,7 +60,8 @@
       "Bash(gh secret *)",
       "Bash(gh run *)",
       "Bash(command -v luacheck)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(echo \"rc=$?\")"
     ]
   }
 }

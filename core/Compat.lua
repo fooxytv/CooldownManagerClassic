@@ -452,13 +452,14 @@ function Compat.GetWeaponEnchant(hand)
     if not _G.GetWeaponEnchantInfo then return false, 0, 0 end
 
     local count = select("#", GetWeaponEnchantInfo())
-    -- enchantID is declared rather than discarded into a bare `_`, which would
-    -- be a write to the global of that name.
-    local hasMain, mainExpiration, mainCharges, mainEnchantID,
+    -- Declared local: a bare `_` here would write the global of that name on
+    -- every call. The enchant ID itself is genuinely unwanted.
+    local _
+    local hasMain, mainExpiration, mainCharges,
           hasOff, offExpiration, offCharges
 
     if count >= 8 then
-        hasMain, mainExpiration, mainCharges, mainEnchantID,
+        hasMain, mainExpiration, mainCharges, _,
         hasOff, offExpiration, offCharges = GetWeaponEnchantInfo()
     else
         hasMain, mainExpiration, mainCharges,
