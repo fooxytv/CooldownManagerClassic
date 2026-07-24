@@ -317,6 +317,11 @@ function Core:Initialize()
     -- leave the DB uninitialised.
     if not ns.DB.root then ns.DB:Initialize() end
 
+    -- Only now: UnitClass("player") is not reliable at ADDON_LOADED, and
+    -- binding a character to a profile from a nil class is what made several of
+    -- them share one.
+    ns.DB:SelectProfileForCharacter()
+
     ns.Spellbook:Scan()
     ns.Tooltip:Initialize()
 
@@ -356,6 +361,14 @@ function Core:Initialize()
     self.auraEventRegistered = RegisterUnitIfValid("UNIT_AURA", "player")
 
     ns.Print(("loaded (%s). Type /cdmc to choose your spells."):format(ns.Compat.GetProfileFlavor()))
+
+    local shared = ns.DB.repairedFromShared
+    if shared then
+        ns.Print(("|cffffcc00this character was sharing the %q profile with your other characters, which is why it showed another class's spells.|r")
+            :format(shared))
+        ns.Print(("it now has its own %q profile. The old shared layout is untouched: |cffffff00/cdmc profile use %s|r to go back to it.")
+            :format(ns.DB:GetCurrentProfileName(), shared))
+    end
 
     local removed = ns.DB.removedPlaceholders
     if removed and removed > 0 then

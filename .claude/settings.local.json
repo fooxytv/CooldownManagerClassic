@@ -52,7 +52,10 @@
       "Bash(python ci/tests/smoke_test.py)",
       "Bash(python \"C:/Users/simon/AppData/Local/Temp/claude/C--Users-simon-workspaces-home-projects-CooldownManagerClassic/acd3c866-fc45-418e-a7d0-4ddb44d473d8/scratchpad/strip_banners.py\" core/*.lua data/*.lua tracking/*.lua ui/*.lua)",
       "Bash(echo \"=== exit: $? ===\")",
-      "Bash(grep -n \"EditModeManagerFrame\\\\|NewLibrary\\\\|WOW_PROJECT\\\\|IsEditMode\\\\|return$\" libs/LibEQOL/LibEQOLEditMode.lua)"
+      "Bash(grep -n \"EditModeManagerFrame\\\\|NewLibrary\\\\|WOW_PROJECT\\\\|IsEditMode\\\\|return$\" libs/LibEQOL/LibEQOLEditMode.lua)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/World of Warcraft/_classic_era_/WTF/Account//**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/World of Warcraft/_classic_era_/WTF/**)",
+      "Bash(awk '/\\\\[\"profiles\"\\\\]/{f=1} f && /^\\\\t\\\\t\\\\[\"[A-Za-z]/{print NR\": \"$0}' CooldownManagerClassic.lua)"
     ]
   }
 }

@@ -99,7 +99,20 @@ Const.POWER_COLORS = {
 }
 
 Const.HEALTH_COLOR = { 0.15, 0.75, 0.15 }
+
+-- Combo pips warm up as the finisher gets closer, so the hue alone says whether
+-- to spend without counting pips. Every filled pip takes the same colour -- the
+-- point is a block of red at the edge of vision, not a gradient to decode.
+--
+-- Keyed off the maximum rather than a literal 4 and 5, so the same progression
+-- holds if a build ever reports a different maximum.
 Const.COMBO_COLOR = { 1.00, 0.85, 0.10 }
+Const.COMBO_COLORS = {
+    building   = Const.COMBO_COLOR,   -- below the top two
+    nearlyFull = { 1.00, 0.50, 0.10 },
+    full       = { 0.95, 0.15, 0.15 },
+    empty      = { 0.25, 0.25, 0.25, 0.6 },
+}
 
 -- Shaman weapon buffs, rogue poisons and sharpening stones are not auras and
 -- are invisible to every aura API -- they only come from GetWeaponEnchantInfo.

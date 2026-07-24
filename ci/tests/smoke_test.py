@@ -102,15 +102,41 @@ R.cooldownBarPhase = ns.Cooldowns:GetBarState(187880).phase
 -- Resource bars. Disabled is the default, and a disabled bar must still become
 -- visible and draggable when unlocked -- otherwise the only setting that can
 -- enable it sits behind a frame nobody can click.
-local health = ns.ResourceBar.Create("health")
-ns.DB:GetBar("health").enabled = false
-health:Layout()
+--
+-- All three are created, not just health: each key reads a different API, and
+-- the combo path in particular is the one that recursed into a stack overflow.
+for _, key in ipairs(ns.Constants.BAR_ORDER) do
+    ns.ResourceBar.Create(key)
+    ns.DB:GetBar(key).enabled = false
+    ns.bars[key]:Layout()
+end
+
+local health, combo = ns.bars.health, ns.bars.combo
 R.barHiddenWhenDisabled = health.frame:IsShown()
 
 ns.EditMode:SetManualUnlock(true)
 R.barShownWhenUnlocked = health.frame:IsShown()
 R.barDraggable = health.unlocked and true or false
 R.barRendersWhenUnlocked = health.text:GetText()
+R.comboShownWhenUnlocked = combo.frame:IsShown()
+R.comboPips = #combo.pips
+
+-- Combo pip colour tracks how close the finisher is. Filled pips all take the
+-- same colour; unfilled ones stay grey whatever the count.
+local function ComboFillAt(points)
+    _G.GetComboPoints = function() return points end
+    combo:Update()
+    local filled = combo.pips[math.max(points, 1)].__color
+    return ("%.2f/%.2f/%.2f"):format(filled[1], filled[2], filled[3])
+end
+
+R.comboAt3 = ComboFillAt(3)
+R.comboAt4 = ComboFillAt(4)
+R.comboAt5 = ComboFillAt(5)
+R.comboUnfilledAt5 = combo.pips[5].__color[1]
+ComboFillAt(2)
+R.comboUnfilledAt2 = ("%.2f"):format(combo.pips[5].__color[1])
+_G.GetComboPoints = function() return 0 end
 
 ns.EditMode:SetManualUnlock(false)
 R.barHiddenAgain = health.frame:IsShown()
@@ -143,7 +169,92 @@ R.shareShown = _G.CDMCProfileShare:IsShown()
 ns.EditModePanel:Show("essential")
 R.panelShown = _G.CDMCEditModePanel:IsShown()
 
+-- Every tab must render. A panel tab builds its own widgets instead of spell
+-- sections, so a mistake there throws rather than looking merely empty.
+ns.SpellPicker:Show("profiles")
+R.profilesTabShown = _G.CDMCSettingsFrame:IsShown()
+ns.SpellPicker:Show("cooldowns")
+
 R.artMask = ns.Icon.art.mask and true or false
+return R
+"""
+
+# Profile binding is its own scenario: it needs a fresh DB per simulated
+# character, and it turns on the ADDON_LOADED race that caused the real bug.
+PROFILE_SCRIPT = """
+local ns = __ns
+local R = {}
+
+local realUnitClass, realUnitName = _G.UnitClass, _G.UnitName
+
+local function LoginAs(name, class, classReadyAtAddonLoaded)
+    _G.UnitName = function(unit) if unit == "player" then return name end return realUnitName(unit) end
+    _G.UnitClass = function() return nil end
+    ns.DB:Initialize()                       -- ADDON_LOADED
+    if classReadyAtAddonLoaded then
+        -- Not actually used for binding any more; proves it does not matter.
+        _G.UnitClass = function() return class, class:upper(), 1 end
+        ns.DB:Initialize()
+    end
+    _G.UnitClass = function() return class, class:upper(), 1 end
+    ns.DB:SelectProfileForCharacter()        -- PLAYER_LOGIN
+    return ns.DB:GetCurrentProfileName()
+end
+
+-- The regression guard: ADDON_LOADED must not bind a character to anything.
+-- The class is not known that early, and binding from a nil class is what put
+-- several characters on one shared profile.
+_G.UnitName = function(unit) if unit == "player" then return "Bindtest" end return realUnitName(unit) end
+_G.UnitClass = function() return nil end
+ns.DB.root = nil
+ns.DB:Initialize()
+ns.DB.root.profileKeys = {}
+ns.DB:Initialize()
+R.noBindAtAddonLoaded = (ns.DB.root.profileKeys["Bindtest - " .. GetRealmName()] == nil)
+
+-- A rogue and a shaman, with the class unavailable at ADDON_LOADED both times.
+-- This is exactly the race that put two characters on one profile.
+R.rogueProfile = LoginAs("Varkha", "Rogue", false)
+R.shamanProfile = LoginAs("Shadee", "Shaman", false)
+R.profilesDiffer = (R.rogueProfile ~= R.shamanProfile)
+
+-- Editing one must not reach the other.
+ns.DB.root.profiles[R.rogueProfile].groups.essential.spells = { { spellID = 1752 } }
+R.shamanUntouched = #ns.DB.root.profiles[R.shamanProfile].groups.essential.spells
+
+-- Repair: two characters already stuck on a shared Default, as found in a live
+-- SavedVariables file. Each should be moved to its own class profile.
+local realm = GetRealmName()
+ns.DB.root.profileKeys = {
+    ["Varkha - " .. realm] = "Default",
+    ["Shadee - " .. realm] = "Default",
+}
+ns.DB.repairedFromShared = nil
+R.repairedShaman = LoginAs("Shadee", "Shaman", false)
+R.repairFlagged = tostring(ns.DB.repairedFromShared)
+R.defaultKept = ns.DB.root.profiles["Default"] ~= nil
+
+-- The headline flow behind the Profiles tab: a second shaman copies the first
+-- shaman's layout, then diverges from it without editing the source.
+ns.DB.root.profiles["Shaman"].groups.essential.spells = { { spellID = 403 } }
+ns.DB:CreateProfile("Shaman Alt", "Shaman")
+R.copyInheritsLayout = #ns.DB.root.profiles["Shaman Alt"].groups.essential.spells
+
+ns.DB:SetProfile("Shaman Alt")
+ns.DB:GetGroup("essential").spells = { { spellID = 403 }, { spellID = 421 } }
+R.copyDiverged = #ns.DB.root.profiles["Shaman Alt"].groups.essential.spells
+R.copySourceUntouched = #ns.DB.root.profiles["Shaman"].groups.essential.spells
+
+R.duplicateNameRejected = select(1, ns.DB:CreateProfile("Shaman Alt")) == false
+R.deleteInUseRejected = select(1, ns.DB:DeleteProfile("Shaman Alt")) == false
+
+-- A lone character deliberately on Default is left where it is.
+ns.DB.root.profileKeys = { ["Solo - " .. realm] = "Default" }
+ns.DB.repairedFromShared = nil
+R.soloProfile = LoginAs("Solo", "Warrior", false)
+R.soloNotRepaired = ns.DB.repairedFromShared == nil
+
+_G.UnitClass, _G.UnitName = realUnitClass, realUnitName
 return R
 """
 
@@ -171,6 +282,12 @@ def run(with_art):
     check("bar shown when unlocked", results["barShownWhenUnlocked"], True)
     check("bar draggable when unlocked", results["barDraggable"], True)
     check("bar renders when unlocked", results["barRendersWhenUnlocked"], "100 / 100")
+    check("combo bar shown when unlocked", results["comboShownWhenUnlocked"], True)
+    check("combo bar pips", results["comboPips"], 5)
+    check("combo fill at 3 (yellow)", results["comboAt3"], "1.00/0.85/0.10")
+    check("combo fill at 4 (orange)", results["comboAt4"], "1.00/0.50/0.10")
+    check("combo fill at 5 (red)", results["comboAt5"], "0.95/0.15/0.15")
+    check("combo unfilled stays grey", results["comboUnfilledAt2"], "0.25")
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
@@ -180,11 +297,40 @@ def run(with_art):
     check("picker opens", results["pickerShown"], True)
     check("share window opens", results["shareShown"], True)
     check("edit panel opens", results["panelShown"], True)
+    check("profiles tab renders", results["profilesTabShown"], True)
     check("atlas probe", results["artMask"], with_art)
+
+
+def run_profiles():
+    print("\nsmoke_test [per-character profiles]")
+    try:
+        lua = load_addon(True)
+        results = dict(lua.execute(PROFILE_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[profiles] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("ADDON_LOADED does not bind", results["noBindAtAddonLoaded"], True)
+    check("rogue gets its own profile", results["rogueProfile"], "Rogue")
+    check("shaman gets its own profile", results["shamanProfile"], "Shaman")
+    check("profiles are separate", results["profilesDiffer"], True)
+    check("editing one leaves the other", results["shamanUntouched"], 0)
+    check("shared Default is repaired", results["repairedShaman"], "Shaman")
+    check("repair is reported", results["repairFlagged"], "Default")
+    check("repair keeps the old profile", results["defaultKept"], True)
+    check("copy inherits the source layout", results["copyInheritsLayout"], 1)
+    check("copy diverges from source", results["copyDiverged"], 2)
+    check("copy leaves the source alone", results["copySourceUntouched"], 1)
+    check("duplicate name rejected", results["duplicateNameRejected"], True)
+    check("deleting the in-use profile rejected", results["deleteInUseRejected"], True)
+    check("lone Default user untouched", results["soloProfile"], "Default")
+    check("lone Default not flagged", results["soloNotRepaired"], True)
 
 
 run(with_art=True)
 run(with_art=False)
+run_profiles()
 
 print()
 if failures:

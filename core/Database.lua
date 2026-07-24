@@ -38,9 +38,15 @@ end
 ns.ApplyDefaults = ApplyDefaults
 
 -- Keyed on class, so all your rogues share a layout but your shaman gets its own.
+--
+-- Returns nil rather than falling back to "Default" when the class is not known
+-- yet. That fallback silently bound every character that hit it to one shared
+-- profile, so a shaman inherited a rogue's abilities and neither could be
+-- customised separately -- see SelectProfileForCharacter.
 function DB.GetDefaultProfileNameForPlayer()
     local localizedClass = UnitClass("player")
-    return localizedClass or "Default"
+    if not localizedClass or localizedClass == "" then return nil end
+    return localizedClass
 end
 
 function DB.GetCharacterKey()
@@ -200,13 +206,52 @@ function DB:Initialize()
     -- After the profile table exists, since migrations rewrite stored profiles.
     self.migratedFrom = self:RunMigrations(root)
 
-    -- Class-named rather than one global Default: the tracked spells are class
-    -- abilities, so a shared profile means every alt inherits another class's
-    -- list. Characters with an existing assignment keep it.
+    -- Deliberately not bound to a character here. This runs on ADDON_LOADED,
+    -- which does not guarantee UnitClass("player") has data yet, and choosing a
+    -- profile from a nil class is what put several characters on one. Default
+    -- is a placeholder so nothing between here and PLAYER_LOGIN sees a nil
+    -- profile; SelectProfileForCharacter replaces it.
+    self.currentProfileName = "Default"
+    self.profile = root.profiles["Default"]
+    self:NormalizeProfile(self.profile)
+
+    return self.profile
+end
+
+-- Was this character put on "Default" by the old nil-class fallback?
+--
+-- Signature: pointed at "Default" while at least one other character is too,
+-- and this character has a class profile it could be using instead. A single
+-- character deliberately sitting on Default is left alone.
+local function IsSharedDefaultBinding(root, charKey, profileName, className)
+    if profileName ~= "Default" then return false end
+    if not className or className == "Default" then return false end
+
+    for key, name in pairs(root.profileKeys) do
+        if name == "Default" and key ~= charKey then return true end
+    end
+    return false
+end
+
+-- Binds this character to its profile. Called at PLAYER_LOGIN, where the class
+-- is finally reliable. An existing assignment is kept, unless it was made by
+-- the shared-Default bug.
+function DB:SelectProfileForCharacter()
+    local root = self.root
     local charKey = DB.GetCharacterKey()
+    local className = DB.GetDefaultProfileNameForPlayer()
     local profileName = root.profileKeys[charKey]
+
+    if profileName and IsSharedDefaultBinding(root, charKey, profileName, className) then
+        -- Default keeps its contents: another character is still using it, and
+        -- it may hold this one's real layout. Core reports the switch so it can
+        -- be undone with /cdmc profile use Default.
+        self.repairedFromShared = profileName
+        profileName = nil
+    end
+
     if not profileName or not root.profiles[profileName] then
-        profileName = DB.GetDefaultProfileNameForPlayer()
+        profileName = className or profileName or "Default"
         if not root.profiles[profileName] then
             root.profiles[profileName] = DefaultProfile()
         end

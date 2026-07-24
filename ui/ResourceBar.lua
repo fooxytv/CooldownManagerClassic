@@ -25,10 +25,14 @@ local function GetPowerColor(token)
 end
 
 -- Classic keeps combo points on the target rather than as a player power, so
--- GetComboPoints is tried before the modern power type.
-local function GetComboPoints()
+-- the GetComboPoints API is tried before the modern power type.
+--
+-- Deliberately not named GetComboPoints: `local function f` binds f before the
+-- body compiles, so a bare call to the API inside would resolve to this
+-- function and recurse until the stack blew.
+local function ReadComboPoints()
     if _G.GetComboPoints then
-        local points = GetComboPoints("player", "target")
+        local points = _G.GetComboPoints("player", "target")
         if points then return points end
     end
 
@@ -39,7 +43,7 @@ local function GetComboPoints()
     return 0
 end
 
-local function GetMaxComboPoints()
+local function ReadMaxComboPoints()
     if _G.UnitPowerMax and _G.Enum and Enum.PowerType and Enum.PowerType.ComboPoints then
         local max = UnitPowerMax("player", Enum.PowerType.ComboPoints)
         if max and max > 0 then return max end
@@ -67,7 +71,7 @@ local function ReadResource(key)
 
     if key == "combo" then
         local c = Const.COMBO_COLOR
-        return GetComboPoints(), GetMaxComboPoints(), c[1], c[2], c[3]
+        return ReadComboPoints(), ReadMaxComboPoints(), c[1], c[2], c[3]
     end
 
     return 0, 0, 0.6, 0.6, 0.6
@@ -163,7 +167,7 @@ end
 function Bar:LayoutPips(width, height, appearance)
     self.statusBar:Hide()
 
-    local maxPoints = GetMaxComboPoints()
+    local maxPoints = ReadMaxComboPoints()
     local spacing = appearance.pipSpacing or Const.DEFAULT_BAR_APPEARANCE.pipSpacing
     local pipWidth = (width - spacing * (maxPoints - 1)) / maxPoints
 
@@ -198,12 +202,21 @@ function Bar:Update()
     local current, max, r, g, b = ReadResource(self.key)
 
     if self.key == "combo" then
-        local c = Const.COMBO_COLOR
+        local colors = Const.COMBO_COLORS
+
+        local fill = colors.building
+        if current >= max then
+            fill = colors.full
+        elseif current == max - 1 then
+            fill = colors.nearlyFull
+        end
+
+        local empty = colors.empty
         for index, pip in ipairs(self.pips) do
             if index <= current then
-                pip:SetColorTexture(c[1], c[2], c[3], 1)
+                pip:SetColorTexture(fill[1], fill[2], fill[3], 1)
             else
-                pip:SetColorTexture(0.25, 0.25, 0.25, 0.6)
+                pip:SetColorTexture(empty[1], empty[2], empty[3], empty[4])
             end
         end
         self.text:Hide()
@@ -254,7 +267,7 @@ function Bar:UpdateVisibility()
     end
 
     -- Or a class with no combo points shows an empty row of pips forever.
-    if visible and self.key == "combo" and GetMaxComboPoints() == 0 then
+    if visible and self.key == "combo" and ReadMaxComboPoints() == 0 then
         visible = false
     end
 
