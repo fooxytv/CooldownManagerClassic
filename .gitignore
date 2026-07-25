@@ -6,3 +6,11 @@ BlizzardInterfaceCode/
 __pycache__/
 *.zip
 .DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+CLAUDE.md
