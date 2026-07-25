@@ -55,14 +55,19 @@ end
 -- pinned by a profile override. Returns a source key from CLASS_RESOURCE_INFO,
 -- or nil when this character has no class resource to show (the bar then hides).
 local function ResolveClassResource(override)
-    if override == "none" then return nil end
-    if override and Const.CLASS_RESOURCE_INFO[override] then return override end
+    local source
+    if override == "none" then
+        return nil
+    elseif override and Const.CLASS_RESOURCE_INFO[override] then
+        source = override
+    else
+        local _, classToken = UnitClass("player")
+        source = Const.CLASS_RESOURCE_SOURCE[classToken or ""]
+    end
 
-    local _, classToken = UnitClass("player")
-    local source = Const.CLASS_RESOURCE_SOURCE[classToken or ""]
-
-    -- Maelstrom Weapon only exists in Season of Discovery; a vanilla-Era shaman
-    -- has no such resource, so the bar hides rather than showing empty pips.
+    -- Maelstrom Weapon only exists in Season of Discovery. Gate it whether the
+    -- source was auto-detected or pinned by a profile, so a non-SoD character
+    -- never shows an always-empty Maelstrom bar.
     if source == "maelstrom" and not ns.Compat.isSoD then
         return nil
     end
@@ -85,13 +90,16 @@ local function SoulShardDisplay(count)
     local size = Const.SOUL_SHARD_TIER_SIZE
     local colors = Const.SOUL_SHARD_COLORS
 
-    local tier, within
     if count <= 0 then
-        tier, within = 0, 0
-    else
-        tier = math.floor((count - 1) / size)
-        within = count - tier * size
+        return colors[1], 0, size
     end
+
+    -- Colour steps with each completed tier -- "how many fives" -- so an exact
+    -- multiple reads as that tier's colour with a full bar rather than the
+    -- previous tier's.
+    local tier = math.floor(count / size)
+    local within = count % size
+    if within == 0 then within = size end
 
     return colors[math.min(tier + 1, #colors)], within, size
 end
@@ -290,6 +298,11 @@ function Bar:UpdateClassResource(appearance)
 
     local info = source and Const.CLASS_RESOURCE_INFO[source]
     if not info then
+        -- No class resource (a mage, or resourceSource "none"). Clear any stale
+        -- fill so an unlocked bar in Edit Mode does not show leftover pips or a
+        -- half-filled bar from a previous character/profile.
+        self.statusBar:SetValue(0)
+        for _, pip in ipairs(self.pips) do pip:Hide() end
         self.text:Hide()
         return
     end
