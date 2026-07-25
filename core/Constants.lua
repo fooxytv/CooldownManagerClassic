@@ -81,6 +81,8 @@ Const.DEFAULT_BAR_APPEARANCE = {
     showText = true,
     -- Combo points only: drawn as separate pips rather than a filled bar.
     pipSpacing = 2,
+    -- LibSharedMedia statusbar name, "" meaning the built-in texture.
+    barTexture = "",
 }
 
 Const.BAR_DEFAULT_Y = {
@@ -183,6 +185,11 @@ Const.DEFAULT_APPEARANCE = {
     -- Scales the swipe's alpha. Lower it when the icons are small and the
     -- sweep is competing with the timer text for legibility.
     swipeOpacity = 100,
+
+    -- LibSharedMedia names, "" meaning the built-in look. fontFace overrides the
+    -- typeface of the timer / count / bar text; barTexture the fill of a bar.
+    fontFace = "",
+    barTexture = "",
 }
 
 Const.ORIENTATIONS = { "Horizontal", "Vertical" }

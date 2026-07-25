@@ -87,6 +87,9 @@ local function CreateBar(parent)
         fill:SetTexture(Const.FALLBACK_BAR_TEXTURE)
     end
     bar:SetStatusBarTexture(fill)
+    -- Kept so Configure can swap in a LibSharedMedia texture and restore the
+    -- built-in one when the choice is cleared.
+    frame.fillTexture = fill
 
     local background = bar:CreateTexture(nil, "BACKGROUND")
     if BuffBar.art.barBG then
@@ -169,12 +172,13 @@ local function ApplyBarContent(frame, content, scale)
     frame.bar:SetHeight(T.barHeight * scale)
 end
 
-local function ApplyFont(fontString, fontObject, size)
+local function ApplyFont(fontString, fontObject, size, fontFace)
     if fontObject and _G[fontObject] then
         fontString:SetFontObject(_G[fontObject])
     end
 
     local file, _, flags = fontString:GetFont()
+    file = ns.Media.Fetch("font", fontFace, file)
     if file and size then
         fontString:SetFont(file, size, flags)
     end
@@ -221,6 +225,17 @@ function BuffBar:Configure(frame, entry, spellID, appearance, groupKey)
     local fill = Const.BAR_FILL_COLOR
     frame.bar:SetStatusBarColor(fill[1], fill[2], fill[3])
 
+    -- A LibSharedMedia bar texture overrides the atlas / fallback chosen at
+    -- build; clearing the choice restores the built-in look.
+    local barPath = ns.Media.Fetch("statusbar", appearance.barTexture)
+    if barPath then
+        frame.fillTexture:SetTexture(barPath)
+    elseif BuffBar.art.bar then
+        frame.fillTexture:SetAtlas(Const.ART.bar)
+    else
+        frame.fillTexture:SetTexture(Const.FALLBACK_BAR_TEXTURE)
+    end
+
     if not BuffBar.art.pip then
         -- The atlas carries its own size; the fallback needs one given to it.
         frame.pip:SetSize(math.max(2, 2 * scale), barHeight + 4 * scale)
@@ -237,10 +252,10 @@ function BuffBar:Configure(frame, entry, spellID, appearance, groupKey)
     frame.timeText:SetPoint("RIGHT", frame.bar, "RIGHT", T.durationInset * scale, 0)
 
     local fontSize = math.max(8, barHeight * 0.62)
-    ApplyFont(frame.nameText, "NumberFontNormal", fontSize)
-    ApplyFont(frame.timeText, "NumberFontNormal", fontSize)
+    ApplyFont(frame.nameText, "NumberFontNormal", fontSize, appearance.fontFace)
+    ApplyFont(frame.timeText, "NumberFontNormal", fontSize, appearance.fontFace)
     ApplyFont(frame.countText, appearance.countFont or "NumberFontNormalSmall",
-        math.max(8, height * 0.30))
+        math.max(8, height * 0.30), appearance.fontFace)
 
     -- Here rather than in Update: the name only changes with the entry.
     frame.nameText:SetText(ns.Spellbook:GetName(spellID) or (entry and entry.name) or "")

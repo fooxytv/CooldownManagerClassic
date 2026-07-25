@@ -133,6 +133,18 @@ local function SimpleChoices(values)
     end
 end
 
+-- LibSharedMedia names for a picker, led by a "Default" entry (value "") for the
+-- built-in look. Empty of media without the library, which still leaves Default.
+local function MediaChoices(mediatype)
+    return function()
+        local choices = { { value = "", label = "Default" } }
+        for _, name in ipairs(ns.Media.List(mediatype)) do
+            choices[#choices + 1] = { value = name, label = name }
+        end
+        return choices
+    end
+end
+
 local function BuildPanel()
     if panel then return panel end
 
@@ -196,7 +208,13 @@ local function BuildPanel()
 
     panel.showTooltips = CreateCheckbox(panel, "Show Tooltips", "showTooltips")
     panel.showTooltips:SetPoint("TOPLEFT", 20, y)
-    y = y - 32
+    y = y - 34
+
+    -- Common to every group: the font face applies to the timer / count / bar
+    -- text alike.
+    panel.fontFace = CreateDropdown(panel, "Font", "fontFace", MediaChoices("font"))
+    panel.fontFace:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
 
     -- Buff-only rows. Hidden for the cooldown groups, with the buttons below
     -- sliding up rather than leaving a hole mid-panel.
@@ -232,6 +250,11 @@ local function BuildPanel()
     panel.barMode = CreateDropdown(panel, "Bar Shows", "barMode",
         SimpleChoices(Const.BAR_MODES))
     panel.barMode:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
+
+    panel.barTexture = CreateDropdown(panel, "Bar Texture", "barTexture",
+        MediaChoices("statusbar"))
+    panel.barTexture:SetPoint("TOPLEFT", 16, y)
     y = y - 46
 
     panel.buffBottom = y
@@ -305,11 +328,12 @@ function Panel:Refresh()
     local hasBarMode = Const.DURATION_BAR_GROUPS[currentGroup] and true or false
 
     local sliders = { panel.rows, panel.iconSize, panel.spacing, panel.opacity }
-    local dropdowns = { panel.orientation, panel.iconDirection, panel.visibility }
+    local dropdowns = { panel.orientation, panel.iconDirection, panel.visibility, panel.fontFace }
     if isBarGroup then
         sliders[#sliders + 1] = panel.barWidth
         sliders[#sliders + 1] = panel.barHeight
         dropdowns[#dropdowns + 1] = panel.barContent
+        dropdowns[#dropdowns + 1] = panel.barTexture
     end
     if hasDisplayToggle then
         dropdowns[#dropdowns + 1] = panel.display
@@ -349,6 +373,13 @@ function Panel:Refresh()
     if hasBarMode then
         panel.barMode:ClearAllPoints()
         panel.barMode:SetPoint("TOPLEFT", 16, rowY)
+        rowY = rowY - BAR_ROW
+    end
+
+    panel.barTexture:SetShown(isBarGroup)
+    if isBarGroup then
+        panel.barTexture:ClearAllPoints()
+        panel.barTexture:SetPoint("TOPLEFT", 16, rowY)
         rowY = rowY - BAR_ROW
     end
 
