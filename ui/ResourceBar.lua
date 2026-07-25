@@ -51,6 +51,51 @@ local function ReadMaxComboPoints()
     return _G.MAX_COMBO_POINTS or 5
 end
 
+-- The "combo" bar is adaptive: which resource it shows is chosen by class, or
+-- pinned by a profile override. Returns a source key from CLASS_RESOURCE_INFO,
+-- or nil when this character has no class resource to show (the bar then hides).
+local function ResolveClassResource(override)
+    if override == "none" then return nil end
+    if override and Const.CLASS_RESOURCE_INFO[override] then return override end
+
+    local _, classToken = UnitClass("player")
+    local source = Const.CLASS_RESOURCE_SOURCE[classToken or ""]
+
+    -- Maelstrom Weapon only exists in Season of Discovery; a vanilla-Era shaman
+    -- has no such resource, so the bar hides rather than showing empty pips.
+    if source == "maelstrom" and not ns.Compat.isSoD then
+        return nil
+    end
+
+    return source
+end
+
+--- Current and maximum value for a pip source (combo points or Maelstrom).
+local function ReadPipSource(source)
+    if source == "maelstrom" then
+        return ns.Auras:StacksByName(Const.MAELSTROM_WEAPON_AURA), Const.MAELSTROM_MAX_STACKS
+    end
+    return ReadComboPoints(), ReadMaxComboPoints()
+end
+
+--- Splits a soul-shard total into its tier colour and how far it fills the
+--- current tier. count 1..5 fills tier 1, 6..10 tier 2, and so on; the colour
+--- steps each full tier and clamps at the brightest once the palette runs out.
+local function SoulShardDisplay(count)
+    local size = Const.SOUL_SHARD_TIER_SIZE
+    local colors = Const.SOUL_SHARD_COLORS
+
+    local tier, within
+    if count <= 0 then
+        tier, within = 0, 0
+    else
+        tier = math.floor((count - 1) / size)
+        within = count - tier * size
+    end
+
+    return colors[math.min(tier + 1, #colors)], within, size
+end
+
 local function ReadResource(key)
     if key == "health" then
         local current = UnitHealth("player") or 0
@@ -69,10 +114,8 @@ local function ReadResource(key)
         return current, max, r, g, b
     end
 
-    if key == "combo" then
-        local c = Const.COMBO_COLOR
-        return ReadComboPoints(), ReadMaxComboPoints(), c[1], c[2], c[3]
-    end
+    -- The "combo" bar is the adaptive class-resource bar and is read in Update
+    -- rather than here, because it may render as pips or as a counted bar.
 
     return 0, 0, 0.6, 0.6, 0.6
 end
@@ -153,7 +196,22 @@ function Bar:Layout()
     self.frame:SetSize(width, height)
 
     if self.key == "combo" then
-        self:LayoutPips(width, height, appearance)
+        -- Resolve which resource this character's class-resource bar shows, and
+        -- render as pips (combo points, Maelstrom) or a counted bar (soul
+        -- shards) accordingly.
+        local source = ResolveClassResource(appearance.resourceSource)
+        self.source = source
+
+        local info = source and Const.CLASS_RESOURCE_INFO[source]
+        self.label:SetText((info and info.label) or Const.BAR_LABELS.combo)
+
+        if info and info.mode == "pips" then
+            local _, maxPoints = ReadPipSource(source)
+            self:LayoutPips(width, height, appearance, maxPoints)
+        else
+            self.statusBar:Show()
+            for _, pip in ipairs(self.pips) do pip:Hide() end
+        end
     else
         self.statusBar:Show()
         for _, pip in ipairs(self.pips) do pip:Hide() end
@@ -164,10 +222,10 @@ function Bar:Layout()
     self:Update()
 end
 
-function Bar:LayoutPips(width, height, appearance)
+function Bar:LayoutPips(width, height, appearance, maxPoints)
     self.statusBar:Hide()
 
-    local maxPoints = ReadMaxComboPoints()
+    maxPoints = maxPoints or ReadMaxComboPoints()
     local spacing = appearance.pipSpacing or Const.DEFAULT_BAR_APPEARANCE.pipSpacing
     local pipWidth = (width - spacing * (maxPoints - 1)) / maxPoints
 
@@ -199,19 +257,62 @@ function Bar:Update()
     if settings.enabled == false and not self.unlocked then return end
 
     local appearance = settings.appearance
-    local current, max, r, g, b = ReadResource(self.key)
 
     if self.key == "combo" then
-        local colors = Const.COMBO_COLORS
+        self:UpdateClassResource(appearance)
+        return
+    end
 
-        local fill = colors.building
-        if current >= max then
-            fill = colors.full
-        elseif current == max - 1 then
-            fill = colors.nearlyFull
+    local current, max, r, g, b = ReadResource(self.key)
+
+    self.statusBar:SetStatusBarColor(r, g, b)
+    self.statusBar:SetMinMaxValues(0, math.max(max, 1))
+    self.statusBar:SetValue(current)
+
+    if appearance.showText ~= false and max > 0 then
+        self.text:SetText(("%d / %d"):format(current, max))
+        self.text:Show()
+    else
+        self.text:Hide()
+    end
+end
+
+--- Refreshes the adaptive class-resource bar. Combo points and Maelstrom render
+--- as pips (combo keeps the warm-up gradient); soul shards fill the status bar
+--- within the current tier and print the running total.
+function Bar:UpdateClassResource(appearance)
+    -- Layout records the resolved source; fall back to resolving here in case
+    -- Update runs first (e.g. a driving event before the first Layout).
+    local source = self.source
+    if source == nil then
+        source = ResolveClassResource(appearance.resourceSource)
+    end
+
+    local info = source and Const.CLASS_RESOURCE_INFO[source]
+    if not info then
+        self.text:Hide()
+        return
+    end
+
+    if info.mode == "pips" then
+        local current, max = ReadPipSource(source)
+        local empty = Const.COMBO_COLORS.empty
+
+        -- Combo keeps its warm-up gradient (hue says whether to spend); other
+        -- pip sources use their own flat fill colour.
+        local fill
+        if source == "combo" then
+            local colors = Const.COMBO_COLORS
+            fill = colors.building
+            if current >= max then
+                fill = colors.full
+            elseif current == max - 1 then
+                fill = colors.nearlyFull
+            end
+        else
+            fill = Const.MAELSTROM_COLOR
         end
 
-        local empty = colors.empty
         for index, pip in ipairs(self.pips) do
             if index <= current then
                 pip:SetColorTexture(fill[1], fill[2], fill[3], 1)
@@ -223,12 +324,16 @@ function Bar:Update()
         return
     end
 
-    self.statusBar:SetStatusBarColor(r, g, b)
-    self.statusBar:SetMinMaxValues(0, math.max(max, 1))
-    self.statusBar:SetValue(current)
+    -- Counted bar: soul shards.
+    local count = ns.Compat.GetItemCount(Const.SOUL_SHARD_ITEM_ID)
+    local color, within, size = SoulShardDisplay(count)
 
-    if appearance.showText ~= false and max > 0 then
-        self.text:SetText(("%d / %d"):format(current, max))
+    self.statusBar:SetStatusBarColor(color[1], color[2], color[3])
+    self.statusBar:SetMinMaxValues(0, size)
+    self.statusBar:SetValue(within)
+
+    if appearance.showText ~= false then
+        self.text:SetText(("%d"):format(count))
         self.text:Show()
     else
         self.text:Hide()
@@ -266,8 +371,11 @@ function Bar:UpdateVisibility()
         visible = not InCombat()
     end
 
-    -- Or a class with no combo points shows an empty row of pips forever.
-    if visible and self.key == "combo" and ReadMaxComboPoints() == 0 then
+    -- The adaptive class-resource bar hides itself for a character with no class
+    -- resource at all (a mage, say), rather than sitting there empty.
+    if visible and self.key == "combo"
+        and not ResolveClassResource(appearance.resourceSource)
+    then
         visible = false
     end
 

@@ -105,6 +105,10 @@ R.cooldownBarPhase = ns.Cooldowns:GetBarState(187880).phase
 --
 -- All three are created, not just health: each key reads a different API, and
 -- the combo path in particular is the one that recursed into a stack overflow.
+--
+-- The "combo" bar is now the adaptive class-resource bar, so it only shows combo
+-- pips for a combo-point class -- run these as a Rogue.
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
 for _, key in ipairs(ns.Constants.BAR_ORDER) do
     ns.ResourceBar.Create(key)
     ns.DB:GetBar(key).enabled = false
@@ -137,6 +141,23 @@ R.comboUnfilledAt5 = combo.pips[5].__color[1]
 ComboFillAt(2)
 R.comboUnfilledAt2 = ("%.2f"):format(combo.pips[5].__color[1])
 _G.GetComboPoints = function() return 0 end
+
+-- The adaptive class-resource bar: as a Rogue the source is combo points.
+R.classResourceSource = combo.source
+
+-- As a Warlock the same bar shows soul shards as a counted bar with the running
+-- total. Shards have no cap, so this is a filled bar, not pips.
+_G.UnitClass = function() return "Warlock", "WARLOCK", 9 end
+_G.GetItemCount = function() return 7 end
+ns.DB:GetBar("combo").enabled = true
+local shardBar = ns.ResourceBar.Create("combo")
+shardBar:Layout(); shardBar:Update()
+R.shardSource = shardBar.source
+R.shardText = shardBar.text:GetText()
+
+-- Back to the stub default so nothing downstream sees the test's class.
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
+_G.GetItemCount = function() return 0 end
 
 ns.EditMode:SetManualUnlock(false)
 R.barHiddenAgain = health.frame:IsShown()
@@ -288,6 +309,9 @@ def run(with_art):
     check("combo fill at 4 (orange)", results["comboAt4"], "1.00/0.50/0.10")
     check("combo fill at 5 (red)", results["comboAt5"], "0.95/0.15/0.15")
     check("combo unfilled stays grey", results["comboUnfilledAt2"], "0.25")
+    check("class resource source (rogue)", results["classResourceSource"], "combo")
+    check("class resource source (warlock)", results["shardSource"], "soulshards")
+    check("class resource shard total", results["shardText"], "7")
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)

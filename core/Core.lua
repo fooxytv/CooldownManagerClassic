@@ -169,6 +169,9 @@ local EVENTS = {
     "PLAYER_TARGET_CHANGED",
     "RUNE_UPDATED",
     "ENGRAVING_SUCCESS",
+    -- Soul shards are bag items, so the class-resource bar tracks them through
+    -- bag changes rather than a power event.
+    "BAG_UPDATE_DELAYED",
 }
 
 -- Registered for the player alone. Unfiltered, UNIT_POWER_FREQUENT alone means
@@ -195,6 +198,9 @@ local RESOURCE_ONLY_EVENTS = {
     UNIT_POWER_FREQUENT = true,
     UNIT_MAXPOWER = true,
     UNIT_DISPLAYPOWER = true,
+    -- Bag changes only move the soul-shard class-resource bar; they must not
+    -- trigger a full cooldown re-scan and icon re-render.
+    BAG_UPDATE_DELAYED = true,
 }
 
 -- Events that mean "the set of castable spells may have changed".

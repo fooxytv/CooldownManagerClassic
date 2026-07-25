@@ -58,6 +58,23 @@ function Auras:Lookup(spellID)
     return indexByName[name]
 end
 
+-- The player aura with this exact name, or nil. Reaches an aura by name so a
+-- caller that knows the buff's name but not a stable spell ID (Maelstrom Weapon
+-- across ranks, a proc buff) can still find it.
+function Auras:LookupByName(name)
+    if not name then return nil end
+    self:RefreshIndex()
+    return indexByName[name]
+end
+
+-- Current stack count of a player aura found by name, or 0 if it is not up.
+-- Used by the class-resource bar for Maelstrom Weapon, an ordinary stacking buff.
+function Auras:StacksByName(name)
+    local data = self:LookupByName(name)
+    if not data then return 0 end
+    return data.applications or data.count or 0
+end
+
 -- Longest remaining time seen per hand. GetWeaponEnchantInfo reports only what
 -- is left, never the original duration, so the swipe needs a high-water mark to
 -- sweep against. Self-corrects on the next reapplication.
