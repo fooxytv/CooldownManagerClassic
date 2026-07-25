@@ -11,6 +11,7 @@
 libs\LibStub\LibStub.lua
 libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+libs\LibCustomGlow\LibCustomGlow-1.0.lua
 
 # LibEQOL Edit Mode integration.
 libs\LibEQOL\LibEQOLSettingsMode.lua
@@ -32,6 +33,7 @@ core\Tooltip.lua
 # Tracking
 tracking\Cooldowns.lua
 tracking\Auras.lua
+tracking\Highlights.lua
 
 # UI
 ui\Icon.lua
