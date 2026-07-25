@@ -196,6 +196,21 @@ ns.SpellPicker:Show("profiles")
 R.profilesTabShown = _G.CDMCSettingsFrame:IsShown()
 ns.SpellPicker:Show("cooldowns")
 
+-- LibSharedMedia wrapper: the library is absent under the stub, so an empty or
+-- unknown key falls back to the built-in path.
+R.mediaFontFallback = ns.Media.Fetch("font", "", "FALLBACK.ttf")
+R.mediaBarFallback = ns.Media.Fetch("statusbar", "Unregistered", "FALLBACK.tga")
+
+-- A bar with a chosen texture still lays out (falls back, no error).
+ns.DB:GetBar("power").appearance.barTexture = "Some LSM Bar"
+ns.bars.power:Layout()
+R.mediaBarLaidOut = (ns.bars.power.frame:GetWidth() or 0) > 0
+
+-- An icon group with a chosen font still configures (falls back, no error).
+buffs.appearance.fontFace = "Some LSM Font"
+group:Layout()
+R.mediaFontLaidOut = group.icons[1] ~= nil
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -322,6 +337,10 @@ def run(with_art):
     check("share window opens", results["shareShown"], True)
     check("edit panel opens", results["panelShown"], True)
     check("profiles tab renders", results["profilesTabShown"], True)
+    check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
+    check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")
+    check("media bar still lays out", results["mediaBarLaidOut"], True)
+    check("media font still configures", results["mediaFontLaidOut"], True)
     check("atlas probe", results["artMask"], with_art)
 
 

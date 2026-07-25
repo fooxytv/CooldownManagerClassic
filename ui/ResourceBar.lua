@@ -202,6 +202,7 @@ function Bar:Layout()
     local height = appearance.height or Const.DEFAULT_BAR_APPEARANCE.height
 
     self.frame:SetSize(width, height)
+    self.statusBar:SetStatusBarTexture(ns.Media.Fetch("statusbar", appearance.barTexture, BAR_TEXTURE))
 
     if self.key == "combo" then
         -- Resolve which resource this character's class-resource bar shows, and

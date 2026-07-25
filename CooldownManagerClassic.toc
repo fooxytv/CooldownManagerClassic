@@ -24,6 +24,7 @@ libs\LibEQOL\LibEQOL.lua
 # Core
 core\Constants.lua
 core\Compat.lua
+core\Media.lua
 core\Database.lua
 core\Serialization.lua
 core\Spellbook.lua

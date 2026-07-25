@@ -156,13 +156,16 @@ function Icon:Release(frame)
     iconPool[#iconPool + 1] = frame
 end
 
-local function ApplyFont(fontString, fontObject, fallbackSize)
+local function ApplyFont(fontString, fontObject, fallbackSize, fontFace)
     if fontObject and _G[fontObject] then
         fontString:SetFontObject(_G[fontObject])
     end
 
-    -- Font objects are fixed-size, so rescale to the icon once applied.
+    -- Font objects are fixed-size, so rescale to the icon once applied. A
+    -- LibSharedMedia face, when chosen, overrides the object's file but keeps its
+    -- outline flags.
     local file, _, flags = fontString:GetFont()
+    file = ns.Media.Fetch("font", fontFace, file)
     if file and fallbackSize then
         fontString:SetFont(file, fallbackSize, flags)
     end
@@ -202,8 +205,8 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
         frame.cooldown:SetReverse(isAura and true or false)
     end
 
-    ApplyFont(frame.timeText, appearance.timeFont, math.max(9, size * 0.42))
-    ApplyFont(frame.countText, appearance.countFont, math.max(8, size * 0.30))
+    ApplyFont(frame.timeText, appearance.timeFont, math.max(9, size * 0.42), appearance.fontFace)
+    ApplyFont(frame.countText, appearance.countFont, math.max(8, size * 0.30), appearance.fontFace)
 
     ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
 end
