@@ -33,6 +33,7 @@ core\Tooltip.lua
 # Tracking
 tracking\Cooldowns.lua
 tracking\Auras.lua
+tracking\Keybinds.lua
 
 # UI
 ui\Icon.lua

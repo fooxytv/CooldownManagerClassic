@@ -125,6 +125,13 @@ local function CreateIcon(parent)
     frame.countText = frame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     frame.countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
 
+    -- Action-bar hotkey, top corner, opposite the count. Shown only when the
+    -- group opts in and the ability is on a bar.
+    frame.keybindText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+    frame.keybindText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, -2)
+    frame.keybindText:SetJustifyH("RIGHT")
+    frame.keybindText:Hide()
+
     frame:SetScript("OnEnter", OnEnter)
     frame:SetScript("OnLeave", OnLeave)
 
@@ -207,6 +214,17 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
 
     ApplyFont(frame.timeText, appearance.timeFont, math.max(9, size * 0.42), appearance.fontFace)
     ApplyFont(frame.countText, appearance.countFont, math.max(8, size * 0.30), appearance.fontFace)
+    ApplyFont(frame.keybindText, "GameFontHighlightSmallOutline", math.max(8, size * 0.34), appearance.fontFace)
+
+    -- Keybind text for cooldown icons only: an aura icon is not something pressed
+    -- off a bound key. Hidden when the ability is not on any action bar.
+    if appearance.showKeybind and not Const.AURA_GROUPS[frame.groupKey] then
+        local key = ns.Keybinds:Get(spellID)
+        frame.keybindText:SetText(key or "")
+        frame.keybindText:SetShown(key ~= nil)
+    else
+        frame.keybindText:Hide()
+    end
 
     ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
 end

@@ -214,6 +214,12 @@ _G.GetInventoryItemLink = function() return nil end
 _G.GetInventoryItemTexture = function() return nil end
 _G.GetItemInfo = function() return nil end
 _G.GetItemCount = function() return 0 end
+_G.RANGE_INDICATOR = "\226\128\162"
+-- One spell on the first action slot, bound to Shift-2, so the keybind reader
+-- has something to find.
+_G.GetActionInfo = function(slot) if slot == 1 then return "spell", 686 end return nil end
+_G.GetMacroSpell = function() return nil end
+_G.GetBindingKey = function(command) if command == "ACTIONBUTTON1" then return "SHIFT-2" end return nil end
 _G.GetWeaponEnchantInfo = function() return false end
 _G.IsPlayerSpell = function() return true end
 _G.IsSpellKnown = function() return true end
@@ -273,6 +279,7 @@ local SPELLS = {
     [187880] = { name = "Maelstrom Weapon", icon = "Interface\\Icons\\Spell_Shaman_MaelstromWeapon" },
     [324] = { name = "Lightning Shield", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
     [2645] = { name = "Ghost Wolf", icon = "Interface\\Icons\\Spell_Nature_SpiritWolf" },
+    [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
 }
 
 _G.C_Spell = {
