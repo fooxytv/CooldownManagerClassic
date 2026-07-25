@@ -208,6 +208,10 @@ local function BuildPanel()
 
     panel.showTooltips = CreateCheckbox(panel, "Show Tooltips", "showTooltips")
     panel.showTooltips:SetPoint("TOPLEFT", 20, y)
+    y = y - 26
+
+    panel.showKeybind = CreateCheckbox(panel, "Show Keybind", "showKeybind")
+    panel.showKeybind:SetPoint("TOPLEFT", 20, y)
     y = y - 34
 
     -- Common to every group: the font face applies to the timer / count / bar
@@ -412,6 +416,7 @@ function Panel:Refresh()
 
     panel.showTimer:SetChecked(GetOption("showCountdownText") and true or false)
     panel.showTooltips:SetChecked(GetOption("showTooltips") and true or false)
+    panel.showKeybind:SetChecked(GetOption("showKeybind") and true or false)
 end
 
 function Panel:Show(groupKey)

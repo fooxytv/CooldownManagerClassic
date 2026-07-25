@@ -172,6 +172,10 @@ local EVENTS = {
     -- Soul shards are bag items, so the class-resource bar tracks them through
     -- bag changes rather than a power event.
     "BAG_UPDATE_DELAYED",
+    -- Keybind text is read from the action bars, so it is rebuilt when a slot's
+    -- contents or the player's bindings change.
+    "ACTIONBAR_SLOT_CHANGED",
+    "UPDATE_BINDINGS",
 }
 
 -- Registered for the player alone. Unfiltered, UNIT_POWER_FREQUENT alone means
@@ -215,6 +219,12 @@ local RESCAN_EVENTS = {
     ENGRAVING_SUCCESS = true,
 }
 
+-- Events that only affect the keybind text drawn on cooldown icons.
+local KEYBIND_EVENTS = {
+    ACTIONBAR_SLOT_CHANGED = true,
+    UPDATE_BINDINGS = true,
+}
+
 -- The IsEventValid check is not redundant with the pcall: registering an unknown
 -- event is not a catchable Lua error -- the client hands it to the error handler
 -- itself, so it reaches BugSack anyway. The pcall covers clients with neither.
@@ -240,6 +250,19 @@ end
 
 -- Rescans are debounced because SPELLS_CHANGED fires in bursts during login
 -- and on every talent change.
+-- Keybind rebuilds are debounced too: ACTIONBAR_SLOT_CHANGED fires in bursts as
+-- the bars populate on login.
+local keybindPending = false
+local function QueueKeybindRefresh()
+    if keybindPending then return end
+    keybindPending = true
+    C_Timer.After(0.2, function()
+        keybindPending = false
+        ns.Keybinds:Rebuild()
+        Core:RefreshAll()
+    end)
+end
+
 local rescanPending = false
 local function QueueRescan()
     if rescanPending then return end
@@ -294,6 +317,11 @@ local function OnEvent(_, event, arg1)
         return
     end
 
+    if KEYBIND_EVENTS[event] then
+        QueueKeybindRefresh()
+        return
+    end
+
     if event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
         for _, group in pairs(ns.groups) do
             group:UpdateVisibility()
@@ -329,6 +357,7 @@ function Core:Initialize()
     ns.DB:SelectProfileForCharacter()
 
     ns.Spellbook:Scan()
+    ns.Keybinds:Rebuild()
     ns.Tooltip:Initialize()
 
     for _, key in ipairs(Const.GROUP_ORDER) do

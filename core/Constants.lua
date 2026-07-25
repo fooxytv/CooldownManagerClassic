@@ -230,6 +230,9 @@ Const.DEFAULT_APPEARANCE = {
     -- typeface of the timer / count / bar text; barTexture the fill of a bar.
     fontFace = "",
     barTexture = "",
+
+    -- Draw the ability's action-bar hotkey on cooldown icons. Off by default.
+    showKeybind = false,
 }
 
 Const.ORIENTATIONS = { "Horizontal", "Vertical" }

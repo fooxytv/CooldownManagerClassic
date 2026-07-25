@@ -211,6 +211,20 @@ buffs.appearance.fontFace = "Some LSM Font"
 group:Layout()
 R.mediaFontLaidOut = group.icons[1] ~= nil
 
+-- Keybind text: a tracked cooldown spell on an action bar shows its abbreviated
+-- hotkey; off by default, and only for cooldown (non-aura) groups.
+ns.Keybinds:Rebuild()
+R.keybindMapped = ns.Keybinds:Get(686)
+
+local kbGroup = ns.Group.Create("essential")
+local kbIcon = ns.Icon:Acquire(kbGroup.frame, "essential")
+ns.Icon:Configure(kbIcon, { name = "Shadow Bolt" }, 686, { showKeybind = true, iconSize = 40 }, "essential")
+R.keybindShown = kbIcon.keybindText:IsShown()
+R.keybindText = kbIcon.keybindText:GetText()
+
+ns.Icon:Configure(kbIcon, { name = "Shadow Bolt" }, 686, { showKeybind = false, iconSize = 40 }, "essential")
+R.keybindOff = kbIcon.keybindText:IsShown()
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -341,6 +355,10 @@ def run(with_art):
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")
     check("media bar still lays out", results["mediaBarLaidOut"], True)
     check("media font still configures", results["mediaFontLaidOut"], True)
+    check("keybind mapped from bar", results["keybindMapped"], "s2")
+    check("keybind shown when enabled", results["keybindShown"], True)
+    check("keybind text abbreviated", results["keybindText"], "s2")
+    check("keybind off by default", results["keybindOff"], False)
     check("atlas probe", results["artMask"], with_art)
 
 
