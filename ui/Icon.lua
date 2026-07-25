@@ -9,6 +9,10 @@ ns.Icon = Icon
 local iconPool = {}
 local iconCount = 0
 
+-- The proc / spell-activation glow (the Blizzard "Action Button Glow"). Bundled,
+-- so present in-game; guarded because the headless smoke test does not load libs.
+local LCG = _G.LibStub and LibStub("LibCustomGlow-1.0", true)
+
 -- Probed once. A missing atlas renders an invisible texture, so the icon falls
 -- back to a plain trimmed square instead -- see Compat.AtlasExists.
 local AtlasExists = Compat.AtlasExists
@@ -159,8 +163,39 @@ function Icon:Release(frame)
     frame.spellID = nil
     frame.entry = nil
     frame.groupKey = nil
+    -- Stop any glow before the frame returns to the pool, or it would still be
+    -- glowing when reused for an unrelated spell.
+    self:SetGlow(frame, false)
     frame.cooldown:Clear()
     iconPool[#iconPool + 1] = frame
+end
+
+-- Starts or stops the proc / activation glow on an icon. No-ops when the state
+-- is unchanged, so a glow already running is not restarted every refresh tick
+-- (which would visibly reset its animation).
+function Icon:SetGlow(frame, shown)
+    shown = shown and true or false
+    if frame.glowing == shown then return end
+    frame.glowing = shown
+
+    -- Observable without the glow library, which the headless test does not load.
+    frame.glowRequested = shown
+
+    if shown then
+        if LCG and LCG.ButtonGlow_Start then
+            LCG.ButtonGlow_Start(frame, nil, 0.25)
+        else
+            -- Fallback when the library is somehow absent: the plain border. Not
+            -- the Blizzard proc art, but better than no cue at all.
+            frame.border:SetColorTexture(1, 0.82, 0.10, 1)
+            frame.border:Show()
+        end
+    else
+        if LCG and LCG.ButtonGlow_Stop then
+            LCG.ButtonGlow_Stop(frame)
+        end
+        frame.border:Hide()
+    end
 end
 
 local function ApplyFont(fontString, fontObject, fallbackSize, fontFace)
@@ -301,7 +336,11 @@ function Icon:Update(frame, state, appearance)
 
     -- No active-aura highlight: a tracked buff is only on screen while it is up
     -- (see hideWhenInactive), so a border adds nothing the swipe has not said.
-    frame.border:Hide()
+    -- Left alone while a reactive glow owns the border as its fallback, so the
+    -- glow is not hidden on every tick.
+    if not frame.glowing then
+        frame.border:Hide()
+    end
 
     local showText = appearance.showCountdownText ~= false and not state.suppressText
     if showText and state.remaining and state.remaining > 0 then

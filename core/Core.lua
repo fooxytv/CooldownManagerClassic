@@ -83,6 +83,10 @@ function Core:UpdateAll()
         end
     end
 
+    -- Reactive highlights re-evaluate here so they ride the same refresh as the
+    -- icons -- crucially UNIT_AURA, which is what a proc arrives on.
+    ns.Highlights:Apply()
+
     -- The idle rate is not redundant: aura changes otherwise reach us only via
     -- UNIT_AURA, and one missed event leaves a tracked buff invisible forever.
     if animating then
@@ -136,6 +140,7 @@ function Core:RefreshAll()
 end
 
 function Core:OnProfileChanged()
+    ns.Highlights:OnProfileChanged()
     self:RefreshAll()
 end
 
@@ -701,6 +706,7 @@ local function PrintHelp()
         "|cffffff00/cdmc auras|r - list your current buffs with their IDs",
         "|cffffff00/cdmc watch|r - log auras as they are gained and lost",
         "|cffffff00/cdmc add <id>|r - track a spell or aura ID by hand",
+        "|cffffff00/cdmc highlight|r [on | off] - reactive proc glow on tracked icons",
         "|cffffff00/cdmc ids|r - toggle spell IDs on tooltips",
         "|cffffff00/cdmc status|r - diagnostics",
         "|cffffff00/cdmc probe|r - arm the cooldown probe",
@@ -836,6 +842,21 @@ SlashCmdList["CDMC"] = function(input)
         else
             ns.Print("usage: /cdmc add <spellID>")
         end
+
+    elseif command == "highlight" or command == "highlights" then
+        local DB = ns.DB
+        local want = rest:lower()
+        local enabled
+        if want == "on" then
+            enabled = true
+        elseif want == "off" then
+            enabled = false
+        else
+            enabled = not DB:AreHighlightsEnabled()
+        end
+        DB:SetHighlightsEnabled(enabled)
+        Core:RefreshAll()
+        ns.Print("reactive spell highlighting " .. (enabled and "on" or "off") .. ".")
 
     elseif command == "ids" then
         local global = ns.DB:GetGlobal()
