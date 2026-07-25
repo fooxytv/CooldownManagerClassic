@@ -104,6 +104,9 @@ local function DefaultProfile()
         version = Const.PROFILE_FORMAT_VERSION,
         groups = {},
         bars = {},
+        -- Reactive proc/activation highlighting. Opt-in: it is a deliberate
+        -- rotation cue, not something to switch on for everyone by default.
+        highlightsEnabled = false,
     }
     for _, key in ipairs(Const.GROUP_ORDER) do
         profile.groups[key] = DefaultGroup(key)
@@ -312,6 +315,16 @@ end
 
 function DB:GetGlobal()
     return self.root.global
+end
+
+function DB:AreHighlightsEnabled()
+    return self.profile and self.profile.highlightsEnabled == true
+end
+
+function DB:SetHighlightsEnabled(enabled)
+    if self.profile then
+        self.profile.highlightsEnabled = enabled and true or false
+    end
 end
 
 function DB:ListProfiles()

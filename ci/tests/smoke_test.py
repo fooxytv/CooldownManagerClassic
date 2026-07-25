@@ -196,6 +196,38 @@ ns.SpellPicker:Show("profiles")
 R.profilesTabShown = _G.CDMCSettingsFrame:IsShown()
 ns.SpellPicker:Show("cooldowns")
 
+-- Reactive highlighting: a proc lights up the matching tracked icon, and clears
+-- when it falls off. Warlock's Shadow Trance -> Shadow Bolt, chosen because that
+-- rule is not SoD-gated and so runs under the stub.
+_G.UnitClass = function() return "Warlock", "WARLOCK", 9 end
+_G.__aura = { spellId = 17941, name = "Shadow Trance", icon = "x",
+              applications = 1, duration = 0, expirationTime = 0, timeMod = 1 }
+ns.Auras:ClearCache()
+ns.DB:SetHighlightsEnabled(true)
+ns.Highlights:OnProfileChanged()
+
+local eGroup = ns.Group.Create("essential")
+local sbIcon = ns.Icon:Acquire(eGroup.frame, "essential")
+sbIcon.entry = { name = "Shadow Bolt" }
+sbIcon.spellID = 686
+eGroup.icons = { sbIcon }
+
+ns.Highlights:Apply()
+R.glowOn = sbIcon.glowRequested and true or false
+
+-- Proc consumed: the aura is gone, so the glow clears on the next pass.
+_G.__aura = { spellId = 0, name = "None", applications = 0, duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+ns.Highlights:Apply()
+R.glowOff = sbIcon.glowRequested and true or false
+
+-- With highlighting off, a live proc must not glow.
+_G.__aura = { spellId = 17941, name = "Shadow Trance", applications = 1, duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+ns.DB:SetHighlightsEnabled(false)
+ns.Highlights:Apply()
+R.glowDisabled = sbIcon.glowRequested and true or false
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -312,6 +344,9 @@ def run(with_art):
     check("class resource source (rogue)", results["classResourceSource"], "combo")
     check("class resource source (warlock)", results["shardSource"], "soulshards")
     check("class resource shard total", results["shardText"], "7")
+    check("highlight on proc", results["glowOn"], True)
+    check("highlight clears", results["glowOff"], False)
+    check("highlight off when disabled", results["glowDisabled"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
