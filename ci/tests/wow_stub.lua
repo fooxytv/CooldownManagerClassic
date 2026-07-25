@@ -213,6 +213,7 @@ _G.GetComboPoints = function() return 0 end
 _G.GetInventoryItemLink = function() return nil end
 _G.GetInventoryItemTexture = function() return nil end
 _G.GetItemInfo = function() return nil end
+_G.GetItemCount = function() return 0 end
 _G.GetWeaponEnchantInfo = function() return false end
 _G.IsPlayerSpell = function() return true end
 _G.IsSpellKnown = function() return true end

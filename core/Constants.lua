@@ -70,7 +70,7 @@ Const.BAR_ORDER = { "health", "power", "combo" }
 Const.BAR_LABELS = {
     health = "Health Bar",
     power  = "Resource Bar",
-    combo  = "Combo Points",
+    combo  = "Class Resource",
 }
 
 Const.DEFAULT_BAR_APPEARANCE = {
@@ -112,6 +112,46 @@ Const.COMBO_COLORS = {
     nearlyFull = { 1.00, 0.50, 0.10 },
     full       = { 0.95, 0.15, 0.15 },
     empty      = { 0.25, 0.25, 0.25, 0.6 },
+}
+
+-- The "combo" bar is really an adaptive class-resource bar: it shows combo
+-- points for classes that have them, and stands in for another per-class
+-- resource where the class has none. The source is chosen by class (a profile
+-- may override it via appearance.resourceSource), and each source declares how
+-- it renders.
+Const.CLASS_RESOURCE_SOURCE = {
+    ROGUE   = "combo",
+    DRUID   = "combo",
+    -- Maelstrom Weapon is a Season of Discovery rune; gated on SoD at resolve.
+    SHAMAN  = "maelstrom",
+    WARLOCK = "soulshards",
+}
+
+-- Small fixed-max resources render as pips; unbounded ones (soul shards, capped
+-- only by bag space) render as a filled bar with a count.
+Const.CLASS_RESOURCE_INFO = {
+    combo      = { mode = "pips",  label = "Combo Points" },
+    maelstrom  = { mode = "pips",  label = "Maelstrom Weapon" },
+    soulshards = { mode = "count", label = "Soul Shards" },
+}
+
+-- Maelstrom Weapon is an ordinary stacking self-buff, so its count is read from
+-- the aura by name (robust across the rune's ranks). SoD caps it at 5 stacks.
+Const.MAELSTROM_WEAPON_AURA = "Maelstrom Weapon"
+Const.MAELSTROM_MAX_STACKS = 5
+Const.MAELSTROM_COLOR = { 0.25, 0.55, 1.00 }
+
+-- Soul shards are bag items with no game-defined maximum. The bar fills across
+-- one tier (SOUL_SHARD_TIER_SIZE shards) and steps up a colour each full tier,
+-- so the shade reads "how many fives" while the number shows the exact count.
+Const.SOUL_SHARD_ITEM_ID = 6265
+Const.SOUL_SHARD_TIER_SIZE = 5
+Const.SOUL_SHARD_COLORS = {
+    { 0.45, 0.30, 0.55 },
+    { 0.60, 0.35, 0.85 },
+    { 0.75, 0.45, 1.00 },
+    { 0.88, 0.60, 1.00 },
+    { 1.00, 0.75, 1.00 },
 }
 
 -- Shaman weapon buffs, rogue poisons and sharpening stones are not auras and

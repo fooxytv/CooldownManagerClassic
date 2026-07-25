@@ -265,6 +265,20 @@ function Compat.GetPlayerAura(spellID)
     return ScanPlayerAuraByName(name, "HELPFUL") or ScanPlayerAuraByName(name, "HARMFUL")
 end
 
+-- Total count of an item across the player's bags. Used for resources that are
+-- physical items in Classic -- soul shards above all -- rather than a power.
+function Compat.GetItemCount(itemID)
+    if not itemID then return 0 end
+
+    if _G.C_Item and C_Item.GetItemCount then
+        return C_Item.GetItemCount(itemID) or 0
+    end
+    if _G.GetItemCount then
+        return GetItemCount(itemID) or 0
+    end
+    return 0
+end
+
 -- Defaults to 0 rather than treating a missing enum as "no modern API": a build
 -- can expose the C_SpellBook functions without the enum, and refusing the modern
 -- path there falls back to globals that are gone -- empty spellbook, no error.
