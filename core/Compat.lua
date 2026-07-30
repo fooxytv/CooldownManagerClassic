@@ -280,6 +280,30 @@ function Compat.ForEachPlayerDebuffOn(unit, callback)
     end
 end
 
+-- The player's current Druid form as a canonical key (see Const.DRUID_FORMS):
+-- "cat", "bear", "moonkin", or "caster". Returns "caster" for every non-Druid
+-- and for a Druid in no form, travel, aquatic or flight.
+--
+-- Read from reliable signals rather than GetShapeshiftForm's stance index or
+-- GetShapeshiftFormInfo's flavour-dependent return shape (the reasoning #26 used
+-- for the resource bars): the active power names cat and bear outright, and
+-- moonkin is the one Mana form that carries a self-buff, so it is told apart from
+-- caster by that aura.
+function Compat.GetShapeshiftForm()
+    local _, class = UnitClass("player")
+    if class ~= "DRUID" then return "caster" end
+
+    local _, powerToken = UnitPowerType("player")
+    if powerToken == "ENERGY" then return "cat" end
+    if powerToken == "RAGE" then return "bear" end
+
+    if Compat.GetPlayerAura(ns.Constants.DRUID_MOONKIN_SPELL) then
+        return "moonkin"
+    end
+
+    return "caster"
+end
+
 function Compat.GetPlayerAura(spellID)
     if not spellID then return nil end
 

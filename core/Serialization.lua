@@ -140,6 +140,33 @@ local function WriteAppearance(lines, prefix, appearance)
     end
 end
 
+-- A spell entry's Druid form tags as a "+"-joined key list (cat+moonkin), in the
+-- fixed DRUID_FORMS order so the string is stable. nil for an untagged entry (the
+-- common case), which writes no Sf= line at all.
+local function EncodeForms(forms)
+    if type(forms) ~= "table" then return nil end
+
+    local keys = {}
+    for _, key in ipairs(Const.DRUID_FORMS) do
+        if forms[key] then keys[#keys + 1] = key end
+    end
+
+    if #keys == 0 then return nil end
+    return table.concat(keys, "+")
+end
+
+local function DecodeForms(text)
+    if not text or text == "" then return nil end
+
+    local set = {}
+    for key in text:gmatch("[^+]+") do
+        if Const.FORM_KEY_SET[key] then set[key] = true end
+    end
+
+    if not next(set) then return nil end
+    return set
+end
+
 function Serialization:Export(profile)
     profile = profile or ns.DB:GetProfile()
     if not profile then return nil, "No profile to export." end
@@ -162,6 +189,13 @@ function Serialization:Export(profile)
                     entry.rankIndependent and 1 or 0,
                     entry.name or ""
                 )
+
+                -- Druid form tags ride on their own line after the spell, absent
+                -- for the untagged majority.
+                local forms = EncodeForms(entry.forms)
+                if forms then
+                    lines[#lines + 1] = "Sf=" .. forms
+                end
             end
         end
     end
@@ -261,6 +295,12 @@ local function ParseV2(blob)
                     name = name ~= "" and name or nil,
                 }
             end
+
+        elseif current and currentIsGroup and tag == "Sf" then
+            -- Applies to the spell just read. A string from an older format has
+            -- no Sf= lines, so those entries stay untagged (all forms).
+            local last = current.spells[#current.spells]
+            if last then last.forms = DecodeForms(body) end
         end
     end
 
