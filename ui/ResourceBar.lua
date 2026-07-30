@@ -267,6 +267,10 @@ function Bar:Update()
 
     local appearance = settings.appearance
 
+    -- Re-evaluated every refresh so the dynamic rules (hide-when-full,
+    -- with-target) track the resource and target changing, not just combat.
+    self:UpdateVisibility()
+
     if self.key == "combo" then
         self:UpdateClassResource(appearance)
         return
@@ -358,6 +362,24 @@ local function InCombat()
     return InCombatLockdown() or UnitAffectingCombat("player")
 end
 
+-- Current and maximum value, for the "hide when full" rule. Soul shards have no
+-- fixed maximum, so they report nil and are never treated as full.
+function Bar:GetFill()
+    if self.key == "combo" then
+        local settings = self:GetSettings()
+        local override = settings and settings.appearance.resourceSource
+        local source = self.source or ResolveClassResource(override)
+        local info = source and Const.CLASS_RESOURCE_INFO[source]
+        if info and info.mode == "pips" then
+            return ReadPipSource(source)
+        end
+        return nil
+    end
+
+    local current, max = ReadResource(self.key)
+    return current, max
+end
+
 function Bar:UpdateVisibility()
     local settings = self:GetSettings()
     if not settings then return end
@@ -383,6 +405,11 @@ function Bar:UpdateVisibility()
         visible = InCombat()
     elseif visibility == "OutOfCombat" then
         visible = not InCombat()
+    elseif visibility == "WithTarget" then
+        visible = UnitExists("target")
+    elseif visibility == "HideWhenFull" then
+        local current, max = self:GetFill()
+        visible = not (current and max and max > 0 and current >= max)
     end
 
     -- The adaptive class-resource bar hides itself for a character with no class
@@ -408,6 +435,14 @@ local function OnDragStop(frame)
     end
 end
 
+-- Clicking a bar while unlocked opens its settings panel, mirroring how the
+-- icon groups open EditModePanel.
+local function OnMouseUp(frame)
+    if frame.cdmcBar and frame.cdmcBar.unlocked and ns.BarPanel then
+        ns.BarPanel:Show(frame.cdmcBar.key)
+    end
+end
+
 function Bar:SetUnlocked(unlocked)
     self.unlocked = unlocked
 
@@ -420,6 +455,7 @@ function Bar:SetUnlocked(unlocked)
     end
     frame:SetScript("OnDragStart", unlocked and OnDragStart or nil)
     frame:SetScript("OnDragStop", unlocked and OnDragStop or nil)
+    frame:SetScript("OnMouseUp", unlocked and OnMouseUp or nil)
 
     self.label:SetShown(unlocked)
     self:UpdateVisibility()

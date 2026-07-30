@@ -40,6 +40,7 @@ globals = {
     "UnitHealthMax",
     "UnitPowerType",
     "UnitAffectingCombat",
+    "UnitExists",
     "InCombatLockdown",
     "GetInventoryItemLink",
     "GetInventoryItemTexture",

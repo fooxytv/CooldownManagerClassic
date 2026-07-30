@@ -249,6 +249,18 @@ Const.VISIBILITY_OPTIONS = {
     { value = "Hidden",       label = "Hidden" },
 }
 
+-- Resource bars get two extra rules the icon groups have no use for: hide the
+-- bar while the resource is full (a common ask for health/power), and show it
+-- only while you have a target (handy for the combo/class-resource bar).
+Const.BAR_VISIBILITY_OPTIONS = {
+    { value = "Always",       label = "Always Visible" },
+    { value = "InCombat",     label = "In Combat" },
+    { value = "OutOfCombat",  label = "Out of Combat" },
+    { value = "WithTarget",   label = "With a Target" },
+    { value = "HideWhenFull", label = "Hide When Full" },
+    { value = "Hidden",       label = "Hidden" },
+}
+
 -- Taken from Blizzard's CooldownViewer.xml, not approximated:
 --   CooldownViewerEssentialItemTemplate   50x50, GameFontHighlightHugeOutline
 --   CooldownViewerUtilityItemTemplate     30x30, GameFontHighlightOutline
