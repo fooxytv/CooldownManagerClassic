@@ -305,11 +305,15 @@ local function OnEvent(_, event, arg1)
     end
 
     if RESOURCE_ONLY_EVENTS[event] then
-        -- A shapeshift changes which power the bar shows, so it needs a full
-        -- rebuild rather than an update.
+        -- A shapeshift changes which power the power bar shows and, for a Druid,
+        -- whether the class-resource bar has any combo points at all (cat form
+        -- only). Both cache their resolved source in Layout, so both need a full
+        -- rebuild rather than an update to re-resolve and re-render.
         if event == "UNIT_DISPLAYPOWER" then
-            local bar = ns.bars.power
-            if bar then bar:Layout() end
+            for _, key in ipairs({ "power", "combo" }) do
+                local bar = ns.bars[key]
+                if bar then bar:Layout() end
+            end
         end
         for _, bar in pairs(ns.bars) do
             bar:Update()
