@@ -86,6 +86,9 @@ function Widget:SetShown(shown) self.__shown = shown and true or false end
 function Widget:IsShown() return self.__shown end
 function Widget:IsVisible() return self.__shown end
 
+function Widget:SetChecked(checked) self.__checked = checked and true or false end
+function Widget:GetChecked() return self.__checked end
+
 function Widget:SetFrameLevel(level) self.__level = level end
 function Widget:GetFrameLevel() return self.__level end
 
