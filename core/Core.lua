@@ -240,14 +240,16 @@ local function RegisterIfValid(event)
     return pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
 
--- As above, filtered to one unit. Falls back to an unfiltered registration where
--- RegisterUnitEvent is missing, so OnEvent still has to check the unit itself.
-local function RegisterUnitIfValid(event, unit)
+-- As above, filtered to the given unit(s). RegisterUnitEvent replaces the whole
+-- unit filter each call, so every unit an event needs is passed in one call.
+-- Falls back to an unfiltered registration where RegisterUnitEvent is missing,
+-- so OnEvent still has to check the unit itself.
+local function RegisterUnitIfValid(event, ...)
     if C_EventUtils and C_EventUtils.IsEventValid then
         if not C_EventUtils.IsEventValid(event) then return false end
     end
     if eventFrame.RegisterUnitEvent then
-        local ok = pcall(eventFrame.RegisterUnitEvent, eventFrame, event, unit)
+        local ok = pcall(eventFrame.RegisterUnitEvent, eventFrame, event, ...)
         if ok then return true end
     end
     return pcall(eventFrame.RegisterEvent, eventFrame, event)
@@ -294,14 +296,28 @@ local function OnEvent(_, event, arg1)
 
     if not Core.initialized then return end
 
-    -- Backstop for the unfiltered fallback in RegisterUnitIfValid.
-    if arg1 ~= nil and event:sub(1, 5) == "UNIT_" and arg1 ~= "player" then
+    -- Backstop for the unfiltered fallback in RegisterUnitIfValid. UNIT_AURA is
+    -- the one unit event also wanted for the target (DoT tracking), so it is let
+    -- through; everything else stays player-only.
+    if arg1 ~= nil and event:sub(1, 5) == "UNIT_" and arg1 ~= "player"
+        and not (event == "UNIT_AURA" and arg1 == "target")
+    then
         return
     end
 
     if event == "UNIT_AURA" then
-        ns.Auras:MarkDirty()
-        Core:CheckAuraWatch()
+        if arg1 == "target" then
+            ns.Auras:MarkTargetDirty()
+        else
+            ns.Auras:MarkDirty()
+            Core:CheckAuraWatch()
+        end
+    end
+
+    -- A new target has its own debuffs; the DoT index must not carry the old
+    -- target's over. The refresh at the bottom of this handler then re-reads them.
+    if event == "PLAYER_TARGET_CHANGED" then
+        ns.Auras:MarkTargetDirty()
     end
 
     if RESOURCE_ONLY_EVENTS[event] then
@@ -401,8 +417,9 @@ function Core:Initialize()
     end
 
     -- Recorded for /cdmc status: a silent failure here makes every tracked buff
-    -- invisible, with nothing on screen to say why.
-    self.auraEventRegistered = RegisterUnitIfValid("UNIT_AURA", "player")
+    -- invisible, with nothing on screen to say why. The target is watched too, so
+    -- a cooldown bar can count down a DoT the player put on it.
+    self.auraEventRegistered = RegisterUnitIfValid("UNIT_AURA", "player", "target")
 
     ns.Print(("loaded (%s). Type /cdmc to choose your spells."):format(ns.Compat.GetProfileFlavor()))
 

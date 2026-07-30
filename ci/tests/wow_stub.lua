@@ -329,8 +329,16 @@ _G.__aura = {
     timeMod = 1,
 }
 
+-- A harmful aura on the target, for DoT tracking. nil by default (no debuff);
+-- tests set it, including sourceUnit to exercise the player-cast filter.
+_G.__targetAura = nil
+
 _G.C_UnitAuras = {
     GetAuraDataByIndex = function(unit, index, filter)
+        if unit == "target" then
+            if index == 1 and filter == "HARMFUL" then return _G.__targetAura end
+            return nil
+        end
         if index == 1 and filter ~= "HARMFUL" then return _G.__aura end
         return nil
     end,
@@ -344,9 +352,16 @@ _G.C_UnitAuras = {
 }
 
 _G.UnitAura = function(unit, index, filter)
-    if index ~= 1 or filter == "HARMFUL" then return nil end
-    local a = _G.__aura
-    return a.name, a.icon, a.applications, nil, a.duration, a.expirationTime, nil, nil, nil, a.spellId
+    if index ~= 1 then return nil end
+    local a
+    if unit == "target" then
+        if filter == "HARMFUL" then a = _G.__targetAura end
+    elseif filter ~= "HARMFUL" then
+        a = _G.__aura
+    end
+    if not a then return nil end
+    return a.name, a.icon, a.applications, nil, a.duration, a.expirationTime,
+        a.sourceUnit, nil, nil, a.spellId
 end
 
 _G.GetSpellInfo = function(id)

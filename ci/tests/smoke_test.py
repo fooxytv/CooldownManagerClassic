@@ -201,6 +201,29 @@ ns.BarPanel:Show("power")
 R.resourceSourceHiddenForPower = _G.CDMCBarPanel.resourceSource:IsShown()
 ns.BarPanel:Hide()
 
+-- Target DoT tracking: a debuff the player applied to the target drives the
+-- active phase of a cooldown bar for a spell with no real cooldown (Moonfire).
+-- Only the player's own debuff counts, and a new/empty target reads clean.
+_G.__hasTarget = true
+_G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "player",
+                    duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
+ns.Auras:ClearCache()
+local moonfire = ns.Cooldowns:GetBarState(8921)
+R.dotPhase = moonfire.phase
+R.dotRemaining = math.floor(moonfire.remaining + 0.5)
+
+-- A debuff cast by someone else on the same target is ignored.
+_G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "party1",
+                    duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
+ns.Auras:MarkTargetDirty()
+R.dotIgnoresOthers = ns.Cooldowns:GetBarState(8921).phase
+
+-- No target: the DoT source is empty and the bar falls back to ready.
+_G.__targetAura = nil
+_G.__hasTarget = false
+ns.Auras:MarkTargetDirty()
+R.dotNoTarget = ns.Cooldowns:GetBarState(8921).phase
+
 -- Back to the stub default so nothing downstream sees the test's class.
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 _G.GetItemCount = function() return 0 end
@@ -467,6 +490,10 @@ def run(with_art):
     check("resource override forces source", results["druidForcedSource"], "soulshards")
     check("resource source dropdown shown for combo", results["resourceSourceShownForCombo"], True)
     check("resource source dropdown hidden for power", results["resourceSourceHiddenForPower"], False)
+    check("target dot drives cooldown bar active", results["dotPhase"], "active")
+    check("target dot bar shows remaining", results["dotRemaining"], 9)
+    check("target dot ignores others' casts", results["dotIgnoresOthers"], "ready")
+    check("target dot falls back to ready with no target", results["dotNoTarget"], "ready")
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)
