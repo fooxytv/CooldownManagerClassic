@@ -55,13 +55,14 @@ end
 -- pinned by a profile override. Returns a source key from CLASS_RESOURCE_INFO,
 -- or nil when this character has no class resource to show (the bar then hides).
 local function ResolveClassResource(override)
+    local _, classToken = UnitClass("player")
+
     local source
     if override == "none" then
         return nil
     elseif override and Const.CLASS_RESOURCE_INFO[override] then
         source = override
     else
-        local _, classToken = UnitClass("player")
         source = Const.CLASS_RESOURCE_SOURCE[classToken or ""]
     end
 
@@ -70,6 +71,18 @@ local function ResolveClassResource(override)
     -- never shows an always-empty Maelstrom bar.
     if source == "maelstrom" and not ns.Compat.isSoD then
         return nil
+    end
+
+    -- Combo points only exist in cat form for a Druid, where the power is
+    -- Energy. Bear (Rage) and moonkin/caster (Mana) have no combo points, so the
+    -- bar would sit there as an empty pip row -- the power bar covers those forms
+    -- instead. A Rogue always has Energy, so the same rule leaves it untouched.
+    -- UnitPowerType is used rather than GetShapeshiftFormID: form IDs vary by
+    -- client and flavour, while the power token is reliable and already drives
+    -- the power bar. Applies whether the source was auto-detected or pinned.
+    if source == "combo" and classToken == "DRUID" then
+        local _, powerToken = UnitPowerType("player")
+        if powerToken ~= "ENERGY" then return nil end
     end
 
     return source

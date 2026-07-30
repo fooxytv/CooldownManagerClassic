@@ -83,6 +83,9 @@ Const.DEFAULT_BAR_APPEARANCE = {
     pipSpacing = 2,
     -- LibSharedMedia statusbar name, "" meaning the built-in texture.
     barTexture = "",
+    -- Class-resource ("combo") bar only: which resource it shows. "" auto-detects
+    -- by class; see RESOURCE_SOURCE_OPTIONS. The other bars carry it harmlessly.
+    resourceSource = "",
 }
 
 Const.BAR_DEFAULT_Y = {
@@ -135,6 +138,17 @@ Const.CLASS_RESOURCE_INFO = {
     combo      = { mode = "pips",  label = "Combo Points" },
     maelstrom  = { mode = "pips",  label = "Maelstrom Weapon" },
     soulshards = { mode = "count", label = "Soul Shards" },
+}
+
+-- The Resource Source dropdown for the class-resource bar. "" auto-detects by
+-- class (and, for a Druid, by form); "none" hides the bar; the rest pin a
+-- specific source regardless of class, for anyone who wants to force or hide it.
+Const.RESOURCE_SOURCE_OPTIONS = {
+    { value = "",           label = "Auto" },
+    { value = "combo",      label = "Combo Points" },
+    { value = "maelstrom",  label = "Maelstrom Weapon" },
+    { value = "soulshards", label = "Soul Shards" },
+    { value = "none",       label = "None" },
 }
 
 -- Maelstrom Weapon is an ordinary stacking self-buff, so its count is read from

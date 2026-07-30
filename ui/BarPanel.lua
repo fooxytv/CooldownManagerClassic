@@ -147,6 +147,45 @@ local function MediaChoices(mediatype)
     end
 end
 
+-- Vertical order of the panel's widgets: each one's field on `panel`, its left
+-- inset, and the gap to the next. A `barKey` restricts a row to a single bar --
+-- the Resource Source dropdown only makes sense for the adaptive class-resource
+-- ("combo") bar. LayoutWidgets re-runs on every Show so a skipped row leaves no
+-- gap and the panel height tracks what is actually visible.
+local WIDGET_LAYOUT = {
+    { field = "enabled",        x = 20, gap = 34 },
+    { field = "width",          x = 24, gap = 46 },
+    { field = "height",         x = 24, gap = 46 },
+    { field = "opacity",        x = 24, gap = 40 },
+    { field = "showText",       x = 20, gap = 34 },
+    { field = "barTexture",     x = 16, gap = 46 },
+    { field = "visibility",     x = 16, gap = 50 },
+    { field = "resourceSource", x = 16, gap = 46, barKey = "combo" },
+    { field = "revert",         x = 20, gap = 26 },
+    { field = "reset",          x = 20, gap = 26 },
+}
+
+local function LayoutWidgets()
+    if not panel then return end
+
+    local y = -32
+    for _, item in ipairs(WIDGET_LAYOUT) do
+        local widget = panel[item.field]
+        if widget then
+            if item.barKey and item.barKey ~= currentBar then
+                widget:Hide()
+            else
+                widget:ClearAllPoints()
+                widget:SetPoint("TOPLEFT", item.x, y)
+                widget:Show()
+                y = y - item.gap
+            end
+        end
+    end
+
+    panel:SetHeight(math.abs(y) + 20)
+end
+
 local function BuildPanel()
     if panel then return panel end
 
@@ -163,8 +202,6 @@ local function BuildPanel()
 
     if panel.Inset then panel.Inset:Hide() end
 
-    local y = -32
-
     panel.enabled = CreateCheckbox(panel, "Enabled", nil, {
         get = function() local s = Settings() return s and s.enabled ~= false end,
         set = function(value)
@@ -174,50 +211,34 @@ local function BuildPanel()
             Panel:Refresh()
         end,
     })
-    panel.enabled:SetPoint("TOPLEFT", 20, y)
-    y = y - 34
 
     panel.width = CreateSlider(panel, "Width", "width", 60, 400, 5)
-    panel.width:SetPoint("TOPLEFT", 24, y)
-    y = y - 46
-
     panel.height = CreateSlider(panel, "Height", "height", 6, 48, 1)
-    panel.height:SetPoint("TOPLEFT", 24, y)
-    y = y - 46
-
     panel.opacity = CreateSlider(panel, "Opacity", "opacity", 10, 100, 5)
-    panel.opacity:SetPoint("TOPLEFT", 24, y)
-    y = y - 40
-
     panel.showText = CreateCheckbox(panel, "Show Text", "showText")
-    panel.showText:SetPoint("TOPLEFT", 20, y)
-    y = y - 34
-
     panel.barTexture = CreateDropdown(panel, "Bar Texture", "barTexture", MediaChoices("statusbar"))
-    panel.barTexture:SetPoint("TOPLEFT", 16, y)
-    y = y - 46
 
     panel.visibility = CreateDropdown(panel, "Visibility", "visibility", function()
         return Const.BAR_VISIBILITY_OPTIONS
     end)
-    panel.visibility:SetPoint("TOPLEFT", 16, y)
-    y = y - 50
 
-    local revert = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    revert:SetSize(210, 22)
-    revert:SetText("Revert Changes")
-    revert:SetScript("OnClick", function() Panel:Revert() end)
-    revert:SetPoint("TOPLEFT", 20, y)
-    y = y - 26
+    -- Shown only for the adaptive class-resource bar (see WIDGET_LAYOUT): it
+    -- pins which resource that bar shows, overriding the by-class auto-detection.
+    panel.resourceSource = CreateDropdown(panel, "Resource Source", "resourceSource", function()
+        return Const.RESOURCE_SOURCE_OPTIONS
+    end)
 
-    local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    reset:SetSize(210, 22)
-    reset:SetText("Reset to Default Position")
-    reset:SetScript("OnClick", function() Panel:ResetPosition() end)
-    reset:SetPoint("TOPLEFT", 20, y)
-    y = y - 26
+    panel.revert = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.revert:SetSize(210, 22)
+    panel.revert:SetText("Revert Changes")
+    panel.revert:SetScript("OnClick", function() Panel:Revert() end)
 
-    panel:SetHeight(math.abs(y) + 20)
+    panel.reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.reset:SetSize(210, 22)
+    panel.reset:SetText("Reset to Default Position")
+    panel.reset:SetScript("OnClick", function() Panel:ResetPosition() end)
+
+    LayoutWidgets()
 
     return panel
 end
@@ -240,7 +261,7 @@ function Panel:Refresh()
         end
     end
 
-    for _, container in ipairs({ panel.barTexture, panel.visibility }) do
+    for _, container in ipairs({ panel.barTexture, panel.visibility, panel.resourceSource }) do
         local current = Get(container.option)
         local text = tostring(current)
         for _, choice in ipairs(container.getChoices()) do
@@ -296,6 +317,10 @@ function Panel:Show(barKey)
             position = ns.DeepCopy(settings.position),
         }
     end
+
+    -- The Resource Source row is bar-specific, so re-lay-out for this bar before
+    -- showing: it appears for the class-resource bar and is skipped otherwise.
+    LayoutWidgets()
 
     panel:Show()
     self:Refresh()

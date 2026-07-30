@@ -155,6 +155,52 @@ shardBar:Layout(); shardBar:Update()
 R.shardSource = shardBar.source
 R.shardText = shardBar.text:GetText()
 
+-- The class-resource bar is form-aware for a Druid: combo points exist only in
+-- cat form, where the power is Energy. Bear (Rage) and caster (Mana) have none,
+-- so the source resolves to nil and the bar hides -- the power bar covers those.
+-- Re-laying out on each UnitPowerType change stands in for the UNIT_DISPLAYPOWER
+-- shapeshift re-Layout that Core drives in game.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+ns.DB:GetBar("combo").enabled = true
+ns.DB:GetBar("combo").appearance.resourceSource = ""
+local druid = ns.ResourceBar.Create("combo")
+
+_G.UnitPowerType = function() return 3, "ENERGY" end
+druid:Layout()
+R.druidCatSource = druid.source
+R.druidCatShown = druid.frame:IsShown()
+
+_G.UnitPowerType = function() return 1, "RAGE" end
+druid:Layout()
+R.druidBearSource = tostring(druid.source)
+R.druidBearShown = druid.frame:IsShown()
+
+_G.UnitPowerType = function() return 0, "MANA" end
+druid:Layout()
+R.druidCasterSource = tostring(druid.source)
+
+-- The Resource Source override pins the bar regardless of class and form. "none"
+-- hides it even in cat form; a specific key forces that source outright.
+_G.UnitPowerType = function() return 3, "ENERGY" end
+ns.DB:GetBar("combo").appearance.resourceSource = "none"
+druid:Layout()
+R.druidForcedNone = tostring(druid.source)
+
+ns.DB:GetBar("combo").appearance.resourceSource = "soulshards"
+druid:Layout()
+R.druidForcedSource = druid.source
+ns.DB:GetBar("combo").appearance.resourceSource = ""
+
+_G.UnitPowerType = function() return 0, "MANA" end
+
+-- The bar panel surfaces the Resource Source dropdown for the class-resource bar
+-- only. Opening it for "combo" shows the row; for "power" it is hidden.
+ns.BarPanel:Show("combo")
+R.resourceSourceShownForCombo = _G.CDMCBarPanel.resourceSource:IsShown()
+ns.BarPanel:Show("power")
+R.resourceSourceHiddenForPower = _G.CDMCBarPanel.resourceSource:IsShown()
+ns.BarPanel:Hide()
+
 -- Back to the stub default so nothing downstream sees the test's class.
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 _G.GetItemCount = function() return 0 end
@@ -412,6 +458,15 @@ def run(with_art):
     check("class resource source (rogue)", results["classResourceSource"], "combo")
     check("class resource source (warlock)", results["shardSource"], "soulshards")
     check("class resource shard total", results["shardText"], "7")
+    check("druid cat resolves combo", results["druidCatSource"], "combo")
+    check("druid cat bar shown", results["druidCatShown"], True)
+    check("druid bear resolves none", results["druidBearSource"], "nil")
+    check("druid bear bar hidden", results["druidBearShown"], False)
+    check("druid caster resolves none", results["druidCasterSource"], "nil")
+    check("resource override none hides", results["druidForcedNone"], "nil")
+    check("resource override forces source", results["druidForcedSource"], "soulshards")
+    check("resource source dropdown shown for combo", results["resourceSourceShownForCombo"], True)
+    check("resource source dropdown hidden for power", results["resourceSourceHiddenForPower"], False)
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)
