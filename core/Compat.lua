@@ -244,6 +244,42 @@ function Compat.ForEachPlayerAura(callback)
     Walk("HARMFUL")
 end
 
+-- Walks the harmful auras `unit` carries that the player applied, passing full
+-- aura data. The player-source filter is load-bearing for DoT tracking: two
+-- players' Moonfires on the same target must not read each other's. Reads
+-- nothing when the unit does not exist (no target, dead target).
+function Compat.ForEachPlayerDebuffOn(unit, callback)
+    if not UnitExists(unit) then return end
+
+    for i = 1, MAX_AURA_INDEX do
+        if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
+            local data = C_UnitAuras_.GetAuraDataByIndex(unit, i, "HARMFUL")
+            if not data then return end
+            if data.sourceUnit == "player" then callback(data) end
+        elseif _G.UnitAura then
+            local name, icon, count, dispelType, duration, expirationTime,
+                  source, isStealable, _, auraSpellID, _, _, _, _, timeMod = UnitAura(unit, i, "HARMFUL")
+            if not name then return end
+            if source == "player" then
+                callback({
+                    name = name,
+                    icon = icon,
+                    applications = count,
+                    dispelName = dispelType,
+                    duration = duration,
+                    expirationTime = expirationTime,
+                    sourceUnit = source,
+                    isStealable = isStealable,
+                    spellId = auraSpellID,
+                    timeMod = timeMod,
+                })
+            end
+        else
+            return
+        end
+    end
+end
+
 function Compat.GetPlayerAura(spellID)
     if not spellID then return nil end
 

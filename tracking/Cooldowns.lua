@@ -132,7 +132,15 @@ function Cooldowns:GetBarState(spellID)
         barCache[spellID] = state
     end
 
+    -- The aura the ability leaves on the player (a defensive's own buff), then
+    -- the DoT it leaves on the target (Moonfire, Sunfire -- no player buff, no
+    -- real cooldown, so the target debuff is the only thing to count down).
+    -- Either drives the "active" phase; the first that is up wins.
     local aura = ns.Auras:GetState(spellID)
+    if not (aura and aura.active and (aura.remaining or 0) > 0) then
+        aura = ns.Auras:GetTargetDotState(spellID)
+    end
+
     if aura and aura.active and (aura.remaining or 0) > 0 then
         state.phase = "active"
         state.swipeDuration = aura.swipeDuration

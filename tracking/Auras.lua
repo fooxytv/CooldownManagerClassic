@@ -16,10 +16,22 @@ local indexByName = {}
 local indexDirty = true
 local indexBuiltAt = 0
 
+-- The target's player-cast debuffs (DoTs), kept as their own index so the target
+-- changing or its auras ticking never forces the player index to rebuild, and
+-- vice versa. Rebuilt on PLAYER_TARGET_CHANGED and the target's UNIT_AURA.
+local targetByID = {}
+local targetByName = {}
+local targetDirty = true
+local targetBuiltAt = 0
+
 local INDEX_MAX_AGE = 1.0
 
 function Auras:MarkDirty()
     indexDirty = true
+end
+
+function Auras:MarkTargetDirty()
+    targetDirty = true
 end
 
 function Auras:RefreshIndex(force)
@@ -42,6 +54,29 @@ function Auras:RefreshIndex(force)
 
     indexDirty = false
     indexBuiltAt = now
+end
+
+-- Snapshot of the player's own debuffs on the current target, keyed by ID and by
+-- name -- the DoT source a cooldown bar reads when its ability has no cooldown
+-- of its own (Moonfire, Sunfire).
+function Auras:RefreshTargetIndex(force)
+    local now = GetTime()
+    if not force and not targetDirty and (now - targetBuiltAt) < INDEX_MAX_AGE then
+        return
+    end
+
+    wipe(targetByID)
+    wipe(targetByName)
+
+    Compat.ForEachPlayerDebuffOn("target", function(aura)
+        if aura.spellId then targetByID[aura.spellId] = aura end
+        if aura.name and not targetByName[aura.name] then
+            targetByName[aura.name] = aura
+        end
+    end)
+
+    targetDirty = false
+    targetBuiltAt = now
 end
 
 -- The name fallback is load-bearing: the aura a spell applies often has a
@@ -125,26 +160,16 @@ function Auras:GetWeaponEnchantState(spellID)
     return state
 end
 
-function Auras:GetState(spellID)
-    if ns.Constants.IsWeaponEnchantID(spellID) then
-        return self:GetWeaponEnchantState(spellID)
-    end
-
-    local state = cache[spellID]
-    if not state then
-        state = {}
-        cache[spellID] = state
-    end
-
-    local aura = self:Lookup(spellID)
-
+-- Projects an aura data table (or nil) onto the shared state shape the icon and
+-- bar widgets render. Reused by the player-buff and target-DoT paths so both
+-- read timers, stacks and the not-up case identically.
+local function FillAuraState(state, spellID, aura)
     state.spellID = spellID
     state.aura = aura
     state.available = aura ~= nil
     state.active = aura ~= nil
     -- `applications` on the modern aura data, `count` on the legacy path.
-    local charges = aura and (aura.applications or aura.count) or nil
-    state.charges = charges
+    state.charges = aura and (aura.applications or aura.count) or nil
     state.maxCharges = nil
     state.isGCD = false
 
@@ -164,7 +189,51 @@ function Auras:GetState(spellID)
     return state
 end
 
+function Auras:GetState(spellID)
+    if ns.Constants.IsWeaponEnchantID(spellID) then
+        return self:GetWeaponEnchantState(spellID)
+    end
+
+    local state = cache[spellID]
+    if not state then
+        state = {}
+        cache[spellID] = state
+    end
+
+    return FillAuraState(state, spellID, self:Lookup(spellID))
+end
+
+-- The player's own debuff on the target for this spell, or nil. Uses the same
+-- name fallback as the player path, since a DoT's aura ID often differs from the
+-- cast (many SoD runes, some ranks).
+function Auras:LookupTargetDot(spellID)
+    self:RefreshTargetIndex()
+
+    local data = targetByID[spellID]
+    if data then return data end
+
+    local name = ns.Spellbook:GetName(spellID)
+    if not name then return nil end
+
+    return targetByName[name]
+end
+
+-- Kept in its own cache, not GetState's: for a DoT the player buff (none) and
+-- the target debuff share a spell ID, and one must not overwrite the other.
+local targetCache = {}
+function Auras:GetTargetDotState(spellID)
+    local state = targetCache[spellID]
+    if not state then
+        state = {}
+        targetCache[spellID] = state
+    end
+
+    return FillAuraState(state, spellID, self:LookupTargetDot(spellID))
+end
+
 function Auras:ClearCache()
     wipe(cache)
+    wipe(targetCache)
     self:MarkDirty()
+    self:MarkTargetDirty()
 end
