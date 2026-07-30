@@ -361,6 +361,7 @@ end
 -- Opens that group's settings panel, as Blizzard's Edit Mode selects a system.
 local function OnMouseUp(frame)
     if frame.cdmcGroup and frame.cdmcGroup.unlocked then
+        if ns.BarPanel then ns.BarPanel:Hide() end
         ns.EditModePanel:Show(frame.cdmcGroup.key)
     end
 end

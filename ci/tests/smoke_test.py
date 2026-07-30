@@ -267,6 +267,35 @@ ns.DB:SetHighlightsEnabled(false)
 ns.Highlights:Apply()
 R.glowDisabled = sbIcon.glowRequested and true or false
 
+-- Resource-bar settings panel: it opens, and its Enabled checkbox flips the flag.
+ns.BarPanel:Show("power")
+R.barPanelShown = _G.CDMCBarPanel:IsShown()
+local barEnable = _G.CDMCBarPanel.enabled
+barEnable:SetChecked(true)
+barEnable:GetScript("OnClick")(barEnable)
+R.barPanelEnables = ns.DB:GetBar("power").enabled
+
+-- Richer visibility: hide-when-full and with-target track the resource/target.
+local pbar = ns.bars.power
+pbar.unlocked = false
+ns.DB:GetBar("power").enabled = true
+ns.DB:GetBar("power").appearance.visibility = "HideWhenFull"
+_G.UnitPower = function() return 100 end
+_G.UnitPowerMax = function() return 100 end
+pbar:Layout()
+R.barHiddenWhenFull = pbar.frame:IsShown()
+_G.UnitPower = function() return 40 end
+pbar:Layout()
+R.barShownWhenNotFull = pbar.frame:IsShown()
+
+ns.DB:GetBar("power").appearance.visibility = "WithTarget"
+_G.__hasTarget = false
+pbar:Layout()
+R.barHiddenNoTarget = pbar.frame:IsShown()
+_G.__hasTarget = true
+pbar:Layout()
+R.barShownWithTarget = pbar.frame:IsShown()
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -406,6 +435,12 @@ def run(with_art):
     check("keybind shown when enabled", results["keybindShown"], True)
     check("keybind text abbreviated", results["keybindText"], "s2")
     check("keybind off by default", results["keybindOff"], False)
+    check("bar panel opens", results["barPanelShown"], True)
+    check("bar panel enable checkbox", results["barPanelEnables"], True)
+    check("bar hidden when full", results["barHiddenWhenFull"], False)
+    check("bar shown when not full", results["barShownWhenNotFull"], True)
+    check("bar hidden with no target", results["barHiddenNoTarget"], False)
+    check("bar shown with target", results["barShownWithTarget"], True)
     check("atlas probe", results["artMask"], with_art)
 
 

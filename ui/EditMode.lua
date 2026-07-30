@@ -115,6 +115,7 @@ function EditMode:Exit()
             end
         end)
         ns.EditModePanel:Hide()
+        if ns.BarPanel then ns.BarPanel:Hide() end
     end
 
     positionSnapshot = nil

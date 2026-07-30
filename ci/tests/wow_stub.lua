@@ -206,6 +206,7 @@ _G.GetRealmName = function() return "Test" end
 _G.UnitName = function() return "Tester" end
 _G.UnitClass = function() return "SHAMAN", "SHAMAN", 7 end
 _G.UnitAffectingCombat = function() return false end
+_G.UnitExists = function(unit) return _G.__hasTarget and true or false end
 _G.InCombatLockdown = function() return false end
 _G.UnitPowerType = function() return 0, "MANA" end
 _G.UnitHealth = function() return 100 end
