@@ -224,6 +224,67 @@ _G.__hasTarget = false
 ns.Auras:MarkTargetDirty()
 R.dotNoTarget = ns.Cooldowns:GetBarState(8921).phase
 
+-- Form-aware ability tags: a Druid's tracked set swaps with the form. One
+-- ability tagged cat-only, one bear-only, one caster/moonkin, one untagged (all
+-- forms). Form is driven through the signals the code reads -- power for cat and
+-- bear, the Moonkin Form aura for moonkin, Mana with no form aura for caster.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+local savedEssential = ns.DB:GetGroup("essential").spells
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 5176, name = "Wrath", rankIndependent = false, forms = { caster = true, moonkin = true } },
+    { spellID = 6807, name = "Maul",  rankIndependent = false, forms = { bear = true } },
+    { spellID = 1082, name = "Claw",  rankIndependent = false, forms = { cat = true } },
+    { spellID = 1126, name = "Mark of the Wild", rankIndependent = false },
+}
+local formGroup = ns.Group.Create("essential")
+
+local function FormSpells(powerToken, moonkinUp)
+    _G.UnitPowerType = function() return 0, powerToken end
+    _G.__aura = moonkinUp
+        and { spellId = 24858, name = "Moonkin Form", duration = 0, expirationTime = 0 }
+        or { spellId = 0, name = "None", duration = 0, expirationTime = 0 }
+    ns.Auras:ClearCache()
+    formGroup:Layout()
+    local ids = {}
+    for _, icon in ipairs(formGroup.icons) do ids[#ids + 1] = icon.spellID end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
+R.formCat     = FormSpells("ENERGY", false)  -- Claw + untagged
+R.formBear    = FormSpells("RAGE",   false)  -- Maul + untagged
+R.formCaster  = FormSpells("MANA",   false)  -- Wrath + untagged
+R.formMoonkin = FormSpells("MANA",   true)   -- Wrath + untagged
+
+-- A non-Druid ignores the tags entirely: every entry shows.
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
+_G.UnitPowerType = function() return 3, "ENERGY" end
+ns.Auras:ClearCache()
+formGroup:Layout()
+local nonDruidIDs = {}
+for _, icon in ipairs(formGroup.icons) do nonDruidIDs[#nonDruidIDs + 1] = icon.spellID end
+table.sort(nonDruidIDs)
+R.formNonDruid = table.concat(nonDruidIDs, ",")
+
+-- Form tags round-trip through export/import.
+ns.DB:GetGroup("essential").spells[3].forms = { cat = true }
+local formExport = ns.Serialization:Export()
+local formImport = ns.Serialization:Import(formExport)
+local importedClaw
+for _, entry in ipairs(formImport.groups.essential.spells) do
+    if entry.spellID == 1082 then importedClaw = entry end
+end
+R.formRoundTrip = importedClaw and importedClaw.forms and importedClaw.forms.cat == true
+    and importedClaw.forms.bear == nil and true or false
+
+-- Restore the group, power and the stub's default player buff for the tests
+-- downstream (the media/aura checks expect Maelstrom Weapon up on the player).
+ns.DB:GetGroup("essential").spells = savedEssential
+_G.UnitPowerType = function() return 0, "MANA" end
+_G.__aura = { spellId = 187880, name = "Maelstrom Weapon", applications = 5,
+              duration = 30, expirationTime = GetTime() + 12, timeMod = 1 }
+ns.Auras:ClearCache()
+
 -- Back to the stub default so nothing downstream sees the test's class.
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 _G.GetItemCount = function() return 0 end
@@ -494,13 +555,19 @@ def run(with_art):
     check("target dot bar shows remaining", results["dotRemaining"], 9)
     check("target dot ignores others' casts", results["dotIgnoresOthers"], "ready")
     check("target dot falls back to ready with no target", results["dotNoTarget"], "ready")
+    check("druid form cat shows cat + untagged", results["formCat"], "1082,1126")
+    check("druid form bear shows bear + untagged", results["formBear"], "1126,6807")
+    check("druid form caster shows caster + untagged", results["formCaster"], "1126,5176")
+    check("druid form moonkin shows moonkin + untagged", results["formMoonkin"], "1126,5176")
+    check("non-druid ignores form tags", results["formNonDruid"], "1082,1126,5176,6807")
+    check("form tags round-trip", results["formRoundTrip"], True)
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
-    check("export format", results["exportPrefix"], "CDMC2:")
+    check("export format", results["exportPrefix"], "CDMC3:")
     check("round-trip bar width", results["importedBarWidth"], 317)
     check("round-trip spell name", results["importedSpellName"], "Maelstrom Weapon")
     check("picker opens", results["pickerShown"], True)

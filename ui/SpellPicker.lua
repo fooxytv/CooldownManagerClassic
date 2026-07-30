@@ -320,10 +320,87 @@ local function OnIconLeave()
     GameTooltip:Hide()
 end
 
+local function IsDruidPlayer()
+    return select(2, UnitClass("player")) == "DRUID"
+end
+
+-- The tag badge for a tracked icon: the initials of the forms it is limited to,
+-- or nil for an untagged (all-forms) entry, which shows no badge.
+local function FormBadge(entry)
+    local forms = entry and entry.forms
+    if type(forms) ~= "table" or not next(forms) then return nil end
+
+    local out = {}
+    for _, key in ipairs(Const.DRUID_FORMS) do
+        if forms[key] then out[#out + 1] = Const.FORM_INITIALS[key] end
+    end
+    return table.concat(out)
+end
+
+-- Flips one form for an entry. Works from the effective set (an untagged entry
+-- shows in all forms), and collapses "all forms on" -- or the empty set -- back
+-- to untagged, so the badge disappears when a tag adds nothing.
+local function ToggleEntryForm(entry, formKey)
+    local set = {}
+    if type(entry.forms) == "table" and next(entry.forms) then
+        for key in pairs(entry.forms) do set[key] = true end
+    else
+        for _, key in ipairs(Const.DRUID_FORMS) do set[key] = true end
+    end
+
+    set[formKey] = not set[formKey] or nil
+
+    local count = 0
+    for _ in pairs(set) do count = count + 1 end
+
+    if count == 0 or count == #Const.DRUID_FORMS then
+        entry.forms = nil
+    else
+        entry.forms = set
+    end
+end
+
+-- Right-click menu on a tracked icon (Druids only): a checkable toggle per form.
+-- Checking every form -- the default -- is the same as untagged.
+local formMenu
+local function ShowFormMenu(button)
+    if not formMenu then
+        formMenu = CreateFrame("Frame", "CDMCFormMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+
+    UIDropDownMenu_Initialize(formMenu, function()
+        local entry = button.entry
+        if not entry then return end
+
+        local title = UIDropDownMenu_CreateInfo()
+        title.text = "Track in forms"
+        title.isTitle = true
+        title.notCheckable = true
+        UIDropDownMenu_AddButton(title)
+
+        for _, opt in ipairs(Const.FORM_TAG_OPTIONS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = opt.label
+            info.isNotRadio = true
+            info.keepShownOnClick = true
+            info.checked = Const.FormAllows(entry.forms, opt.value)
+            info.func = function()
+                ToggleEntryForm(entry, opt.value)
+                CommitEdit()
+                SpellPicker:Refresh()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, formMenu, "cursor", 0, 0)
+end
+
 local function CreateIconButton(parent)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(ICON_SIZE, ICON_SIZE)
     button:RegisterForDrag("LeftButton")
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     button.icon = button:CreateTexture(nil, "ARTWORK")
     button.icon:SetAllPoints()
@@ -333,6 +410,13 @@ local function CreateIconButton(parent)
     button.highlight:SetAllPoints()
     button.highlight:SetColorTexture(1, 1, 1, 0.25)
 
+    -- Form-tag badge (Druids), lit corner initials of the forms this ability is
+    -- limited to. Hidden for untagged entries and non-Druids.
+    button.formText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.formText:SetPoint("BOTTOMLEFT", 1, 1)
+    button.formText:SetTextColor(0.4, 0.8, 1)
+    button.formText:Hide()
+
     button.cdmcIsIcon = true
 
     button:SetScript("OnEnter", OnIconEnter)
@@ -340,8 +424,15 @@ local function CreateIconButton(parent)
     button:SetScript("OnDragStart", BeginDrag)
     button:SetScript("OnDragStop", ResolveDrop)
 
-    -- Click to move a spell between tracked and not-displayed without dragging.
-    button:SetScript("OnClick", function(self)
+    -- Left-click moves a spell between tracked and not-displayed without
+    -- dragging; right-click on a tracked icon opens the Druid form-tag menu.
+    button:SetScript("OnClick", function(self, mouseButton)
+        if mouseButton == "RightButton" then
+            if self.groupKey and IsDruidPlayer() then
+                ShowFormMenu(self)
+            end
+            return
+        end
         if self.groupKey then
             RemoveFrom(self.groupKey, self.spellID)
         else
@@ -375,6 +466,7 @@ local function ReleaseButton(button)
     button.groupKey = nil
     button.index = nil
     button.entry = nil
+    if button.formText then button.formText:Hide() end
     buttonPool[#buttonPool + 1] = button
 end
 
@@ -449,6 +541,15 @@ local function BuildSection(parent, definition, entries, yOffset)
         button.index = index
         button.entry = entry
         button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+        -- Form badge only for a Druid's tracked (not not-displayed) entries.
+        local badge = definition.key and IsDruidPlayer() and FormBadge(entry)
+        if badge then
+            button.formText:SetText(badge)
+            button.formText:Show()
+        else
+            button.formText:Hide()
+        end
 
         local column = (index - 1) % ICONS_PER_ROW
         local row = math.floor((index - 1) / ICONS_PER_ROW)

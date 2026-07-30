@@ -95,6 +95,7 @@ globals = {
     "SLASH_CDMCEDIT1",
     "SLASH_CDMCEDIT2",
     "CloseDropDownMenus",
+    "ToggleDropDownMenu",
     "UIDropDownMenu_Initialize",
     "UIDropDownMenu_CreateInfo",
     "UIDropDownMenu_AddButton",

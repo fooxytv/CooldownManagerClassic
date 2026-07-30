@@ -22,7 +22,8 @@ Const.DB_VERSION = 3
 -- Bumped when the exported profile string format changes.
 --   1: spell list plus icon size, spacing, growth and position
 --   2: every appearance field, spell names, and the resource bars
-Const.PROFILE_FORMAT_VERSION = 2
+--   3: per-ability Druid form tags (the Sf= line)
+Const.PROFILE_FORMAT_VERSION = 3
 
 -- Iterate this rather than pairs(), or the layout order is not stable.
 Const.GROUP_ORDER = { "essential", "utility", "buffs", "cooldownbars" }
@@ -150,6 +151,46 @@ Const.RESOURCE_SOURCE_OPTIONS = {
     { value = "soulshards", label = "Soul Shards" },
     { value = "none",       label = "None" },
 }
+
+-- Druid form-aware ability tags. An ability entry may carry a `forms` set (a map
+-- of these keys); when it does, the ability is tracked only in those forms. An
+-- empty or absent set means every form, so untagged entries and non-Druids are
+-- unaffected. Anything that isn't cat/bear/moonkin (travel, aquatic, no form)
+-- reads as "caster".
+Const.DRUID_FORMS = { "cat", "bear", "moonkin", "caster" }
+
+Const.FORM_KEY_SET = {}
+for _, key in ipairs(Const.DRUID_FORMS) do
+    Const.FORM_KEY_SET[key] = true
+end
+
+-- Order and labels for the per-ability form toggles shown to Druids.
+Const.FORM_TAG_OPTIONS = {
+    { value = "cat",     label = "Cat" },
+    { value = "bear",    label = "Bear" },
+    { value = "moonkin", label = "Moonkin" },
+    { value = "caster",  label = "Caster / No Form" },
+}
+
+-- A single letter per form for the tag badge drawn on a tracked icon.
+Const.FORM_INITIALS = {
+    cat     = "C",
+    bear    = "B",
+    moonkin = "M",
+    caster  = "H",
+}
+
+-- Moonkin and caster both use Mana, so the form is told apart by the Moonkin Form
+-- self-buff rather than the power. The ID is stable enough; the name is the
+-- fallback the aura scan uses across ranks.
+Const.DRUID_MOONKIN_SPELL = 24858
+
+-- True when an ability carrying this `forms` set should show in `formKey`. An
+-- empty or absent set is "all forms", so untagged abilities always pass.
+function Const.FormAllows(forms, formKey)
+    if type(forms) ~= "table" or not next(forms) then return true end
+    return forms[formKey] == true
+end
 
 -- Maelstrom Weapon is an ordinary stacking self-buff, so its count is read from
 -- the aura by name (robust across the rune's ranks). SoD caps it at 5 stacks.

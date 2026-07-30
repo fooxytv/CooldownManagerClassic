@@ -166,10 +166,22 @@ function Group:Layout()
         and appearance.hideWhenInactive ~= false
         and not self.unlocked
 
+    -- Form-tagged abilities are dropped when the Druid is in a form they are not
+    -- tagged for. Resolved once here, not per entry; nil for non-Druids, so their
+    -- entries always pass. While unlocked every tagged ability is kept, like a
+    -- hidden-when-inactive buff, so a form's row can still be dragged.
+    local currentForm
+    if not self.unlocked and select(2, UnitClass("player")) == "DRUID" then
+        currentForm = ns.Compat.GetShapeshiftForm()
+    end
+
     local resolved = {}
     for _, entry in ipairs(settings.spells) do
         local spellID = ns.Spellbook:ResolveForGroup(entry, isAuraGroup)
-        if spellID and not (hideInactive and not ns.Auras:GetState(spellID).active) then
+        local formOK = not currentForm or Const.FormAllows(entry.forms, currentForm)
+        if spellID and formOK
+            and not (hideInactive and not ns.Auras:GetState(spellID).active)
+        then
             resolved[#resolved + 1] = { entry = entry, spellID = spellID }
         end
     end

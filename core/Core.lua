@@ -172,6 +172,9 @@ local EVENTS = {
     "PLAYER_REGEN_ENABLED",
     "PLAYER_REGEN_DISABLED",
     "PLAYER_TARGET_CHANGED",
+    -- A Druid shapeshift changes which form-tagged abilities are tracked, so the
+    -- icon groups re-Layout to swap the set (see the handler in OnEvent).
+    "UPDATE_SHAPESHIFT_FORM",
     "RUNE_UPDATED",
     "ENGRAVING_SUCCESS",
     -- Soul shards are bag items, so the class-resource bar tracks them through
@@ -318,6 +321,15 @@ local function OnEvent(_, event, arg1)
     -- target's over. The refresh at the bottom of this handler then re-reads them.
     if event == "PLAYER_TARGET_CHANGED" then
         ns.Auras:MarkTargetDirty()
+    end
+
+    -- A shapeshift changes which form-tagged abilities belong on screen, so the
+    -- groups need a full re-Layout (Update alone keeps the old icon set). Bars are
+    -- handled by UNIT_DISPLAYPOWER; this covers the icon groups.
+    if event == "UPDATE_SHAPESHIFT_FORM" then
+        for _, group in pairs(ns.groups) do
+            group:Layout()
+        end
     end
 
     if RESOURCE_ONLY_EVENTS[event] then
