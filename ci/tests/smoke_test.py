@@ -190,6 +190,16 @@ R.shareShown = _G.CDMCProfileShare:IsShown()
 ns.EditModePanel:Show("essential")
 R.panelShown = _G.CDMCEditModePanel:IsShown()
 
+-- The reactive-highlights checkbox toggles the profile flag (it is not a group
+-- appearance option, so it uses the custom get/set path).
+local hlCheck = _G.CDMCEditModePanel.showHighlights
+hlCheck:SetChecked(true)
+hlCheck:GetScript("OnClick")(hlCheck)
+R.highlightCheckboxOn = ns.DB:AreHighlightsEnabled()
+hlCheck:SetChecked(false)
+hlCheck:GetScript("OnClick")(hlCheck)
+R.highlightCheckboxOff = ns.DB:AreHighlightsEnabled()
+
 -- Every tab must render. A panel tab builds its own widgets instead of spell
 -- sections, so a mistake there throws rather than looking merely empty.
 ns.SpellPicker:Show("profiles")
@@ -385,6 +395,8 @@ def run(with_art):
     check("picker opens", results["pickerShown"], True)
     check("share window opens", results["shareShown"], True)
     check("edit panel opens", results["panelShown"], True)
+    check("highlight checkbox enables", results["highlightCheckboxOn"], True)
+    check("highlight checkbox disables", results["highlightCheckboxOff"], False)
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")

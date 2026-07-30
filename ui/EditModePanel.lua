@@ -107,7 +107,10 @@ local function CreateDropdown(parent, label, option, getChoices, onSelect)
     return container
 end
 
-local function CreateCheckbox(parent, label, option)
+-- `handlers` (optional) with .get/.set drives a checkbox that is not a group
+-- appearance option -- e.g. the profile-level reactive-highlight toggle. Without
+-- it, the checkbox reads and writes appearance[option] as usual.
+local function CreateCheckbox(parent, label, option, handlers)
     widgetIndex = widgetIndex + 1
     local name = "CDMCPanelCheck" .. widgetIndex
 
@@ -116,8 +119,14 @@ local function CreateCheckbox(parent, label, option)
     if text then text:SetText(label) end
 
     check.option = option
+    check.getState = handlers and handlers.get
     check:SetScript("OnClick", function(self)
-        SetOption(self.option, self:GetChecked() and true or false)
+        local checked = self:GetChecked() and true or false
+        if handlers and handlers.set then
+            handlers.set(checked)
+        else
+            SetOption(self.option, checked)
+        end
     end)
 
     return check
@@ -212,6 +221,18 @@ local function BuildPanel()
 
     panel.showKeybind = CreateCheckbox(panel, "Show Keybind", "showKeybind")
     panel.showKeybind:SetPoint("TOPLEFT", 20, y)
+    y = y - 26
+
+    -- Reactive proc highlighting is a profile-level switch (not a per-group
+    -- appearance option), so it uses custom get/set rather than SetOption.
+    panel.showHighlights = CreateCheckbox(panel, "Reactive Highlights", nil, {
+        get = function() return ns.DB:AreHighlightsEnabled() end,
+        set = function(value)
+            ns.DB:SetHighlightsEnabled(value)
+            ns.Core:RefreshAll()
+        end,
+    })
+    panel.showHighlights:SetPoint("TOPLEFT", 20, y)
     y = y - 34
 
     -- Common to every group: the font face applies to the timer / count / bar
@@ -417,6 +438,9 @@ function Panel:Refresh()
     panel.showTimer:SetChecked(GetOption("showCountdownText") and true or false)
     panel.showTooltips:SetChecked(GetOption("showTooltips") and true or false)
     panel.showKeybind:SetChecked(GetOption("showKeybind") and true or false)
+    if panel.showHighlights.getState then
+        panel.showHighlights:SetChecked(panel.showHighlights.getState() and true or false)
+    end
 end
 
 function Panel:Show(groupKey)
