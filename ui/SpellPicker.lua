@@ -261,7 +261,14 @@ local function DropInto(targetGroup, targetIndex)
     drag.handled = true
 
     local entry = RemoveFrom(drag.fromGroup, drag.spellID)
-        or { spellID = drag.spellID, name = drag.entry and drag.entry.name, rankIndependent = true }
+        or {
+            spellID = drag.spellID,
+            name = drag.entry and drag.entry.name,
+            rankIndependent = true,
+            -- Dragged in fresh from Not Displayed: a known DoT defaults to DoT
+            -- tracking. A moved entry keeps whatever flag it already had.
+            trackDebuff = Const.IsDotSpell(drag.spellID) or nil,
+        }
 
     if targetGroup and working[targetGroup] then
         local list = working[targetGroup]
@@ -363,7 +370,7 @@ end
 -- Right-click menu on a tracked icon (Druids only): a checkable toggle per form.
 -- Checking every form -- the default -- is the same as untagged.
 local formMenu
-local function ShowFormMenu(button)
+local function ShowEntryMenu(button)
     if not formMenu then
         formMenu = CreateFrame("Frame", "CDMCFormMenu", UIParent, "UIDropDownMenuTemplate")
     end
@@ -372,24 +379,41 @@ local function ShowFormMenu(button)
         local entry = button.entry
         if not entry then return end
 
-        local title = UIDropDownMenu_CreateInfo()
-        title.text = "Track in forms"
-        title.isTitle = true
-        title.notCheckable = true
-        UIDropDownMenu_AddButton(title)
+        -- Track-as-DoT applies to every class: the ability is followed by the
+        -- debuff it leaves on the target rather than (only) its cooldown.
+        local dot = UIDropDownMenu_CreateInfo()
+        dot.text = "Track as DoT (on target)"
+        dot.isNotRadio = true
+        dot.keepShownOnClick = true
+        dot.checked = entry.trackDebuff and true or false
+        dot.func = function()
+            entry.trackDebuff = not entry.trackDebuff or nil
+            CommitEdit()
+            SpellPicker:Refresh()
+        end
+        UIDropDownMenu_AddButton(dot)
 
-        for _, opt in ipairs(Const.FORM_TAG_OPTIONS) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = opt.label
-            info.isNotRadio = true
-            info.keepShownOnClick = true
-            info.checked = Const.FormAllows(entry.forms, opt.value)
-            info.func = function()
-                ToggleEntryForm(entry, opt.value)
-                CommitEdit()
-                SpellPicker:Refresh()
+        -- Form tags are Druid-only.
+        if IsDruidPlayer() then
+            local title = UIDropDownMenu_CreateInfo()
+            title.text = "Track in forms"
+            title.isTitle = true
+            title.notCheckable = true
+            UIDropDownMenu_AddButton(title)
+
+            for _, opt in ipairs(Const.FORM_TAG_OPTIONS) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = opt.label
+                info.isNotRadio = true
+                info.keepShownOnClick = true
+                info.checked = Const.FormAllows(entry.forms, opt.value)
+                info.func = function()
+                    ToggleEntryForm(entry, opt.value)
+                    CommitEdit()
+                    SpellPicker:Refresh()
+                end
+                UIDropDownMenu_AddButton(info)
             end
-            UIDropDownMenu_AddButton(info)
         end
     end, "MENU")
 
@@ -417,6 +441,14 @@ local function CreateIconButton(parent)
     button.formText:SetTextColor(0.4, 0.8, 1)
     button.formText:Hide()
 
+    -- DoT-tracking badge, opposite corner, shown when the entry is tracked by its
+    -- target debuff.
+    button.dotText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.dotText:SetPoint("BOTTOMRIGHT", -1, 1)
+    button.dotText:SetTextColor(1, 0.5, 0.3)
+    button.dotText:SetText("DoT")
+    button.dotText:Hide()
+
     button.cdmcIsIcon = true
 
     button:SetScript("OnEnter", OnIconEnter)
@@ -425,11 +457,12 @@ local function CreateIconButton(parent)
     button:SetScript("OnDragStop", ResolveDrop)
 
     -- Left-click moves a spell between tracked and not-displayed without
-    -- dragging; right-click on a tracked icon opens the Druid form-tag menu.
+    -- dragging; right-click on a tracked icon opens the tracking menu (Track as
+    -- DoT for any class, plus form tags for Druids).
     button:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
-            if self.groupKey and IsDruidPlayer() then
-                ShowFormMenu(self)
+            if self.groupKey then
+                ShowEntryMenu(self)
             end
             return
         end
@@ -442,6 +475,8 @@ local function CreateIconButton(parent)
                     spellID = self.spellID,
                     name = self.entry and self.entry.name,
                     rankIndependent = true,
+                    -- A known DoT defaults to DoT tracking when first added.
+                    trackDebuff = Const.IsDotSpell(self.spellID) or nil,
                 })
             end
         end
@@ -467,6 +502,7 @@ local function ReleaseButton(button)
     button.index = nil
     button.entry = nil
     if button.formText then button.formText:Hide() end
+    if button.dotText then button.dotText:Hide() end
     buttonPool[#buttonPool + 1] = button
 end
 
@@ -542,7 +578,8 @@ local function BuildSection(parent, definition, entries, yOffset)
         button.entry = entry
         button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
 
-        -- Form badge only for a Druid's tracked (not not-displayed) entries.
+        -- Badges only on tracked (not not-displayed) entries: form initials for a
+        -- Druid, and a DoT marker for a DoT-tracked ability.
         local badge = definition.key and IsDruidPlayer() and FormBadge(entry)
         if badge then
             button.formText:SetText(badge)
@@ -550,6 +587,8 @@ local function BuildSection(parent, definition, entries, yOffset)
         else
             button.formText:Hide()
         end
+
+        button.dotText:SetShown(definition.key ~= nil and entry.trackDebuff == true)
 
         local column = (index - 1) % ICONS_PER_ROW
         local row = math.floor((index - 1) / ICONS_PER_ROW)
@@ -1232,6 +1271,7 @@ function SpellPicker:AddByID(spellID)
         -- Exact: a manually entered ID is the specific one the user wants, so
         -- it must not be re-pointed at another rank by name.
         rankIndependent = false,
+        trackDebuff = Const.IsDotSpell(spellID) or nil,
     })
 
     CommitEdit()

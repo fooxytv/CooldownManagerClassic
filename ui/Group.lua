@@ -179,8 +179,11 @@ function Group:Layout()
     for _, entry in ipairs(settings.spells) do
         local spellID = ns.Spellbook:ResolveForGroup(entry, isAuraGroup)
         local formOK = not currentForm or Const.FormAllows(entry.forms, currentForm)
+        -- A DoT-tracked entry counts as active from its debuff on the target, so
+        -- hide-when-inactive keeps it while the DoT is up rather than checking a
+        -- player aura it never has.
         if spellID and formOK
-            and not (hideInactive and not ns.Auras:GetState(spellID).active)
+            and not (hideInactive and not ns.Auras:GetTrackedState(spellID, entry.trackDebuff).active)
         then
             resolved[#resolved + 1] = { entry = entry, spellID = spellID }
         end
@@ -308,7 +311,7 @@ function Group:ComputeActiveKey()
     local hash = 0
     for _, entry in ipairs(settings.spells) do
         local spellID = ns.Spellbook:ResolveForGroup(entry, true)
-        if spellID and ns.Auras:GetState(spellID).active then
+        if spellID and ns.Auras:GetTrackedState(spellID, entry.trackDebuff).active then
             hash = (hash * 31 + spellID) % 2147483647
         end
     end
@@ -341,13 +344,16 @@ function Group:Update()
     local widget = self.widget or ns.Icon
     for _, icon in ipairs(self.icons) do
         if icon.spellID then
+            -- A spell flagged as a DoT is tracked by the player's own debuff on
+            -- the target, in whichever section it sits.
+            local trackDebuff = icon.entry and icon.entry.trackDebuff
             local state
             if durationBars then
-                state = ns.Cooldowns:GetBarState(icon.spellID)
+                state = ns.Cooldowns:GetBarState(icon.spellID, trackDebuff)
             elseif auraGroup then
-                state = ns.Auras:GetState(icon.spellID)
+                state = ns.Auras:GetTrackedState(icon.spellID, trackDebuff)
             else
-                state = ns.Cooldowns:GetState(icon.spellID, appearance.showGCD)
+                state = ns.Cooldowns:GetIconState(icon.spellID, appearance.showGCD, trackDebuff)
             end
             if widget:Update(icon, state, appearance) then
                 animating = true

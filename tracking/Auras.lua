@@ -231,6 +231,16 @@ function Auras:GetTargetDotState(spellID)
     return FillAuraState(state, spellID, self:LookupTargetDot(spellID))
 end
 
+-- The state an aura-tracked entry should show: its own debuff on the target when
+-- the entry is flagged as a DoT, otherwise the aura on the player. Lets the
+-- Tracked Buffs group and any aura consumer track a DoT with one call.
+function Auras:GetTrackedState(spellID, trackDebuff)
+    if trackDebuff then
+        return self:GetTargetDotState(spellID)
+    end
+    return self:GetState(spellID)
+end
+
 function Auras:ClearCache()
     wipe(cache)
     wipe(targetCache)

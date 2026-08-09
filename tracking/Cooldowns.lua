@@ -49,6 +49,10 @@ function Cooldowns:GetState(spellID, showGCD)
 
     state.usable, state.notEnoughPower = Compat.IsSpellUsable(spellID)
 
+    -- A pure cooldown carries no aura; cleared so a reused cache entry never
+    -- keeps a DoT overlay from GetIconState (which would mis-colour the swipe).
+    state.aura = nil
+
     local start, duration, enabled, modRate = Compat.GetSpellCooldown(spellID)
     local charges, maxCharges, chargeStart, chargeDuration, chargeModRate = Compat.GetSpellCharges(spellID)
 
@@ -116,6 +120,33 @@ function Cooldowns:GetState(spellID, showGCD)
     return state
 end
 
+-- Icon state for a DoT-tracked entry: the player's debuff on the target drives
+-- the countdown/swipe (its uptime is the actionable thing), while the cooldown
+-- read is kept for the icon's usability tint and desaturation -- so a spell with
+-- both a cooldown and a DoT (Flame Shock) shows the DoT ticking *and* dims until
+-- it can be recast. Falls straight through to the plain cooldown when unflagged
+-- or when no DoT of ours is up.
+function Cooldowns:GetIconState(spellID, showGCD, trackDebuff)
+    local state = self:GetState(spellID, showGCD)
+    if not trackDebuff then return state end
+
+    local dot = ns.Auras:GetTargetDotState(spellID)
+    if dot and dot.active and (dot.remaining or 0) > 0 then
+        state.swipeStart = dot.swipeStart
+        state.swipeDuration = dot.swipeDuration
+        state.swipeModRate = dot.swipeModRate
+        state.remaining = dot.remaining
+        state.active = true
+        state.isGCD = false
+        state.suppressText = false
+        -- Marks the swipe as an aura so the widget tints it as a buff, not a
+        -- cooldown; usability/desaturation still come from the cooldown fields.
+        state.aura = dot.aura
+    end
+
+    return state
+end
+
 -- Effect takes precedence over recharge. `phase` tells the widget which:
 --   active    the aura is up -- show its remaining duration, bright
 --   cooldown  no effect, but recharging -- show the recharge, dimmed
@@ -125,19 +156,19 @@ end
 -- self-buff defensives. Where the applied aura differs it is simply not found
 -- and the bar shows the recharge, which is no worse than an icon manages.
 local barCache = {}
-function Cooldowns:GetBarState(spellID)
+function Cooldowns:GetBarState(spellID, trackDebuff)
     local state = barCache[spellID]
     if not state then
         state = {}
         barCache[spellID] = state
     end
 
-    -- The aura the ability leaves on the player (a defensive's own buff), then
-    -- the DoT it leaves on the target (Moonfire, Sunfire -- no player buff, no
-    -- real cooldown, so the target debuff is the only thing to count down).
-    -- Either drives the "active" phase; the first that is up wins.
+    -- The aura the ability leaves on the player (a defensive's own buff) always
+    -- drives the "active" phase; a flagged DoT entry additionally falls back to
+    -- the debuff it leaves on the target (Moonfire, Flame Shock). Either counts
+    -- down as "active"; the player buff wins if both are somehow up.
     local aura = ns.Auras:GetState(spellID)
-    if not (aura and aura.active and (aura.remaining or 0) > 0) then
+    if trackDebuff and not (aura and aura.active and (aura.remaining or 0) > 0) then
         aura = ns.Auras:GetTargetDotState(spellID)
     end
 
