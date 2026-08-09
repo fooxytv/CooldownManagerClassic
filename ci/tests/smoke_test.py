@@ -476,6 +476,63 @@ _G.__hasTarget = true
 pbar:Layout()
 R.barShownWithTarget = pbar.frame:IsShown()
 
+-- Styling (#34): border, background colour, tick segments, percentage text, and
+-- that the new appearance fields round-trip. Reset the power bar's visibility so
+-- it renders regardless of target.
+local styleBar = ns.bars.power
+ns.DB:GetBar("power").appearance.visibility = "Always"
+ns.DB:GetBar("power").appearance.borderSize = 2
+ns.DB:GetBar("power").appearance.borderColor = "0,0,0,1"
+ns.DB:GetBar("power").appearance.bgColor = "0,0,0,0.25"
+styleBar:Layout()
+R.borderShown = styleBar.borders.top:IsShown()
+R.bgAlpha = ("%.2f"):format(styleBar.frame.background.__color[4])
+
+ns.DB:GetBar("power").appearance.borderSize = 0
+styleBar:Layout()
+R.borderHidden = styleBar.borders.top:IsShown()
+
+-- Percentage text: power is 40/100 -> "40%".
+_G.UnitPower = function() return 40 end
+_G.UnitPowerMax = function() return 100 end
+ns.DB:GetBar("power").appearance.showPercent = true
+styleBar:Update()
+R.percentText = styleBar.text:GetText()
+ns.DB:GetBar("power").appearance.showPercent = false
+
+-- Smooth fill still lays out (the eased path rides an OnUpdate the stub never
+-- fires; this only proves it does not error).
+ns.DB:GetBar("power").appearance.animate = true
+styleBar:Layout()
+R.animateLaidOut = (styleBar.frame:GetWidth() or 0) > 0
+ns.DB:GetBar("power").appearance.animate = false
+
+-- Tick segment style on the class-resource bar: a continuous fill with divider
+-- ticks instead of pips. Run as a Rogue so the source is combo points.
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
+_G.GetComboPoints = function() return 3 end
+ns.DB:GetBar("combo").appearance.segmentStyle = "ticks"
+local tickBar = ns.ResourceBar.Create("combo")
+tickBar:Layout()
+tickBar:Update()
+R.tickStatusShown = tickBar.statusBar:IsShown()
+R.tickCount = #tickBar.ticks
+R.tickFill = tickBar.statusBar:GetValue()
+R.tickPipsHidden = tickBar.pips[1] == nil or (not tickBar.pips[1]:IsShown())
+ns.DB:GetBar("combo").appearance.segmentStyle = "pips"
+_G.GetComboPoints = function() return 0 end
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
+
+-- New styling fields round-trip through export/import.
+ns.DB:GetBar("power").appearance.borderSize = 3
+ns.DB:GetBar("power").appearance.bgColor = "0.1,0.2,0.3,0.4"
+ns.DB:GetBar("combo").appearance.segmentStyle = "ticks"
+local styleImport = ns.Serialization:Import(ns.Serialization:Export())
+R.rtBorderSize = styleImport.bars.power.appearance.borderSize
+R.rtBgColor = styleImport.bars.power.appearance.bgColor
+R.rtSegment = styleImport.bars.combo.appearance.segmentStyle
+ns.DB:GetBar("combo").appearance.segmentStyle = "pips"
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -649,6 +706,18 @@ def run(with_art):
     check("bar shown when not full", results["barShownWhenNotFull"], True)
     check("bar hidden with no target", results["barHiddenNoTarget"], False)
     check("bar shown with target", results["barShownWithTarget"], True)
+    check("border shows when sized", results["borderShown"], True)
+    check("border hides at size 0", results["borderHidden"], False)
+    check("background colour applies", results["bgAlpha"], "0.25")
+    check("percentage text", results["percentText"], "40%")
+    check("smooth-fill bar lays out", results["animateLaidOut"], True)
+    check("tick style shows status bar", results["tickStatusShown"], True)
+    check("tick divider count", results["tickCount"], 4)
+    check("tick style fills the bar", results["tickFill"], 3)
+    check("tick style hides pips", results["tickPipsHidden"], True)
+    check("border size round-trips", results["rtBorderSize"], 3)
+    check("bg colour round-trips", results["rtBgColor"], "0.1,0.2,0.3,0.4")
+    check("segment style round-trips", results["rtSegment"], "ticks")
     check("atlas probe", results["artMask"], with_art)
 
 
