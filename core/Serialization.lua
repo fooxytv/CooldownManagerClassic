@@ -196,6 +196,11 @@ function Serialization:Export(profile)
                 if forms then
                     lines[#lines + 1] = "Sf=" .. forms
                 end
+
+                -- DoT-tracking flag, likewise its own line, only when set.
+                if entry.trackDebuff then
+                    lines[#lines + 1] = "Sd=1"
+                end
             end
         end
     end
@@ -301,6 +306,10 @@ local function ParseV2(blob)
             -- no Sf= lines, so those entries stay untagged (all forms).
             local last = current.spells[#current.spells]
             if last then last.forms = DecodeForms(body) end
+
+        elseif current and currentIsGroup and tag == "Sd" then
+            local last = current.spells[#current.spells]
+            if last then last.trackDebuff = body == "1" or nil end
         end
     end
 

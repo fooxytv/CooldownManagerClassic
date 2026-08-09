@@ -192,6 +192,35 @@ function Const.FormAllows(forms, formKey)
     return forms[formKey] == true
 end
 
+-- Abilities whose value is the DoT they leave on the target rather than a
+-- cooldown (Moonfire, Sunfire, Flame Shock, …). An entry may set
+-- `trackDebuff` to be tracked by that target debuff in any section; the class
+-- packs set it automatically for these, and the spell picker defaults the toggle
+-- on when one is added. Matched by name so it holds across ranks and flavours.
+-- Not exhaustive -- extend per class pack.
+Const.DOT_SPELL_NAMES = {
+    ["Moonfire"]        = true,
+    ["Sunfire"]         = true,   -- SoD Druid rune
+    ["Insect Swarm"]    = true,
+    ["Rip"]             = true,
+    ["Rake"]            = true,
+    ["Rupture"]         = true,
+    ["Garrote"]         = true,
+    ["Flame Shock"]     = true,
+    ["Corruption"]      = true,
+    ["Immolate"]        = true,
+    ["Curse of Agony"]  = true,
+    ["Serpent Sting"]   = true,
+    ["Deadly Poison"]   = true,
+}
+
+-- Whether a spell should default to DoT tracking, matched by its current name.
+function Const.IsDotSpell(spellID)
+    if not spellID then return false end
+    local name = ns.Compat and ns.Compat.GetSpellInfo and ns.Compat.GetSpellInfo(spellID)
+    return name ~= nil and Const.DOT_SPELL_NAMES[name] == true
+end
+
 -- Maelstrom Weapon is an ordinary stacking self-buff, so its count is read from
 -- the aura by name (robust across the rune's ranks). SoD caps it at 5 stacks.
 Const.MAELSTROM_WEAPON_AURA = "Maelstrom Weapon"

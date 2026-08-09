@@ -239,12 +239,13 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
         frame.overlay:SetPoint("BOTTOMRIGHT", insetX, -insetY)
     end
 
-    -- Reversed so a buff winds down rather than filling up like a cooldown.
-    -- The swipe *colour* is not set here -- Update owns it, because one icon
-    -- alternates between cooldown, aura and GCD colouring.
+    -- Reversed so a buff (or a tracked DoT) winds down rather than filling up
+    -- like a cooldown. The swipe *colour* is not set here -- Update owns it,
+    -- because one icon alternates between cooldown, aura and GCD colouring.
     local isAura = Const.AURA_GROUPS[frame.groupKey]
+    local windsDown = isAura or (entry and entry.trackDebuff)
     if frame.cooldown.SetReverse then
-        frame.cooldown:SetReverse(isAura and true or false)
+        frame.cooldown:SetReverse(windsDown and true or false)
     end
 
     ApplyFont(frame.timeText, appearance.timeFont, math.max(9, size * 0.42), appearance.fontFace)

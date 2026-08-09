@@ -201,28 +201,78 @@ ns.BarPanel:Show("power")
 R.resourceSourceHiddenForPower = _G.CDMCBarPanel.resourceSource:IsShown()
 ns.BarPanel:Hide()
 
--- Target DoT tracking: a debuff the player applied to the target drives the
--- active phase of a cooldown bar for a spell with no real cooldown (Moonfire).
--- Only the player's own debuff counts, and a new/empty target reads clean.
+-- DoT tracking: a spell flagged trackDebuff is followed by the debuff the player
+-- put on the target, in every section. Only the player's own debuff counts.
 _G.__hasTarget = true
 _G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "player",
                     duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
 ns.Auras:ClearCache()
-local moonfire = ns.Cooldowns:GetBarState(8921)
+
+-- Cooldown Bars path (flag-gated now).
+local moonfire = ns.Cooldowns:GetBarState(8921, true)
 R.dotPhase = moonfire.phase
 R.dotRemaining = math.floor(moonfire.remaining + 0.5)
+
+-- Without the flag the bar does NOT read the target debuff (stays ready).
+R.dotUnflaggedPhase = ns.Cooldowns:GetBarState(8921).phase
+
+-- Tracked Buffs path: GetTrackedState routes a flagged spell to the target DoT.
+R.dotBuffActive = ns.Auras:GetTrackedState(8921, true).active and true or false
+R.dotBuffUnflagged = ns.Auras:GetTrackedState(8921, false).active and true or false
+
+-- Icon path: the DoT drives the icon countdown for a flagged spell.
+R.dotIconRemaining = math.floor(ns.Cooldowns:GetIconState(8921, false, true).remaining + 0.5)
 
 -- A debuff cast by someone else on the same target is ignored.
 _G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "party1",
                     duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
 ns.Auras:MarkTargetDirty()
-R.dotIgnoresOthers = ns.Cooldowns:GetBarState(8921).phase
+R.dotIgnoresOthers = ns.Cooldowns:GetBarState(8921, true).phase
 
 -- No target: the DoT source is empty and the bar falls back to ready.
 _G.__targetAura = nil
 _G.__hasTarget = false
 ns.Auras:MarkTargetDirty()
-R.dotNoTarget = ns.Cooldowns:GetBarState(8921).phase
+R.dotNoTarget = ns.Cooldowns:GetBarState(8921, true).phase
+
+-- A spell with BOTH a cooldown and a DoT (Flame Shock): the DoT is the primary
+-- countdown, while the cooldown still drives usability/desaturation. The stub
+-- drives cooldowns through __cd (see C_Spell.GetSpellCooldown).
+_G.__hasTarget = true
+_G.__targetAura = { spellId = 8050, name = "Flame Shock", sourceUnit = "player",
+                    duration = 18, expirationTime = GetTime() + 15, timeMod = 1 }
+_G.__cd = { start = GetTime(), duration = 6 }   -- 6s cooldown running
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+local fs = ns.Cooldowns:GetIconState(8050, false, true)
+R.flameShockRemaining = math.floor(fs.remaining + 0.5)   -- the DoT (15), not the CD (6)
+R.flameShockOnCdUsable = fs.available and true or false  -- false: still recharging
+
+_G.__cd = nil                                    -- cooldown ready
+ns.Cooldowns:ClearCache()
+local fsReady = ns.Cooldowns:GetIconState(8050, false, true)
+R.flameShockReadyRemaining = math.floor(fsReady.remaining + 0.5)  -- still the DoT (15)
+R.flameShockReadyUsable = fsReady.available and true or false     -- true: recastable
+
+_G.__targetAura = nil
+_G.__hasTarget = false
+ns.Cooldowns:ClearCache()
+ns.Auras:ClearCache()
+
+-- The DoT flag round-trips through export/import.
+local savedEssentialDot = ns.DB:GetGroup("essential").spells
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 8921, name = "Moonfire", rankIndependent = true, trackDebuff = true },
+    { spellID = 5176, name = "Wrath", rankIndependent = true },
+}
+local dotImport = ns.Serialization:Import(ns.Serialization:Export())
+local mfEntry, wrathEntry
+for _, e in ipairs(dotImport.groups.essential.spells) do
+    if e.spellID == 8921 then mfEntry = e elseif e.spellID == 5176 then wrathEntry = e end
+end
+R.dotFlagRoundTrip = (mfEntry and mfEntry.trackDebuff == true
+    and wrathEntry and wrathEntry.trackDebuff == nil) and true or false
+ns.DB:GetGroup("essential").spells = savedEssentialDot
 
 -- Form-aware ability tags: a Druid's tracked set swaps with the form. One
 -- ability tagged cat-only, one bear-only, one caster/moonkin, one untagged (all
@@ -553,8 +603,17 @@ def run(with_art):
     check("resource source dropdown hidden for power", results["resourceSourceHiddenForPower"], False)
     check("target dot drives cooldown bar active", results["dotPhase"], "active")
     check("target dot bar shows remaining", results["dotRemaining"], 9)
+    check("unflagged bar ignores target dot", results["dotUnflaggedPhase"], "ready")
+    check("dot flag surfaces in tracked buffs", results["dotBuffActive"], True)
+    check("unflagged buff ignores target dot", results["dotBuffUnflagged"], False)
+    check("dot flag drives icon countdown", results["dotIconRemaining"], 9)
     check("target dot ignores others' casts", results["dotIgnoresOthers"], "ready")
     check("target dot falls back to ready with no target", results["dotNoTarget"], "ready")
+    check("flame shock icon shows dot not cd", results["flameShockRemaining"], 15)
+    check("flame shock desaturates on cooldown", results["flameShockOnCdUsable"], False)
+    check("flame shock keeps dot when cd ready", results["flameShockReadyRemaining"], 15)
+    check("flame shock usable when cd ready", results["flameShockReadyUsable"], True)
+    check("dot flag round-trips", results["dotFlagRoundTrip"], True)
     check("druid form cat shows cat + untagged", results["formCat"], "1082,1126")
     check("druid form bear shows bear + untagged", results["formBear"], "1126,6807")
     check("druid form caster shows caster + untagged", results["formCaster"], "1126,5176")
