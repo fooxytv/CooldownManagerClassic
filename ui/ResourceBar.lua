@@ -141,6 +141,30 @@ local function ReadResource(key)
     return 0, 0, 0.6, 0.6, 0.6
 end
 
+-- Value text: a percentage when asked and the resource has a maximum, otherwise
+-- the "current / max" reading.
+local function FormatValue(current, max, appearance)
+    if appearance.showPercent and max and max > 0 then
+        return ("%d%%"):format(math.floor((current / max) * 100 + 0.5))
+    end
+    return ("%d / %d"):format(current, max)
+end
+
+-- The fill colour for a segmented source. Combo warms up towards the finisher;
+-- every other pip source takes its own flat colour.
+local function PipFillColor(source, current, max)
+    if source == "combo" then
+        local colors = Const.COMBO_COLORS
+        if current >= max then
+            return colors.full
+        elseif current == max - 1 then
+            return colors.nearlyFull
+        end
+        return colors.building
+    end
+    return Const.MAELSTROM_COLOR
+end
+
 function Bar.Create(key)
     local self = setmetatable({}, Bar)
     self.key = key
@@ -157,6 +181,15 @@ function Bar.Create(key)
     frame.background:SetAllPoints()
     frame.background:SetColorTexture(0, 0, 0, 0.5)
 
+    -- Four plain-texture edges make the border. Positioned/coloured in Layout,
+    -- hidden when the border size is 0. No backdrop API, so nothing Retail-only.
+    self.borders = {
+        top    = frame:CreateTexture(nil, "BORDER"),
+        bottom = frame:CreateTexture(nil, "BORDER"),
+        left   = frame:CreateTexture(nil, "BORDER"),
+        right  = frame:CreateTexture(nil, "BORDER"),
+    }
+
     -- Created for every bar, but hidden for combo points, which draw as pips.
     local statusBar = CreateFrame("StatusBar", nil, frame)
     statusBar:SetAllPoints()
@@ -164,6 +197,18 @@ function Bar.Create(key)
     statusBar:SetMinMaxValues(0, 1)
     statusBar:SetValue(1)
     self.statusBar = statusBar
+
+    -- A bright leading-edge spark on the fill; shown only when enabled and the
+    -- bar is partway full. Additive so it reads as a glow over the fill.
+    local spark = statusBar:CreateTexture(nil, "OVERLAY")
+    spark:SetColorTexture(1, 1, 1, 0.85)
+    spark:SetWidth(16)
+    if spark.SetBlendMode then spark:SetBlendMode("ADD") end
+    spark:Hide()
+    self.spark = spark
+
+    -- Tick-mark dividers for the "ticks" segment style, pooled like the pips.
+    self.ticks = {}
 
     local text = statusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     text:SetPoint("CENTER")
@@ -206,6 +251,116 @@ function Bar:SavePosition()
     settings.position.y = math.floor(y + 0.5)
 end
 
+-- Background colour and the solid edge border, from the packed colour strings.
+function Bar:ApplyChrome(appearance)
+    local br, bg, bb, ba = Const.UnpackColor(appearance.bgColor, 0, 0, 0, 0.5)
+    self.frame.background:SetColorTexture(br, bg, bb, ba)
+
+    local size = appearance.borderSize or Const.DEFAULT_BAR_APPEARANCE.borderSize
+    local edges = self.borders
+    if not size or size <= 0 then
+        for _, tex in pairs(edges) do tex:Hide() end
+        return
+    end
+
+    local r, g, b, a = Const.UnpackColor(appearance.borderColor, 0, 0, 0, 1)
+    for _, tex in pairs(edges) do
+        tex:SetColorTexture(r, g, b, a)
+        tex:Show()
+    end
+
+    local frame = self.frame
+    edges.top:ClearAllPoints()
+    edges.top:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", -size, 0)
+    edges.top:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", size, 0)
+    edges.top:SetHeight(size)
+
+    edges.bottom:ClearAllPoints()
+    edges.bottom:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", -size, 0)
+    edges.bottom:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", size, 0)
+    edges.bottom:SetHeight(size)
+
+    edges.left:ClearAllPoints()
+    edges.left:SetPoint("TOPRIGHT", frame, "TOPLEFT", 0, 0)
+    edges.left:SetPoint("BOTTOMRIGHT", frame, "BOTTOMLEFT", 0, 0)
+    edges.left:SetWidth(size)
+
+    edges.right:ClearAllPoints()
+    edges.right:SetPoint("TOPLEFT", frame, "TOPRIGHT", 0, 0)
+    edges.right:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 0, 0)
+    edges.right:SetWidth(size)
+end
+
+-- Value text alignment. LEFT/RIGHT inset from the edge; CENTER centred.
+function Bar:ApplyTextAlign(appearance)
+    local align = appearance.textAlign or "CENTER"
+    local text = self.text
+    text:ClearAllPoints()
+    if align == "LEFT" then
+        text:SetPoint("LEFT", self.statusBar, "LEFT", 3, 0)
+    elseif align == "RIGHT" then
+        text:SetPoint("RIGHT", self.statusBar, "RIGHT", -3, 0)
+    else
+        text:SetPoint("CENTER", self.statusBar, "CENTER", 0, 0)
+    end
+    if text.SetJustifyH then text:SetJustifyH(align) end
+end
+
+-- Moves the spark to the fill's leading edge, or hides it.
+function Bar:ApplySpark(current, max, appearance)
+    local spark = self.spark
+    if not (appearance.spark and current and max and max > 0 and current > 0 and current < max) then
+        spark:Hide()
+        return
+    end
+
+    local width = self.statusBar:GetWidth() or (appearance.width or Const.DEFAULT_BAR_APPEARANCE.width)
+    local height = self.statusBar:GetHeight() or (appearance.height or Const.DEFAULT_BAR_APPEARANCE.height)
+    spark:SetHeight(height)
+    spark:ClearAllPoints()
+    spark:SetPoint("CENTER", self.statusBar, "LEFT", (current / max) * width, 0)
+    spark:Show()
+end
+
+-- Sets the fill, easing toward the value when animation is on and snapping
+-- otherwise. The eased path rides an OnUpdate on the status bar; it stops itself
+-- once it arrives, so an idle bar carries no ticker.
+function Bar:SetFill(current, max, appearance)
+    max = math.max(max or 1, 1)
+    current = math.max(0, math.min(current or 0, max))
+    self.statusBar:SetMinMaxValues(0, max)
+
+    if appearance.animate then
+        self._target = current
+        if not self._animating then
+            self._animating = true
+            self.statusBar:SetScript("OnUpdate", function(bar, elapsed)
+                local cur = bar:GetValue() or 0
+                local target = self._target or cur
+                local step = target - cur
+                if math.abs(step) <= 0.5 then
+                    bar:SetValue(target)
+                    bar:SetScript("OnUpdate", nil)
+                    self._animating = false
+                    self:ApplySpark(target, max, appearance)
+                else
+                    local moved = cur + step * math.min(1, (elapsed or 0) * 8)
+                    bar:SetValue(moved)
+                    self:ApplySpark(moved, max, appearance)
+                end
+            end)
+        end
+    else
+        if self._animating then
+            self.statusBar:SetScript("OnUpdate", nil)
+            self._animating = false
+        end
+        self.statusBar:SetValue(current)
+    end
+
+    self:ApplySpark(current, max, appearance)
+end
+
 function Bar:Layout()
     local settings = self:GetSettings()
     if not settings then return end
@@ -216,6 +371,8 @@ function Bar:Layout()
 
     self.frame:SetSize(width, height)
     self.statusBar:SetStatusBarTexture(ns.Media.Fetch("statusbar", appearance.barTexture, BAR_TEXTURE))
+    self:ApplyChrome(appearance)
+    self:ApplyTextAlign(appearance)
 
     if self.key == "combo" then
         -- Resolve which resource this character's class-resource bar shows, and
@@ -229,14 +386,20 @@ function Bar:Layout()
 
         if info and info.mode == "pips" then
             local _, maxPoints = ReadPipSource(source)
-            self:LayoutPips(width, height, appearance, maxPoints)
+            if appearance.segmentStyle == "ticks" then
+                self:LayoutTicks(width, height, appearance, maxPoints)
+            else
+                self:LayoutPips(width, height, appearance, maxPoints)
+            end
         else
             self.statusBar:Show()
-            for _, pip in ipairs(self.pips) do pip:Hide() end
+            self:HidePips()
+            self:HideTicks()
         end
     else
         self.statusBar:Show()
-        for _, pip in ipairs(self.pips) do pip:Hide() end
+        self:HidePips()
+        self:HideTicks()
     end
 
     self:ApplyPosition()
@@ -244,8 +407,17 @@ function Bar:Layout()
     self:Update()
 end
 
+function Bar:HidePips()
+    for _, pip in ipairs(self.pips) do pip:Hide() end
+end
+
+function Bar:HideTicks()
+    for _, tick in ipairs(self.ticks) do tick:Hide() end
+end
+
 function Bar:LayoutPips(width, height, appearance, maxPoints)
     self.statusBar:Hide()
+    self:HideTicks()
 
     maxPoints = maxPoints or ReadMaxComboPoints()
     local spacing = appearance.pipSpacing or Const.DEFAULT_BAR_APPEARANCE.pipSpacing
@@ -266,6 +438,33 @@ function Bar:LayoutPips(width, height, appearance, maxPoints)
 
     for index = maxPoints + 1, #self.pips do
         self.pips[index]:Hide()
+    end
+end
+
+-- The tick-mark style: one continuous status bar with (maxPoints-1) divider
+-- lines, instead of discrete pips. The fill and value are set in Update.
+function Bar:LayoutTicks(width, height, appearance, maxPoints)
+    self.statusBar:Show()
+    self:HidePips()
+
+    maxPoints = maxPoints or ReadMaxComboPoints()
+
+    for index = 1, maxPoints - 1 do
+        local tick = self.ticks[index]
+        if not tick then
+            tick = self.statusBar:CreateTexture(nil, "OVERLAY")
+            self.ticks[index] = tick
+        end
+
+        tick:SetColorTexture(0, 0, 0, 0.85)
+        tick:SetSize(1, height)
+        tick:ClearAllPoints()
+        tick:SetPoint("LEFT", self.statusBar, "LEFT", (index / maxPoints) * width, 0)
+        tick:Show()
+    end
+
+    for index = math.max(maxPoints, 1), #self.ticks do
+        self.ticks[index]:Hide()
     end
 end
 
@@ -292,11 +491,10 @@ function Bar:Update()
     local current, max, r, g, b = ReadResource(self.key)
 
     self.statusBar:SetStatusBarColor(r, g, b)
-    self.statusBar:SetMinMaxValues(0, math.max(max, 1))
-    self.statusBar:SetValue(current)
+    self:SetFill(current, max, appearance)
 
     if appearance.showText ~= false and max > 0 then
-        self.text:SetText(("%d / %d"):format(current, max))
+        self.text:SetText(FormatValue(current, max, appearance))
         self.text:Show()
     else
         self.text:Hide()
@@ -320,30 +518,26 @@ function Bar:UpdateClassResource(appearance)
         -- fill so an unlocked bar in Edit Mode does not show leftover pips or a
         -- half-filled bar from a previous character/profile.
         self.statusBar:SetValue(0)
-        for _, pip in ipairs(self.pips) do pip:Hide() end
+        self:HidePips()
+        self:HideTicks()
         self.text:Hide()
         return
     end
 
     if info.mode == "pips" then
         local current, max = ReadPipSource(source)
-        local empty = Const.COMBO_COLORS.empty
+        local fill = PipFillColor(source, current, max)
 
-        -- Combo keeps its warm-up gradient (hue says whether to spend); other
-        -- pip sources use their own flat fill colour.
-        local fill
-        if source == "combo" then
-            local colors = Const.COMBO_COLORS
-            fill = colors.building
-            if current >= max then
-                fill = colors.full
-            elseif current == max - 1 then
-                fill = colors.nearlyFull
-            end
-        else
-            fill = Const.MAELSTROM_COLOR
+        -- Tick style: one continuous fill, coloured like the pips, with the
+        -- divider ticks laid out in LayoutTicks.
+        if appearance.segmentStyle == "ticks" then
+            self.statusBar:SetStatusBarColor(fill[1], fill[2], fill[3])
+            self:SetFill(current, max, appearance)
+            self.text:Hide()
+            return
         end
 
+        local empty = Const.COMBO_COLORS.empty
         for index, pip in ipairs(self.pips) do
             if index <= current then
                 pip:SetColorTexture(fill[1], fill[2], fill[3], 1)
@@ -360,8 +554,7 @@ function Bar:UpdateClassResource(appearance)
     local color, within, size = SoulShardDisplay(count)
 
     self.statusBar:SetStatusBarColor(color[1], color[2], color[3])
-    self.statusBar:SetMinMaxValues(0, size)
-    self.statusBar:SetValue(within)
+    self:SetFill(within, size, appearance)
 
     if appearance.showText ~= false then
         self.text:SetText(("%d"):format(count))

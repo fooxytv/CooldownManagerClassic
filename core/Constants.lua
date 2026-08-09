@@ -87,6 +87,49 @@ Const.DEFAULT_BAR_APPEARANCE = {
     -- Class-resource ("combo") bar only: which resource it shows. "" auto-detects
     -- by class; see RESOURCE_SOURCE_OPTIONS. The other bars carry it harmlessly.
     resourceSource = "",
+
+    -- Styling (see #34). Colours are packed "r,g,b,a" strings so they round-trip
+    -- through the scalar appearance serialiser; Const.UnpackColor reads them.
+    -- Backdrop behind the fill; the old flat black is the default.
+    bgColor = "0,0,0,0.5",
+    -- A solid edge border. 0 hides it. Drawn with plain textures, so no backdrop
+    -- API and nothing Retail-only is required.
+    borderSize = 1,
+    borderColor = "0,0,0,1",
+    -- Class-resource ("combo") bar only: "pips" (discrete blocks) or "ticks" (a
+    -- continuous fill divided by tick marks).
+    segmentStyle = "pips",
+    -- Ease the fill toward its new value instead of snapping.
+    animate = false,
+    -- A bright leading-edge spark on the fill.
+    spark = false,
+    -- Value text: alignment and an optional percentage (health/power).
+    textAlign = "CENTER",
+    showPercent = false,
+}
+
+-- Reads a packed "r,g,b,a" colour string, returning the four components or the
+-- given fallback when the string is missing or malformed.
+function Const.UnpackColor(str, dr, dg, db, da)
+    if type(str) == "string" then
+        local r, g, b, a = str:match("^([%d.]+),([%d.]+),([%d.]+),([%d.]+)$")
+        if r then
+            return tonumber(r), tonumber(g), tonumber(b), tonumber(a)
+        end
+    end
+    return dr, dg, db, da
+end
+
+-- Render style for the class-resource bar's segmented sources.
+Const.BAR_SEGMENT_OPTIONS = {
+    { value = "pips",  label = "Pips" },
+    { value = "ticks", label = "Tick Marks" },
+}
+
+Const.TEXT_ALIGN_OPTIONS = {
+    { value = "LEFT",   label = "Left" },
+    { value = "CENTER", label = "Center" },
+    { value = "RIGHT",  label = "Right" },
 }
 
 Const.BAR_DEFAULT_Y = {

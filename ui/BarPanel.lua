@@ -157,10 +157,16 @@ local WIDGET_LAYOUT = {
     { field = "width",          x = 24, gap = 46 },
     { field = "height",         x = 24, gap = 46 },
     { field = "opacity",        x = 24, gap = 40 },
+    { field = "border",         x = 24, gap = 46 },
     { field = "showText",       x = 20, gap = 34 },
+    { field = "showPercent",    x = 20, gap = 34 },
+    { field = "textAlign",      x = 16, gap = 46 },
     { field = "barTexture",     x = 16, gap = 46 },
     { field = "visibility",     x = 16, gap = 50 },
+    { field = "segmentStyle",   x = 16, gap = 46, barKey = "combo" },
     { field = "resourceSource", x = 16, gap = 46, barKey = "combo" },
+    { field = "animate",        x = 20, gap = 34 },
+    { field = "spark",          x = 20, gap = 34 },
     { field = "revert",         x = 20, gap = 26 },
     { field = "reset",          x = 20, gap = 26 },
 }
@@ -215,11 +221,24 @@ local function BuildPanel()
     panel.width = CreateSlider(panel, "Width", "width", 60, 400, 5)
     panel.height = CreateSlider(panel, "Height", "height", 6, 48, 1)
     panel.opacity = CreateSlider(panel, "Opacity", "opacity", 10, 100, 5)
+    panel.border = CreateSlider(panel, "Border", "borderSize", 0, 5, 1)
     panel.showText = CreateCheckbox(panel, "Show Text", "showText")
+    panel.showPercent = CreateCheckbox(panel, "Show Percentage", "showPercent")
+
+    panel.textAlign = CreateDropdown(panel, "Text Align", "textAlign", function()
+        return Const.TEXT_ALIGN_OPTIONS
+    end)
+
     panel.barTexture = CreateDropdown(panel, "Bar Texture", "barTexture", MediaChoices("statusbar"))
 
     panel.visibility = CreateDropdown(panel, "Visibility", "visibility", function()
         return Const.BAR_VISIBILITY_OPTIONS
+    end)
+
+    -- Combo bar only (see WIDGET_LAYOUT): draw the segmented resource as discrete
+    -- pips or as a continuous fill with tick-mark dividers.
+    panel.segmentStyle = CreateDropdown(panel, "Segments", "segmentStyle", function()
+        return Const.BAR_SEGMENT_OPTIONS
     end)
 
     -- Shown only for the adaptive class-resource bar (see WIDGET_LAYOUT): it
@@ -227,6 +246,9 @@ local function BuildPanel()
     panel.resourceSource = CreateDropdown(panel, "Resource Source", "resourceSource", function()
         return Const.RESOURCE_SOURCE_OPTIONS
     end)
+
+    panel.animate = CreateCheckbox(panel, "Smooth Fill", "animate")
+    panel.spark = CreateCheckbox(panel, "Edge Spark", "spark")
 
     panel.revert = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.revert:SetSize(210, 22)
@@ -251,7 +273,7 @@ function Panel:Refresh()
     local titleText = (panel.TitleContainer and panel.TitleContainer.TitleText) or panel.TitleText
     if titleText then titleText:SetText(label) end
 
-    for _, slider in ipairs({ panel.width, panel.height, panel.opacity }) do
+    for _, slider in ipairs({ panel.width, panel.height, panel.opacity, panel.border }) do
         local value = tonumber(Get(slider.option)) or 0
         slider.settingValue = true
         slider:SetValue(value)
@@ -261,7 +283,10 @@ function Panel:Refresh()
         end
     end
 
-    for _, container in ipairs({ panel.barTexture, panel.visibility, panel.resourceSource }) do
+    for _, container in ipairs({
+        panel.barTexture, panel.visibility, panel.textAlign,
+        panel.segmentStyle, panel.resourceSource,
+    }) do
         local current = Get(container.option)
         local text = tostring(current)
         for _, choice in ipairs(container.getChoices()) do
@@ -274,6 +299,9 @@ function Panel:Refresh()
         panel.enabled:SetChecked(panel.enabled.getState() and true or false)
     end
     panel.showText:SetChecked(Get("showText") ~= false)
+    for _, cb in ipairs({ panel.showPercent, panel.animate, panel.spark }) do
+        cb:SetChecked(Get(cb.option) == true)
+    end
 end
 
 function Panel:Revert()
