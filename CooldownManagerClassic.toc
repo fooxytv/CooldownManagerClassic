@@ -2,7 +2,7 @@
 ## Title: Cooldown Manager Classic
 ## Notes: Retail-style grouped cooldown, charge and buff tracking for Classic
 ## Author: Simon
-## Version: 0.3.2-alpha.08974d9
+## Version: 0.4.0-alpha.5deeb55
 ## SavedVariables: CooldownManagerClassicDB
 ## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
 ## DefaultState: enabled
