@@ -7,30 +7,31 @@ ns.Auras = Auras
 
 local cache = {}
 
---------------------------------------------------------------------------------
--- Aura index
---------------------------------------------------------------------------------
-
--- A snapshot of the player's auras, keyed by spell ID and by name.
---
--- Without this, every tracked buff scanned the whole aura list up to three times
--- (by ID helpful, by ID harmful, then by name) on every single update. With a
--- handful of buffs at ten updates a second that is thousands of API calls and
--- table allocations per second, which is exactly how this addon reached 2% CPU
--- and double-digit megabytes.
---
--- The snapshot is rebuilt only when UNIT_AURA says something changed, or after
--- a slow safety interval, and every lookup is then a hash lookup.
-
+-- Snapshot of the player's auras, keyed by ID and by name, rebuilt only when
+-- UNIT_AURA says something changed. Without it each tracked buff walked the
+-- whole aura list three times (ID helpful, ID harmful, name) per update, which
+-- is how this addon once reached 2% CPU and double-digit megabytes.
 local indexByID = {}
 local indexByName = {}
 local indexDirty = true
 local indexBuiltAt = 0
 
+-- The target's player-cast debuffs (DoTs), kept as their own index so the target
+-- changing or its auras ticking never forces the player index to rebuild, and
+-- vice versa. Rebuilt on PLAYER_TARGET_CHANGED and the target's UNIT_AURA.
+local targetByID = {}
+local targetByName = {}
+local targetDirty = true
+local targetBuiltAt = 0
+
 local INDEX_MAX_AGE = 1.0
 
 function Auras:MarkDirty()
     indexDirty = true
+end
+
+function Auras:MarkTargetDirty()
+    targetDirty = true
 end
 
 function Auras:RefreshIndex(force)
@@ -42,8 +43,8 @@ function Auras:RefreshIndex(force)
     wipe(indexByID)
     wipe(indexByName)
 
-    -- Full aura data, not the picker's projection: the duration, expiration and
-    -- stack count are exactly what the display needs.
+    -- Full aura data, not the picker's projection, which drops the duration,
+    -- expiration and stack count the display needs.
     Compat.ForEachPlayerAura(function(aura)
         if aura.spellId then indexByID[aura.spellId] = aura end
         if aura.name and not indexByName[aura.name] then
@@ -55,11 +56,31 @@ function Auras:RefreshIndex(force)
     indexBuiltAt = now
 end
 
---- Finds an aura by exact ID, falling back to name.
----
---- The name fallback matters because the aura a spell applies very often has a
---- different spell ID from the spell you cast -- true of most Season of
---- Discovery runes.
+-- Snapshot of the player's own debuffs on the current target, keyed by ID and by
+-- name -- the DoT source a cooldown bar reads when its ability has no cooldown
+-- of its own (Moonfire, Sunfire).
+function Auras:RefreshTargetIndex(force)
+    local now = GetTime()
+    if not force and not targetDirty and (now - targetBuiltAt) < INDEX_MAX_AGE then
+        return
+    end
+
+    wipe(targetByID)
+    wipe(targetByName)
+
+    Compat.ForEachPlayerDebuffOn("target", function(aura)
+        if aura.spellId then targetByID[aura.spellId] = aura end
+        if aura.name and not targetByName[aura.name] then
+            targetByName[aura.name] = aura
+        end
+    end)
+
+    targetDirty = false
+    targetBuiltAt = now
+end
+
+-- The name fallback is load-bearing: the aura a spell applies often has a
+-- different ID from the spell cast, true of most SoD runes.
 function Auras:Lookup(spellID)
     self:RefreshIndex()
 
@@ -72,16 +93,30 @@ function Auras:Lookup(spellID)
     return indexByName[name]
 end
 
---- Reads the player's current aura state for a spell. Mirrors the shape of
---- Cooldowns:GetState so the icon widget can render either without branching
---- on which tracker produced it.
--- The longest remaining time seen per weapon hand. GetWeaponEnchantInfo reports
--- only what is left, never the original duration, so the swipe needs a
--- high-water mark to sweep against. It self-corrects on the next reapplication.
+-- The player aura with this exact name, or nil. Reaches an aura by name so a
+-- caller that knows the buff's name but not a stable spell ID (Maelstrom Weapon
+-- across ranks, a proc buff) can still find it.
+function Auras:LookupByName(name)
+    if not name then return nil end
+    self:RefreshIndex()
+    return indexByName[name]
+end
+
+-- Current stack count of a player aura found by name, or 0 if it is not up.
+-- Used by the class-resource bar for Maelstrom Weapon, an ordinary stacking buff.
+function Auras:StacksByName(name)
+    local data = self:LookupByName(name)
+    if not data then return 0 end
+    return data.applications or data.count or 0
+end
+
+-- Longest remaining time seen per hand. GetWeaponEnchantInfo reports only what
+-- is left, never the original duration, so the swipe needs a high-water mark to
+-- sweep against. Self-corrects on the next reapplication.
 local enchantMaxSeen = {}
 
---- Weapon enchants are not auras, so they are read separately and shaped to
---- look like one for the rest of the addon.
+-- Weapon enchants are not auras; this shapes one to look like Auras:GetState so
+-- the icon widget renders either without branching.
 function Auras:GetWeaponEnchantState(spellID)
     local Const = ns.Constants
     local enchant = Const.WEAPON_ENCHANT_BY_ID[spellID]
@@ -94,7 +129,7 @@ function Auras:GetWeaponEnchantState(spellID)
 
     local hasEnchant, remaining, charges = Compat.GetWeaponEnchant(enchant.hand)
 
-    -- Reused rather than reallocated: this runs on every update tick.
+    -- Reused, not reallocated: this runs on every update tick.
     state.enchantAura = state.enchantAura or { name = enchant.label }
 
     state.spellID = spellID
@@ -125,26 +160,16 @@ function Auras:GetWeaponEnchantState(spellID)
     return state
 end
 
-function Auras:GetState(spellID)
-    if ns.Constants.IsWeaponEnchantID(spellID) then
-        return self:GetWeaponEnchantState(spellID)
-    end
-
-    local state = cache[spellID]
-    if not state then
-        state = {}
-        cache[spellID] = state
-    end
-
-    local aura = self:Lookup(spellID)
-
+-- Projects an aura data table (or nil) onto the shared state shape the icon and
+-- bar widgets render. Reused by the player-buff and target-DoT paths so both
+-- read timers, stacks and the not-up case identically.
+local function FillAuraState(state, spellID, aura)
     state.spellID = spellID
     state.aura = aura
     state.available = aura ~= nil
     state.active = aura ~= nil
     -- `applications` on the modern aura data, `count` on the legacy path.
-    local charges = aura and (aura.applications or aura.count) or nil
-    state.charges = charges
+    state.charges = aura and (aura.applications or aura.count) or nil
     state.maxCharges = nil
     state.isGCD = false
 
@@ -164,7 +189,51 @@ function Auras:GetState(spellID)
     return state
 end
 
+function Auras:GetState(spellID)
+    if ns.Constants.IsWeaponEnchantID(spellID) then
+        return self:GetWeaponEnchantState(spellID)
+    end
+
+    local state = cache[spellID]
+    if not state then
+        state = {}
+        cache[spellID] = state
+    end
+
+    return FillAuraState(state, spellID, self:Lookup(spellID))
+end
+
+-- The player's own debuff on the target for this spell, or nil. Uses the same
+-- name fallback as the player path, since a DoT's aura ID often differs from the
+-- cast (many SoD runes, some ranks).
+function Auras:LookupTargetDot(spellID)
+    self:RefreshTargetIndex()
+
+    local data = targetByID[spellID]
+    if data then return data end
+
+    local name = ns.Spellbook:GetName(spellID)
+    if not name then return nil end
+
+    return targetByName[name]
+end
+
+-- Kept in its own cache, not GetState's: for a DoT the player buff (none) and
+-- the target debuff share a spell ID, and one must not overwrite the other.
+local targetCache = {}
+function Auras:GetTargetDotState(spellID)
+    local state = targetCache[spellID]
+    if not state then
+        state = {}
+        targetCache[spellID] = state
+    end
+
+    return FillAuraState(state, spellID, self:LookupTargetDot(spellID))
+end
+
 function Auras:ClearCache()
     wipe(cache)
+    wipe(targetCache)
     self:MarkDirty()
+    self:MarkTargetDirty()
 end

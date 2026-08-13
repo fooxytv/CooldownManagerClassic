@@ -1,12 +1,15 @@
+--[[
+Copyright (C) 2023 FooxyTV (simon@fooxy.tv)
+All rights reserved.
+
+Programming by: FooxyTV
+]]
+
 local addonName, ns = ...
 
--- Appends spell and aura IDs to tooltips, the way WeakAuras and friends do.
---
--- This is the practical way to find the ID of a buff that is not reachable any
--- other way: hover it, read the number, type it in. Season of Discovery rune
--- buffs in particular often have an aura ID that appears nowhere in the
--- spellbook and does not match the ability that applied it.
-
+-- Spell and aura IDs on tooltips, as WeakAuras and friends do. The practical way
+-- to find a buff that is reachable no other way -- SoD rune buffs in particular
+-- have aura IDs that appear nowhere in the spellbook.
 local Tooltip = {}
 ns.Tooltip = Tooltip
 
@@ -14,8 +17,7 @@ local function Enabled()
     return ns.DB and ns.DB.root and ns.DB:GetGlobal().showTooltipIDs ~= false
 end
 
---- Guards against the same tooltip gaining several ID lines, which happens when
---- more than one hook fires for a single display.
+-- More than one hook can fire for a single display, which would stack ID lines.
 local function AlreadyShown(tooltip, id)
     if tooltip.cdmcShownID == id and tooltip.cdmcShownFor == tooltip:GetName() then
         return true
@@ -43,13 +45,10 @@ function Tooltip:Initialize()
     if self.initialized then return end
     self.initialized = true
 
-    -- Reset the dedupe marker whenever a tooltip is cleared for reuse.
     if GameTooltip.HookScript then
         GameTooltip:HookScript("OnTooltipCleared", ClearMarker)
     end
 
-    -- Modern path: one post-call per data type covers every tooltip that shows
-    -- a spell or an aura, however it was opened.
     if _G.TooltipDataProcessor and _G.Enum and Enum.TooltipDataType then
         if Enum.TooltipDataType.Spell then
             TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Spell, function(tooltip, data)
@@ -65,8 +64,8 @@ function Tooltip:Initialize()
         return
     end
 
-    -- Legacy path: script hook for spells, plus the aura setters, since a buff
-    -- tooltip does not fire OnTooltipSetSpell.
+    -- The aura setters are hooked separately because a buff tooltip does not
+    -- fire OnTooltipSetSpell.
     if GameTooltip.HookScript then
         GameTooltip:HookScript("OnTooltipSetSpell", function(tooltip)
             local _, id = tooltip:GetSpell()

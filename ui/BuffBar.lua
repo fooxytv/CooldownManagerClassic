@@ -3,19 +3,13 @@ local addonName, ns = ...
 local Const = ns.Constants
 local Compat = ns.Compat
 
--- Tracked buffs drawn as bars rather than icons, mirroring Retail's
--- BuffBarCooldownViewer (CooldownViewerBuffBarItemTemplate).
+-- Mirrors Retail's CooldownViewerBuffBarItemTemplate: a 220x30 frame holding a
+-- 30x30 masked icon and a 19px StatusBar, name left, time right, a pip on the
+-- fill edge and the stack count in the icon corner. The bar *drains* -- its
+-- value is the time left, not the time elapsed.
 --
--- The template is a 220x30 frame holding a 30x30 masked icon on the left and a
--- 19px StatusBar filling the rest, with the spell name left-aligned inside the
--- bar, the remaining time right-aligned, a pip riding the fill edge and the
--- stack count in the icon's bottom-right corner. The bar drains: its value is
--- the time left, not the time elapsed.
---
--- Every offset in Const.BAR_TEMPLATE is expressed at that native 30px height
--- and scaled from barHeight, so a resized bar keeps the proportions of the art
--- instead of the pieces drifting apart.
-
+-- Const.BAR_TEMPLATE offsets are all at that native 30px height and scaled from
+-- barHeight, so a resized bar keeps the art in proportion.
 local BuffBar = {}
 ns.BuffBar = BuffBar
 
@@ -29,10 +23,6 @@ BuffBar.art = {
     barBG = Compat.AtlasExists(Const.ART.barBG),
     pip   = Compat.AtlasExists(Const.ART.barPip),
 }
-
---------------------------------------------------------------------------------
--- Construction
---------------------------------------------------------------------------------
 
 local function OnEnter(self)
     if not self.spellID then return end
@@ -54,9 +44,8 @@ local function CreateBar(parent)
     local frame = CreateFrame("Frame", "CDMCBuffBar" .. barCount, parent)
     frame:SetSize(T.itemHeight * 220 / 30, T.itemHeight)
 
-    -- Icon block. A frame rather than a bare texture because the mask, the
-    -- bevel overlay and the stack count all anchor to it as a unit, exactly as
-    -- the template nests them under $parent.Icon.
+    -- A frame rather than a bare texture: the mask, bevel and stack count all
+    -- anchor to it as a unit, as the template nests them under $parent.Icon.
     local iconFrame = CreateFrame("Frame", nil, frame)
     iconFrame:SetPoint("LEFT")
     frame.iconFrame = iconFrame
@@ -86,8 +75,6 @@ local function CreateBar(parent)
     frame.countText = iconFrame:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
     frame.countText:SetJustifyH("RIGHT")
 
-    -- The bar. Drawn behind the icon block so the bevel overlaps it the way
-    -- the template's frame levels do.
     local bar = CreateFrame("StatusBar", nil, frame)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(0)
@@ -100,6 +87,9 @@ local function CreateBar(parent)
         fill:SetTexture(Const.FALLBACK_BAR_TEXTURE)
     end
     bar:SetStatusBarTexture(fill)
+    -- Kept so Configure can swap in a LibSharedMedia texture and restore the
+    -- built-in one when the choice is cleared.
+    frame.fillTexture = fill
 
     local background = bar:CreateTexture(nil, "BACKGROUND")
     if BuffBar.art.barBG then
@@ -109,8 +99,7 @@ local function CreateBar(parent)
     end
     frame.barBG = background
 
-    -- Rides the leading edge of the fill, so it is anchored to the fill texture
-    -- rather than to the bar.
+    -- Anchored to the fill texture, not the bar: it rides the leading edge.
     local pip = bar:CreateTexture(nil, "OVERLAY")
     if BuffBar.art.pip then
         pip:SetAtlas(Const.ART.barPip, true)
@@ -158,18 +147,14 @@ function BuffBar:Release(frame)
     barPool[#barPool + 1] = frame
 end
 
---------------------------------------------------------------------------------
--- Configuration
---------------------------------------------------------------------------------
-
 function BuffBar:GetItemSize(appearance)
     local height = appearance.barHeight or T.itemHeight
     local width = appearance.barWidth or 220
     return width, height
 end
 
---- Blizzard's SetBarContent. Hiding the icon slides the bar left into the
---- space it occupied rather than leaving a gap.
+-- Blizzard's SetBarContent. Hiding the icon slides the bar left into the space
+-- it occupied rather than leaving a gap.
 local function ApplyBarContent(frame, content, scale)
     local showIcon = content ~= "Name Only"
     local showName = content ~= "Icon Only"
@@ -187,12 +172,13 @@ local function ApplyBarContent(frame, content, scale)
     frame.bar:SetHeight(T.barHeight * scale)
 end
 
-local function ApplyFont(fontString, fontObject, size)
+local function ApplyFont(fontString, fontObject, size, fontFace)
     if fontObject and _G[fontObject] then
         fontString:SetFontObject(_G[fontObject])
     end
 
     local file, _, flags = fontString:GetFont()
+    file = ns.Media.Fetch("font", fontFace, file)
     if file and size then
         fontString:SetFont(file, size, flags)
     end
@@ -224,10 +210,9 @@ function BuffBar:Configure(frame, entry, spellID, appearance, groupKey)
 
     ApplyBarContent(frame, appearance.barContent or "Icon and Name", scale)
 
-    -- The template puts the icon block above the bar (frame levels 512 and
-    -- 511), so the bevel overlaps the bar's left edge rather than being cut by
-    -- it. Reapplied here because the levels are absolute and the widget is
-    -- pooled across parents.
+    -- Reapplied on every Configure because frame levels are absolute and the
+    -- widget is pooled across parents. The icon sits above the bar so the bevel
+    -- overlaps its left edge rather than being cut by it.
     local base = frame:GetFrameLevel()
     frame.bar:SetFrameLevel(base + 1)
     frame.iconFrame:SetFrameLevel(base + 2)
@@ -239,6 +224,17 @@ function BuffBar:Configure(frame, entry, spellID, appearance, groupKey)
 
     local fill = Const.BAR_FILL_COLOR
     frame.bar:SetStatusBarColor(fill[1], fill[2], fill[3])
+
+    -- A LibSharedMedia bar texture overrides the atlas / fallback chosen at
+    -- build; clearing the choice restores the built-in look.
+    local barPath = ns.Media.Fetch("statusbar", appearance.barTexture)
+    if barPath then
+        frame.fillTexture:SetTexture(barPath)
+    elseif BuffBar.art.bar then
+        frame.fillTexture:SetAtlas(Const.ART.bar)
+    else
+        frame.fillTexture:SetTexture(Const.FALLBACK_BAR_TEXTURE)
+    end
 
     if not BuffBar.art.pip then
         -- The atlas carries its own size; the fallback needs one given to it.
@@ -256,39 +252,30 @@ function BuffBar:Configure(frame, entry, spellID, appearance, groupKey)
     frame.timeText:SetPoint("RIGHT", frame.bar, "RIGHT", T.durationInset * scale, 0)
 
     local fontSize = math.max(8, barHeight * 0.62)
-    ApplyFont(frame.nameText, "NumberFontNormal", fontSize)
-    ApplyFont(frame.timeText, "NumberFontNormal", fontSize)
+    ApplyFont(frame.nameText, "NumberFontNormal", fontSize, appearance.fontFace)
+    ApplyFont(frame.timeText, "NumberFontNormal", fontSize, appearance.fontFace)
     ApplyFont(frame.countText, appearance.countFont or "NumberFontNormalSmall",
-        math.max(8, height * 0.30))
+        math.max(8, height * 0.30), appearance.fontFace)
 
-    -- Set once here rather than every tick: a tracked buff's name only changes
-    -- when the entry behind the bar does.
+    -- Here rather than in Update: the name only changes with the entry.
     frame.nameText:SetText(ns.Spellbook:GetName(spellID) or (entry and entry.name) or "")
 
     ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
 end
 
---------------------------------------------------------------------------------
--- State
---------------------------------------------------------------------------------
-
---- Applies a tracker state table to the bar. Returns true while the bar is
---- counting down and the group therefore needs the periodic ticker.
----
---- Serves three cases, told apart by state.phase and the group:
----   * a duration bar (phase set) -- the effect the ability applies, bright,
----     then its recharge, dimmed, or nothing in Effect Only mode
----   * a tracked-buff bar (aura group) -- the aura's remaining duration
----   * a plain cooldown bar -- the recharge, then full when ready
+-- Serves three cases, told apart by state.phase and the group:
+--   duration bar (phase set)  effect bright, then recharge dimmed
+--   tracked-buff bar (aura)   the aura's remaining duration
+--   plain cooldown bar        the recharge, then full when ready
+-- Returns true while counting down, so the group knows it needs the ticker.
 function BuffBar:Update(frame, state, appearance)
     if not state then return false end
 
     local duration = state.swipeDuration or 0
     local remaining = state.remaining or 0
 
-    -- The global cooldown never drives a bar. Even with Show Global Cooldown on,
-    -- a 1.5s drain fired on every cast would make the column flicker; a real
-    -- cooldown always wins in GetState, so this only skips GCD-length ones.
+    -- The GCD never drives a bar: a 1.5s drain on every cast would make the
+    -- column flicker. A real cooldown wins in GetState, so only GCDs land here.
     if state.isGCD then
         duration, remaining = 0, 0
     end
@@ -299,26 +286,22 @@ function BuffBar:Update(frame, state, appearance)
     local timerRemaining = 0
 
     if state.phase then
-        -- Duration-bar group: the applied effect takes precedence over the
-        -- recharge, so a defensive reads as "protected for N" first.
         local effectOnly = appearance.barMode == "Effect Only"
 
         if state.phase == "active" then
-            -- The effect is up: its remaining time, bright.
             if duration > 0 then
                 frame.bar:SetMinMaxValues(0, duration)
                 frame.bar:SetValue(remaining)
                 frame.pip:Show()
                 timerRemaining = remaining
             else
-                -- A permanent effect with no timer: a full bar.
+                -- Permanent effect, no timer.
                 frame.bar:SetMinMaxValues(0, 1)
                 frame.bar:SetValue(1)
                 frame.pip:Hide()
             end
         elseif state.phase == "cooldown" and not effectOnly then
-            -- Recharging: the cooldown, dimmed and greyed so it plainly ranks
-            -- below an ability whose effect is currently up.
+            -- Dimmed and greyed, so it ranks below an ability that is up.
             frame.bar:SetMinMaxValues(0, duration > 0 and duration or 1)
             frame.bar:SetValue(remaining)
             frame.pip:Show()
@@ -327,9 +310,9 @@ function BuffBar:Update(frame, state, appearance)
             iconTint = Const.ITEM_COLORS.notUsable
             timerRemaining = remaining
         else
-            -- Ready, or (Effect Only) an ability that is simply not up. Hybrid
-            -- fills bright to signal "available"; Effect Only keeps the bar for
-            -- the effect alone, so it stays empty until the effect is back.
+            -- Ready, or Effect Only with nothing up. Hybrid fills bright to
+            -- signal "available"; Effect Only reserves the bar for the effect,
+            -- so it stays empty until that is back.
             local ready = state.phase == "ready"
             frame.bar:SetMinMaxValues(0, 1)
             frame.bar:SetValue((ready and not effectOnly) and 1 or 0)
@@ -342,7 +325,6 @@ function BuffBar:Update(frame, state, appearance)
 
         frame.bar:SetStatusBarColor(fill[1], fill[2], fill[3])
     else
-        -- Tracked-buff bar (aura) or plain cooldown bar.
         local isAura = Const.AURA_GROUPS[frame.groupKey]
 
         if duration > 0 and remaining > 0 then
@@ -351,11 +333,10 @@ function BuffBar:Update(frame, state, appearance)
             frame.pip:Show()
             timerRemaining = remaining
         elseif isAura then
-            -- Blizzard leaves the bar empty for an aura with no timer, a rarity
-            -- on Retail. In Classic half the tracked buffs are permanent --
-            -- stances, aspects, Thorns -- and an empty bar reads as "expired",
-            -- so a timerless aura fills the bar instead. An absent aura falls
-            -- here too, but the group hides it before it is ever drawn.
+            -- Deliberately unlike Blizzard, who leave a timerless aura's bar
+            -- empty -- a rarity on Retail. In Classic half the tracked buffs
+            -- are permanent (stances, aspects, Thorns) and an empty bar reads
+            -- as "expired", so a timerless aura fills instead.
             frame.bar:SetMinMaxValues(0, 1)
             frame.bar:SetValue(state.active and 1 or 0)
             frame.pip:Hide()
@@ -380,8 +361,6 @@ function BuffBar:Update(frame, state, appearance)
         end
     end
 
-    -- Buff icons and active effects are full colour; a recharging ability greys,
-    -- exactly as the icon display does.
     if frame.texture.SetDesaturated then frame.texture:SetDesaturated(iconDesaturate) end
     if iconTint then
         frame.texture:SetVertexColor(iconTint[1], iconTint[2], iconTint[3])

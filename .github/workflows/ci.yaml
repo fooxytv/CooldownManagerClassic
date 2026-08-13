@@ -1,0 +1,43 @@
+name: "CI - CooldownManagerClassic"
+
+# Checks only. Nothing here packages or publishes.
+#
+# The release workflow (main.yaml) runs the same two gates before uploading, but
+# it only fires on a v*.*.* tag -- so before this existed the first time anyone
+# saw a lint failure was halfway through a release, with the CurseForge upload
+# already committed to. This runs them on every push instead.
+on:
+  push:
+    branches: ["**"]
+    # Tag pushes are already covered by the release workflow.
+    tags-ignore: ["**"]
+  pull_request:
+
+# A newer push makes an in-flight run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up scripts
+        run: chmod +x ./ci/scripts/lint.sh
+
+      - name: Lint
+        run: |
+          sudo apt-get update && sudo apt-get install -y luarocks
+          sudo luarocks install luacheck
+          ./ci/scripts/lint.sh
+
+      # Catches what a parse cannot: load-order mistakes, nil child widgets, and
+      # API branches that are never taken until someone reloads in game.
+      - name: Smoke test
+        run: |
+          python -m pip install --quiet lupa luaparser
+          python ci/scripts/check_globals.py
+          python ci/tests/smoke_test.py

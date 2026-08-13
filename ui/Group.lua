@@ -8,10 +8,6 @@ ns.Group = Group
 
 ns.groups = {}
 
---------------------------------------------------------------------------------
--- Construction
---------------------------------------------------------------------------------
-
 function Group.Create(key)
     local self = setmetatable({}, Group)
 
@@ -35,10 +31,6 @@ function Group.Create(key)
     ns.groups[key] = self
     return self
 end
-
---------------------------------------------------------------------------------
--- Position
---------------------------------------------------------------------------------
 
 -- Which of the frame's own corners stays put as icons are added or removed.
 local GROWTH_TO_SELF_POINT = {
@@ -66,7 +58,6 @@ function Group:ApplyPosition()
     self.frame:SetPoint(self:GetSelfPoint(), UIParent, pos.relativePoint or "CENTER", pos.x or 0, pos.y or 0)
 end
 
---- Records where the frame currently sits. Called after a drag finishes.
 function Group:SavePosition()
     local settings = self:GetSettings()
     if not settings then return end
@@ -74,16 +65,15 @@ function Group:SavePosition()
     local point, _, relativePoint, x, y = self.frame:GetPoint(1)
     if not point then return end
 
-    -- The parent is always UIParent, so only the offsets and the relative
-    -- corner are worth persisting.
+    -- The parent is always UIParent, so it is not persisted.
     settings.position.point = point
     settings.position.relativePoint = relativePoint or "CENTER"
     settings.position.x = math.floor(x + 0.5)
     settings.position.y = math.floor(y + 0.5)
 end
 
---- Changing growth changes which corner the frame is anchored by, so the
---- offsets are rewritten to keep the group visually where it was.
+-- Growth decides which corner the frame is anchored by, so the offsets are
+-- rewritten here to keep the group visually where it was.
 function Group:SetGrowth(growth)
     local settings = self:GetSettings()
     if not settings then return end
@@ -111,8 +101,6 @@ function Group:SetGrowth(growth)
     end
 end
 
--- Shown above each group while it is being moved, so it is obvious which way
--- the row will expand as spells are added.
 local GROWTH_HINTS = {
     CENTER = "<-  grows from centre  ->",
     RIGHT  = "grows right  ->",
@@ -129,15 +117,8 @@ function Group:UpdateEditLabel()
     ))
 end
 
---------------------------------------------------------------------------------
--- Layout
---------------------------------------------------------------------------------
-
---- Which widget module draws this group's entries. Chosen by the group's
---- display setting rather than the group's identity: the tracked-buffs group
---- toggles between icons and bars, the cooldown-bars group is always bars, and
---- the cooldown icon groups never set `display` so they stay icons. Both the
---- aura and cooldown trackers feed the same bar widget.
+-- Keyed on the display setting, not the group's identity: buffs toggle, the
+-- cooldown-bars group is always bars, and the icon groups never set `display`.
 function Group:GetWidget()
     local settings = self:GetSettings()
     if settings and settings.appearance.display == "Bars" then
@@ -146,9 +127,8 @@ function Group:GetWidget()
     return ns.Icon, "icons"
 end
 
---- Hands every live widget back to its own pool. Called with the *previous*
---- module when the display setting changes, since an icon must not be returned
---- to the bar pool or vice versa.
+-- Takes the widget explicitly because the display setting may have just
+-- changed: an icon must not be returned to the bar pool, or vice versa.
 function Group:ReleaseAll(widget)
     widget = widget or self.widget or ns.Icon
     for i = #self.icons, 1, -1 do
@@ -157,9 +137,8 @@ function Group:ReleaseAll(widget)
     end
 end
 
---- Rebuilds the icon row from the profile. Entries the character cannot cast
---- are skipped rather than removed, so unlearned ranks and unequipped runes
---- reappear on their own.
+-- Entries the character cannot cast are skipped rather than removed, so
+-- unlearned ranks and unequipped runes reappear on their own.
 function Group:Layout()
     local settings = self:GetSettings()
     if not settings then return end
@@ -167,8 +146,8 @@ function Group:Layout()
     local appearance = settings.appearance
     local spacing = appearance.spacing or Const.DEFAULT_APPEARANCE.spacing
 
-    -- Switching between icons and bars empties the row first: the two widgets
-    -- come from separate pools and are not interchangeable.
+    -- Switching display empties the row first: the two widgets come from
+    -- separate pools and are not interchangeable.
     local widget, widgetKind = self:GetWidget()
     if widgetKind ~= self.widgetKind then
         self:ReleaseAll(self.widget)
@@ -178,21 +157,31 @@ function Group:Layout()
 
     local itemWidth, itemHeight = widget:GetItemSize(appearance)
 
-    -- Tracked buffs can be set to occupy the bar only while they are active, in
-    -- which case the row collapses around whatever is currently up.
-    -- While unlocked every tracked buff is shown regardless of whether it is
-    -- currently on the player. Otherwise adding a buff that is not up right now
-    -- renders nothing at all, which is indistinguishable from it being broken,
-    -- and an all-inactive group cannot be positioned.
+    -- The `not self.unlocked` term is load-bearing: while unlocked every buff
+    -- is shown whether it is up or not, because adding a buff that is not
+    -- currently on you would otherwise render nothing -- indistinguishable from
+    -- broken -- and an all-inactive group cannot be dragged.
     local isAuraGroup = Const.AURA_GROUPS[self.key]
     local hideInactive = isAuraGroup
         and appearance.hideWhenInactive ~= false
         and not self.unlocked
 
+    -- Form-tagged abilities are dropped when the Druid is in a form they are not
+    -- tagged for. Resolved once here, not per entry; nil for non-Druids, so their
+    -- entries always pass. While unlocked every tagged ability is kept, like a
+    -- hidden-when-inactive buff, so a form's row can still be dragged.
+    local currentForm
+    if not self.unlocked and select(2, UnitClass("player")) == "DRUID" then
+        currentForm = ns.Compat.GetShapeshiftForm()
+    end
+
     local resolved = {}
     for _, entry in ipairs(settings.spells) do
         local spellID = ns.Spellbook:ResolveForGroup(entry, isAuraGroup)
-        if spellID and not (hideInactive and not ns.Auras:GetState(spellID).active) then
+        local formOK = not currentForm or Const.FormAllows(entry.forms, currentForm)
+        if spellID and formOK
+            and not (hideInactive and not ns.Auras:GetState(spellID).active)
+        then
             resolved[#resolved + 1] = { entry = entry, spellID = spellID }
         end
     end
@@ -200,7 +189,6 @@ function Group:Layout()
     -- Recorded so Update can tell when the active set changed and relayout.
     self.activeKey = self:ComputeActiveKey()
 
-    -- Return any widgets beyond the new count to the pool.
     for i = #resolved + 1, #self.icons do
         widget:Release(self.icons[i])
         self.icons[i] = nil
@@ -223,9 +211,8 @@ function Group:Layout()
         return
     end
 
-    -- Split the icons across `rows` lines. With Horizontal orientation those
-    -- lines run left-to-right and stack vertically; with Vertical they run
-    -- top-to-bottom and stack horizontally.
+    -- With Horizontal orientation the lines run left-to-right and stack
+    -- vertically; with Vertical they run top-to-bottom and stack horizontally.
     local horizontal = (appearance.orientation or "Horizontal") ~= "Vertical"
     local lines = math.max(1, math.min(appearance.rows or 1, count))
     local perLine = math.ceil(count / lines)
@@ -253,7 +240,6 @@ function Group:Layout()
             column, row = line, positionInLine
         end
 
-        -- Reverse the stacking axis so extra lines grow the other way.
         if horizontal and direction == "Up" then
             row = (rowCount - 1) - row
         elseif not horizontal and direction == "Left" then
@@ -269,16 +255,12 @@ function Group:Layout()
     self:UpdateVisibility()
 end
 
---------------------------------------------------------------------------------
--- Visibility
---------------------------------------------------------------------------------
-
 local function InCombat()
     return InCombatLockdown() or UnitAffectingCombat("player")
 end
 
---- Applies opacity and the visibility rule. Kept separate from Layout so the
---- combat events can call it without rebuilding every icon.
+-- Separate from Layout so the combat events can call it without rebuilding
+-- every icon.
 function Group:UpdateVisibility()
     local settings = self:GetSettings()
     if not settings then return end
@@ -286,8 +268,7 @@ function Group:UpdateVisibility()
     local appearance = settings.appearance
     self.frame:SetAlpha((appearance.opacity or 100) / 100)
 
-    -- While the group is being moved it always stays visible, otherwise it
-    -- could vanish from under the cursor mid-drag.
+    -- Always visible while being moved, or it vanishes from under the cursor.
     if self.unlocked then
         self.frame:Show()
         return
@@ -315,19 +296,15 @@ function Group:UpdateVisibility()
     self.frame:SetShown(visible)
 end
 
---------------------------------------------------------------------------------
--- Update
---------------------------------------------------------------------------------
-
---- A fingerprint of which tracked auras are currently active, used to notice
---- when a hide-when-inactive group needs rebuilding.
+-- Fingerprint of which tracked auras are active, so Update can notice a
+-- hide-when-inactive group needs rebuilding.
 function Group:ComputeActiveKey()
     local settings = self:GetSettings()
     if not settings or not Const.AURA_GROUPS[self.key] then return 0 end
     if settings.appearance.hideWhenInactive == false then return 0 end
 
-    -- A running numeric hash rather than a table plus table.concat: this runs on
-    -- every update tick, and building a string there is needless garbage.
+    -- A numeric hash rather than table.concat: this runs on every update tick,
+    -- and building a string there is needless garbage.
     local hash = 0
     for _, entry in ipairs(settings.spells) do
         local spellID = ns.Spellbook:ResolveForGroup(entry, true)
@@ -338,14 +315,13 @@ function Group:ComputeActiveKey()
     return hash
 end
 
---- Refreshes every icon. Returns true if anything is counting down and the
---- group therefore needs the periodic ticker.
+-- Returns true if anything is counting down and the group therefore needs the
+-- periodic ticker.
 function Group:Update()
     local settings = self:GetSettings()
     if not settings or settings.enabled == false then return false end
 
-    -- A buff coming or going changes which icons belong in the row, so the
-    -- group is rebuilt before the per-icon refresh below.
+    -- A buff coming or going changes which icons belong in the row.
     if Const.AURA_GROUPS[self.key]
         and settings.appearance.hideWhenInactive ~= false
         and not self.unlocked
@@ -358,9 +334,7 @@ function Group:Update()
     local appearance = settings.appearance
     local animating = false
 
-    -- Three state sources. A duration-bar group merges the ability's effect
-    -- with its recharge; a plain aura group reads the aura; everything else is
-    -- a cooldown. Resolved once per group rather than per icon.
+    -- Resolved once per group rather than per icon.
     local durationBars = Const.DURATION_BAR_GROUPS[self.key]
     local auraGroup = Const.AURA_GROUPS[self.key]
 
@@ -384,10 +358,6 @@ function Group:Update()
     return animating
 end
 
---------------------------------------------------------------------------------
--- Unlocked (drag) mode
---------------------------------------------------------------------------------
-
 local function OnDragStart(frame)
     frame:StartMoving()
 end
@@ -400,10 +370,10 @@ local function OnDragStop(frame)
     end
 end
 
---- Clicking a group while it is unlocked opens that group's settings panel,
---- which is how Blizzard's Edit Mode selects a system.
+-- Opens that group's settings panel, as Blizzard's Edit Mode selects a system.
 local function OnMouseUp(frame)
     if frame.cdmcGroup and frame.cdmcGroup.unlocked then
+        if ns.BarPanel then ns.BarPanel:Hide() end
         ns.EditModePanel:Show(frame.cdmcGroup.key)
     end
 end

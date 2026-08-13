@@ -2,21 +2,17 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Starter layouts.
+-- Starter layouts. One rank of each spell is enough: entries are stored
+-- rank-independent, so Resolve() looks the ID up by name and swaps in whichever
+-- rank the character knows -- which also carries a preset across clients where
+-- the ID differs but the name does not.
 --
--- Only one rank of each spell needs to be listed. Entries are stored
--- rank-independent, so Spellbook:Resolve() looks the ID up by name and swaps in
--- whichever rank the character actually knows. That also means a preset written
--- against Era keeps working on a client where the ID happens to differ, as long
--- as the spell name matches.
-
+-- Listed generously. An entry the character has not learned simply does not
+-- resolve, so a level 20 rogue sees only what they can cast.
 local Presets = {}
 ns.Presets = Presets
 
 Presets.byClass = {
-    -- Listed generously: a rank-independent entry the character has not learned
-    -- simply does not resolve, so a level 20 rogue sees only what they can cast
-    -- and the rest appear as they are trained.
     ROGUE = {
         name = "Rogue",
         groups = {
@@ -51,10 +47,9 @@ Presets.byClass = {
         },
     },
 
-    -- Base Era abilities only. Season of Discovery runes are deliberately not
-    -- listed: they resolve through C_Engraving and appear in the picker under
-    -- their real names, so hard-coding rune IDs would only add entries that
-    -- break whenever a slot is re-engraved.
+    -- Base Era abilities only. Rune IDs are deliberately absent: they resolve
+    -- through C_Engraving already, and hard-coding them adds entries that break
+    -- whenever a slot is re-engraved.
     SHAMAN = {
         name = "Shaman",
         groups = {
@@ -108,7 +103,6 @@ Presets.byClass = {
     },
 }
 
---- The preset for a class, or nil when we do not ship one yet.
 function Presets:GetForClass(class)
     return self.byClass[class]
 end
@@ -118,9 +112,8 @@ function Presets:GetForPlayer()
     return self:GetForClass(class), class
 end
 
---- Writes the class preset into the current profile.
---- Existing spells are replaced only when `overwrite` is true, so the automatic
---- first-login application can never clobber a configured profile.
+-- Without `overwrite` an existing group is left alone, so the automatic
+-- first-login application cannot clobber a configured profile.
 function Presets:Apply(preset, overwrite)
     if not preset then return false end
 
@@ -161,8 +154,6 @@ function Presets:ApplyDefaultForPlayer(overwrite)
     return applied
 end
 
---- True when the profile has never had anything added to it, which is how the
---- first login decides whether to seed a preset.
 function Presets:IsProfileEmpty()
     for _, key in ipairs(Const.GROUP_ORDER) do
         local group = ns.DB:GetGroup(key)

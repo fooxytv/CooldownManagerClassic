@@ -2,17 +2,10 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Edit Mode integration.
---
--- Two tiers. When LibEQOL is available the groups are registered as genuine
--- Edit Mode systems: they get Blizzard's selection frames, snap to the grid,
--- and their settings appear inside Blizzard's own Edit Mode dialog alongside
--- every other system. That is the intended experience, and it is what
--- TankAssist does.
---
--- Without the library we fall back to our own drag handles and settings panel,
--- which is also what runs on any client with no Edit Mode at all.
-
+-- Two tiers. With LibEQOL the groups become genuine Edit Mode systems -- real
+-- selection frames, grid snapping, settings inside Blizzard's own dialog.
+-- Without it, our own drag handles and panel, which is also what runs on a
+-- client with no Edit Mode at all.
 local EditMode = {}
 ns.EditMode = EditMode
 
@@ -33,24 +26,40 @@ function EditMode:IsBlizzardEditModeActive()
     return manager ~= nil and manager.editModeActive == true
 end
 
---------------------------------------------------------------------------------
--- Snapshot / restore
---------------------------------------------------------------------------------
+-- Groups and resource bars are both draggable Edit Mode systems and are always
+-- unlocked, saved and reverted together. ns.bars was omitted from every one of
+-- these loops originally, which left the bars unreachable: disabled by default,
+-- hidden while disabled, and hidden frames cannot be clicked to reach the
+-- setting that would enable them.
+local function ForEachWidget(callback)
+    for _, group in pairs(ns.groups) do callback(group) end
+    for _, bar in pairs(ns.bars) do callback(bar) end
+end
 
 local function TakeSnapshot()
-    local snapshot = {}
+    local snapshot = { groups = {}, bars = {} }
+
     for _, key in ipairs(Const.GROUP_ORDER) do
         local settings = ns.DB:GetGroup(key)
         if settings then
-            snapshot[key] = ns.DeepCopy(settings.position)
+            snapshot.groups[key] = ns.DeepCopy(settings.position)
         end
     end
+
+    for _, key in ipairs(Const.BAR_ORDER) do
+        local settings = ns.DB:GetBar(key)
+        if settings then
+            snapshot.bars[key] = ns.DeepCopy(settings.position)
+        end
+    end
+
     return snapshot
 end
 
 local function RestoreSnapshot(snapshot)
     if not snapshot then return end
-    for key, position in pairs(snapshot) do
+
+    for key, position in pairs(snapshot.groups or {}) do
         local settings = ns.DB:GetGroup(key)
         if settings then
             settings.position = ns.DeepCopy(position)
@@ -58,11 +67,16 @@ local function RestoreSnapshot(snapshot)
             if group then group:ApplyPosition() end
         end
     end
-end
 
---------------------------------------------------------------------------------
--- Enter / exit
---------------------------------------------------------------------------------
+    for key, position in pairs(snapshot.bars or {}) do
+        local settings = ns.DB:GetBar(key)
+        if settings then
+            settings.position = ns.DeepCopy(position)
+            local bar = ns.bars[key]
+            if bar then bar:ApplyPosition() end
+        end
+    end
+end
 
 function EditMode:Enter()
     if self.active then return end
@@ -70,17 +84,17 @@ function EditMode:Enter()
 
     positionSnapshot = TakeSnapshot()
 
-    -- With LibEQOL the library owns selection and dragging, so our own drag
-    -- handles and settings panel would only get in the way. Groups are still
-    -- forced visible so an empty or combat-hidden one can be positioned.
-    for _, group in pairs(ns.groups) do
+    -- With LibEQOL the library owns selection and dragging, so ours would get
+    -- in the way. Either way everything is forced visible, so an empty,
+    -- disabled or combat-hidden widget can still be positioned.
+    ForEachWidget(function(widget)
         if lem then
-            group.unlocked = true
-            group:UpdateVisibility()
+            widget.unlocked = true
+            widget:UpdateVisibility()
         else
-            group:SetUnlocked(true)
+            widget:SetUnlocked(true)
         end
-    end
+    end)
 
     if not lem then
         ns.EditModePanel:Show(Const.GROUP_ORDER[1])
@@ -92,24 +106,23 @@ function EditMode:Exit()
     self.active = false
 
     if not self.manualUnlock then
-        for _, group in pairs(ns.groups) do
+        ForEachWidget(function(widget)
             if lem then
-                group.unlocked = false
-                group:UpdateVisibility()
+                widget.unlocked = false
+                widget:UpdateVisibility()
             else
-                group:SetUnlocked(false)
+                widget:SetUnlocked(false)
             end
-        end
+        end)
         ns.EditModePanel:Hide()
+        if ns.BarPanel then ns.BarPanel:Hide() end
     end
 
     positionSnapshot = nil
 end
 
 function EditMode:SaveLayouts()
-    for _, group in pairs(ns.groups) do
-        group:SavePosition()
-    end
+    ForEachWidget(function(widget) widget:SavePosition() end)
     positionSnapshot = TakeSnapshot()
 end
 
@@ -117,17 +130,11 @@ function EditMode:RevertChanges()
     RestoreSnapshot(positionSnapshot)
 end
 
---------------------------------------------------------------------------------
--- Manual unlock, for clients without Edit Mode
---------------------------------------------------------------------------------
-
 function EditMode:SetManualUnlock(unlocked)
     self.manualUnlock = unlocked
     ns.DB:GetGlobal().locked = not unlocked
 
-    for _, group in pairs(ns.groups) do
-        group:SetUnlocked(unlocked)
-    end
+    ForEachWidget(function(widget) widget:SetUnlocked(unlocked) end)
 
     if unlocked then
         ns.EditModePanel:Show(Const.GROUP_ORDER[1])
@@ -140,10 +147,6 @@ function EditMode:ToggleManualUnlock()
     self:SetManualUnlock(not self.manualUnlock)
     return self.manualUnlock
 end
-
---------------------------------------------------------------------------------
--- LibEQOL settings sheets
---------------------------------------------------------------------------------
 
 local function Appearance(groupKey)
     local settings = ns.DB:GetGroup(groupKey)
@@ -166,8 +169,7 @@ local function SetOption(groupKey, option, value)
     ns.Core:RefreshGroup(groupKey)
 end
 
---- LibEQOL dropdowns work in display strings, so each option maps a label to
---- the value we store.
+-- LibEQOL dropdowns work in display strings, not values.
 local function DropdownValues(labels)
     local values = {}
     for _, label in ipairs(labels) do
@@ -344,9 +346,8 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "display", "Icons") end,
             set = function(_, value)
                 SetOption(groupKey, "display", value)
-                -- Bars are wide and stack downwards; icons run along a row.
-                -- Flipping the axis with the display keeps the group readable
-                -- without the player having to know that is why it looks wrong.
+                -- Flipped with the display, because bars are wide and stack
+                -- downwards where icons run along a row.
                 if value == "Bars" then
                     SetOption(groupKey, "orientation", "Vertical")
                     SetOption(groupKey, "iconDirection", "Right")
@@ -408,10 +409,6 @@ local function BuildSettings(groupKey)
 
     return settings
 end
-
---------------------------------------------------------------------------------
--- Resource bar settings
---------------------------------------------------------------------------------
 
 local function BarAppearance(key)
     local settings = ns.DB:GetBar(key)
@@ -543,12 +540,8 @@ local function BuildBarSettings(key)
     return settings
 end
 
---------------------------------------------------------------------------------
--- Registration
---------------------------------------------------------------------------------
-
---- LibEQOL reports the new anchor as a loose argument list, so the values are
---- picked out by type rather than by position.
+-- LibEQOL reports the new anchor as a loose argument list, so the values are
+-- picked out by type rather than by position.
 local function ParsePositionArgs(...)
     local anchors = {
         CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
@@ -590,11 +583,9 @@ function EditMode:RegisterWithLibEQOL()
             end, defaults)
 
             -- Classic's EditModeSystemSelectionBaseMixin:CheckShowInstructionalTooltip
-            -- calls self.system:GetSystemName() when the mouse enters the
-            -- selection box. Blizzard's real systems set that field; a frame
-            -- registered by an addon does not, so hovering throws. The template
-            -- exposes the selection as parentKey="Selection", so a stub with
-            -- just that one method is enough to satisfy it.
+            -- calls self.system:GetSystemName() on mouse-enter. Blizzard's real
+            -- systems set that field and an addon-registered frame does not, so
+            -- hovering throws without this stub.
             local selection = group.frame.Selection
             if selection and not selection.system then
                 local label = Const.GROUP_LABELS[key] or key

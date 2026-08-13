@@ -5,6 +5,10 @@ max_line_length = false
 
 exclude_files = {
     "ci/**",
+    -- Third-party and vendored: 148 of the 165 warnings on the first CI run
+    -- came from here, and none of them are ours to fix. Linting code we cannot
+    -- change only buries the handful that are.
+    "libs/**",
 }
 
 globals = {
@@ -17,6 +21,7 @@ globals = {
     "C_TooltipInfo",
     "C_Texture",
     "C_EventUtils",
+    "C_Item",
     "Enum",
     "EventRegistry",
     "EditModeManagerFrame",
@@ -35,9 +40,11 @@ globals = {
     "UnitHealthMax",
     "UnitPowerType",
     "UnitAffectingCombat",
+    "UnitExists",
     "InCombatLockdown",
     "GetInventoryItemLink",
     "GetInventoryItemTexture",
+    "GetItemCount",
     "GetCursorPosition",
     "PlaySound",
     "GetSpellInfo",
@@ -50,7 +57,17 @@ globals = {
     "IsPassiveSpell",
     "IsSpellKnown",
     "IsPlayerSpell",
+    "IsUsableSpell",
     "PickupSpellBookItem",
+    "GetWeaponEnchantInfo",
+    "UnitPower",
+    "UnitPowerMax",
+    "GetComboPoints",
+    "MAX_COMBO_POINTS",
+    "GetActionInfo",
+    "GetMacroSpell",
+    "GetBindingKey",
+    "RANGE_INDICATOR",
     "hooksecurefunc",
     "wipe",
     "tinsert",
@@ -59,6 +76,11 @@ globals = {
     -- UI globals
     "UIParent",
     "GameTooltip",
+    "TooltipDataProcessor",
+    "PowerBarColor",
+    "GetMouseFoci",
+    "GetMouseFocus",
+    "LibStub",
     "DEFAULT_CHAT_FRAME",
     "UISpecialFrames",
     "StaticPopupDialogs",
@@ -73,6 +95,7 @@ globals = {
     "SLASH_CDMCEDIT1",
     "SLASH_CDMCEDIT2",
     "CloseDropDownMenus",
+    "ToggleDropDownMenu",
     "UIDropDownMenu_Initialize",
     "UIDropDownMenu_CreateInfo",
     "UIDropDownMenu_AddButton",

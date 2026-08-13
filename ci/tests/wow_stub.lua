@@ -86,6 +86,9 @@ function Widget:SetShown(shown) self.__shown = shown and true or false end
 function Widget:IsShown() return self.__shown end
 function Widget:IsVisible() return self.__shown end
 
+function Widget:SetChecked(checked) self.__checked = checked and true or false end
+function Widget:GetChecked() return self.__checked end
+
 function Widget:SetFrameLevel(level) self.__level = level end
 function Widget:GetFrameLevel() return self.__level end
 
@@ -203,6 +206,7 @@ _G.GetRealmName = function() return "Test" end
 _G.UnitName = function() return "Tester" end
 _G.UnitClass = function() return "SHAMAN", "SHAMAN", 7 end
 _G.UnitAffectingCombat = function() return false end
+_G.UnitExists = function(unit) return _G.__hasTarget and true or false end
 _G.InCombatLockdown = function() return false end
 _G.UnitPowerType = function() return 0, "MANA" end
 _G.UnitHealth = function() return 100 end
@@ -213,6 +217,13 @@ _G.GetComboPoints = function() return 0 end
 _G.GetInventoryItemLink = function() return nil end
 _G.GetInventoryItemTexture = function() return nil end
 _G.GetItemInfo = function() return nil end
+_G.GetItemCount = function() return 0 end
+_G.RANGE_INDICATOR = "\226\128\162"
+-- One spell on the first action slot, bound to Shift-2, so the keybind reader
+-- has something to find.
+_G.GetActionInfo = function(slot) if slot == 1 then return "spell", 686 end return nil end
+_G.GetMacroSpell = function() return nil end
+_G.GetBindingKey = function(command) if command == "ACTIONBUTTON1" then return "SHIFT-2" end return nil end
 _G.GetWeaponEnchantInfo = function() return false end
 _G.IsPlayerSpell = function() return true end
 _G.IsSpellKnown = function() return true end
@@ -272,6 +283,7 @@ local SPELLS = {
     [187880] = { name = "Maelstrom Weapon", icon = "Interface\\Icons\\Spell_Shaman_MaelstromWeapon" },
     [324] = { name = "Lightning Shield", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
     [2645] = { name = "Ghost Wolf", icon = "Interface\\Icons\\Spell_Nature_SpiritWolf" },
+    [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
 }
 
 _G.C_Spell = {
@@ -317,8 +329,16 @@ _G.__aura = {
     timeMod = 1,
 }
 
+-- A harmful aura on the target, for DoT tracking. nil by default (no debuff);
+-- tests set it, including sourceUnit to exercise the player-cast filter.
+_G.__targetAura = nil
+
 _G.C_UnitAuras = {
     GetAuraDataByIndex = function(unit, index, filter)
+        if unit == "target" then
+            if index == 1 and filter == "HARMFUL" then return _G.__targetAura end
+            return nil
+        end
         if index == 1 and filter ~= "HARMFUL" then return _G.__aura end
         return nil
     end,
@@ -332,9 +352,16 @@ _G.C_UnitAuras = {
 }
 
 _G.UnitAura = function(unit, index, filter)
-    if index ~= 1 or filter == "HARMFUL" then return nil end
-    local a = _G.__aura
-    return a.name, a.icon, a.applications, nil, a.duration, a.expirationTime, nil, nil, nil, a.spellId
+    if index ~= 1 then return nil end
+    local a
+    if unit == "target" then
+        if filter == "HARMFUL" then a = _G.__targetAura end
+    elseif filter ~= "HARMFUL" then
+        a = _G.__aura
+    end
+    if not a then return nil end
+    return a.name, a.icon, a.applications, nil, a.duration, a.expirationTime,
+        a.sourceUnit, nil, nil, a.spellId
 end
 
 _G.GetSpellInfo = function(id)

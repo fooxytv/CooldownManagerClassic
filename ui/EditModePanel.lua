@@ -2,10 +2,8 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- The per-group settings panel shown while the groups are unlocked, modelled on
--- Blizzard's Edit Mode dialog. Blizzard has no supported way to register a
--- third-party Edit Mode system, so this is our own frame that appears alongside
--- theirs rather than inside it.
+-- Our own frame alongside Blizzard's Edit Mode dialog rather than inside it:
+-- there is no supported way to register a third-party Edit Mode system.
 
 local Panel = {}
 ns.EditModePanel = Panel
@@ -13,10 +11,6 @@ ns.EditModePanel = Panel
 local panel
 local currentGroup
 local snapshot
-
---------------------------------------------------------------------------------
--- Settings access
---------------------------------------------------------------------------------
 
 local function Settings()
     return currentGroup and ns.DB:GetGroup(currentGroup) or nil
@@ -42,10 +36,6 @@ local function SetOption(option, value)
     ns.Core:RefreshGroup(currentGroup)
     Panel:Refresh()
 end
-
---------------------------------------------------------------------------------
--- Widget helpers
---------------------------------------------------------------------------------
 
 local widgetIndex = 0
 
@@ -117,7 +107,10 @@ local function CreateDropdown(parent, label, option, getChoices, onSelect)
     return container
 end
 
-local function CreateCheckbox(parent, label, option)
+-- `handlers` (optional) with .get/.set drives a checkbox that is not a group
+-- appearance option -- e.g. the profile-level reactive-highlight toggle. Without
+-- it, the checkbox reads and writes appearance[option] as usual.
+local function CreateCheckbox(parent, label, option, handlers)
     widgetIndex = widgetIndex + 1
     local name = "CDMCPanelCheck" .. widgetIndex
 
@@ -126,22 +119,36 @@ local function CreateCheckbox(parent, label, option)
     if text then text:SetText(label) end
 
     check.option = option
+    check.getState = handlers and handlers.get
     check:SetScript("OnClick", function(self)
-        SetOption(self.option, self:GetChecked() and true or false)
+        local checked = self:GetChecked() and true or false
+        if handlers and handlers.set then
+            handlers.set(checked)
+        else
+            SetOption(self.option, checked)
+        end
     end)
 
     return check
 end
-
---------------------------------------------------------------------------------
--- Construction
---------------------------------------------------------------------------------
 
 local function SimpleChoices(values)
     return function()
         local choices = {}
         for _, value in ipairs(values) do
             choices[#choices + 1] = { value = value, label = value }
+        end
+        return choices
+    end
+end
+
+-- LibSharedMedia names for a picker, led by a "Default" entry (value "") for the
+-- built-in look. Empty of media without the library, which still leaves Default.
+local function MediaChoices(mediatype)
+    return function()
+        local choices = { { value = "", label = "Default" } }
+        for _, name in ipairs(ns.Media.List(mediatype)) do
+            choices[#choices + 1] = { value = name, label = name }
         end
         return choices
     end
@@ -210,16 +217,37 @@ local function BuildPanel()
 
     panel.showTooltips = CreateCheckbox(panel, "Show Tooltips", "showTooltips")
     panel.showTooltips:SetPoint("TOPLEFT", 20, y)
-    y = y - 32
+    y = y - 26
 
-    -- Buff-only rows. Only tracked buffs can be drawn as bars, so for the
-    -- cooldown groups these are hidden and the buttons below slide up into the
-    -- space instead of leaving a hole in the middle of the panel.
+    panel.showKeybind = CreateCheckbox(panel, "Show Keybind", "showKeybind")
+    panel.showKeybind:SetPoint("TOPLEFT", 20, y)
+    y = y - 26
+
+    -- Reactive proc highlighting is a profile-level switch (not a per-group
+    -- appearance option), so it uses custom get/set rather than SetOption.
+    panel.showHighlights = CreateCheckbox(panel, "Reactive Highlights", nil, {
+        get = function() return ns.DB:AreHighlightsEnabled() end,
+        set = function(value)
+            ns.DB:SetHighlightsEnabled(value)
+            ns.Core:RefreshAll()
+        end,
+    })
+    panel.showHighlights:SetPoint("TOPLEFT", 20, y)
+    y = y - 34
+
+    -- Common to every group: the font face applies to the timer / count / bar
+    -- text alike.
+    panel.fontFace = CreateDropdown(panel, "Font", "fontFace", MediaChoices("font"))
+    panel.fontFace:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
+
+    -- Buff-only rows. Hidden for the cooldown groups, with the buttons below
+    -- sliding up rather than leaving a hole mid-panel.
     panel.buffTop = y
 
     panel.display = CreateDropdown(panel, "Display", "display",
         SimpleChoices(Const.BUFF_DISPLAYS), function(value)
-            -- Bars are wide and stack downwards; icons run along a row.
+            -- Flipped with the display: bars are wide and stack downwards.
             if value == "Bars" then
                 SetOption("orientation", "Vertical")
                 SetOption("iconDirection", "Right")
@@ -249,6 +277,11 @@ local function BuildPanel()
     panel.barMode:SetPoint("TOPLEFT", 16, y)
     y = y - 46
 
+    panel.barTexture = CreateDropdown(panel, "Bar Texture", "barTexture",
+        MediaChoices("statusbar"))
+    panel.barTexture:SetPoint("TOPLEFT", 16, y)
+    y = y - 46
+
     panel.buffBottom = y
 
     local revert = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -272,10 +305,6 @@ local function BuildPanel()
 
     return panel
 end
-
---------------------------------------------------------------------------------
--- Actions
---------------------------------------------------------------------------------
 
 function Panel:Revert()
     if not snapshot or not currentGroup then return end
@@ -306,10 +335,6 @@ function Panel:ResetPosition()
     if group then group:ApplyPosition() end
 end
 
---------------------------------------------------------------------------------
--- Show / refresh
---------------------------------------------------------------------------------
-
 function Panel:Refresh()
     if not panel or not panel:IsShown() then return end
 
@@ -320,19 +345,20 @@ function Panel:Refresh()
     local titleText = (panel.TitleContainer and panel.TitleContainer.TitleText) or panel.TitleText
     if titleText then titleText:SetText(label) end
 
-    -- Bar sizing appears for any bar-capable group (tracked buffs, cooldown
-    -- bars); the Icons/Bars toggle only for the one group that has both; the
-    -- Effect/Cooldown mode only for a duration-bar group.
+    -- Three different predicates, not one: bar sizing applies to any bar-capable
+    -- group, the Icons/Bars toggle only to the group that has both, and the
+    -- Effect/Cooldown mode only to a duration-bar group.
     local isBarGroup = Const.BAR_CAPABLE_GROUPS[currentGroup] and true or false
     local hasDisplayToggle = Const.DISPLAY_TOGGLE_GROUPS[currentGroup] and true or false
     local hasBarMode = Const.DURATION_BAR_GROUPS[currentGroup] and true or false
 
     local sliders = { panel.rows, panel.iconSize, panel.spacing, panel.opacity }
-    local dropdowns = { panel.orientation, panel.iconDirection, panel.visibility }
+    local dropdowns = { panel.orientation, panel.iconDirection, panel.visibility, panel.fontFace }
     if isBarGroup then
         sliders[#sliders + 1] = panel.barWidth
         sliders[#sliders + 1] = panel.barHeight
         dropdowns[#dropdowns + 1] = panel.barContent
+        dropdowns[#dropdowns + 1] = panel.barTexture
     end
     if hasDisplayToggle then
         dropdowns[#dropdowns + 1] = panel.display
@@ -341,9 +367,7 @@ function Panel:Refresh()
         dropdowns[#dropdowns + 1] = panel.barMode
     end
 
-    -- Lay out only the rows this group actually has, top-down, so a hidden
-    -- Display dropdown (cooldown bars have no toggle) leaves no gap and the
-    -- buttons sit directly under whatever the last visible row is.
+    -- Only the rows this group has, top-down, so a hidden row leaves no gap.
     local BAR_ROW = 46
     local rowY = panel.buffTop
 
@@ -377,6 +401,13 @@ function Panel:Refresh()
         rowY = rowY - BAR_ROW
     end
 
+    panel.barTexture:SetShown(isBarGroup)
+    if isBarGroup then
+        panel.barTexture:ClearAllPoints()
+        panel.barTexture:SetPoint("TOPLEFT", 16, rowY)
+        rowY = rowY - BAR_ROW
+    end
+
     local buttonY = rowY
     for _, button in ipairs(panel.buttons) do
         button:ClearAllPoints()
@@ -406,6 +437,10 @@ function Panel:Refresh()
 
     panel.showTimer:SetChecked(GetOption("showCountdownText") and true or false)
     panel.showTooltips:SetChecked(GetOption("showTooltips") and true or false)
+    panel.showKeybind:SetChecked(GetOption("showKeybind") and true or false)
+    if panel.showHighlights.getState then
+        panel.showHighlights:SetChecked(panel.showHighlights.getState() and true or false)
+    end
 end
 
 function Panel:Show(groupKey)

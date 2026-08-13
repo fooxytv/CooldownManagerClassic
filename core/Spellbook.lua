@@ -1,15 +1,18 @@
+--[[
+Copyright (C) 2023 FooxyTV (simon@fooxy.tv)
+All rights reserved.
+
+Programming by: FooxyTV
+]]
+
 local addonName, ns = ...
 
 local Compat = ns.Compat
 
--- Scans the player's spellbook and answers two questions for the rest of the
--- addon: "what can this character actually cast?" and "given a spell stored in
--- a profile, which rank should be displayed right now?".
-
 local Spellbook = {}
 ns.Spellbook = Spellbook
 
--- Array of { spellID, name, subName, icon, rank, tab } in spellbook order.
+-- { spellID, name, subName, icon, rank, tab } in spellbook order.
 Spellbook.spells = {}
 
 -- name -> highest known spellID for that name.
@@ -18,18 +21,15 @@ Spellbook.bestRankByName = {}
 -- spellID -> true for every rank the character currently knows.
 Spellbook.knownIDs = {}
 
--- spellID -> icon, for spells whose own icon is not the one to show. Runes use
--- this so the engraving art wins over the ability's generic texture.
+-- spellID -> icon, where the spell's own icon is not the one to show.
 Spellbook.iconOverrides = {}
 
--- name -> spellID for abilities granted by an engraved rune. These always beat
--- the spellbook, because an engraved rune slot reports the ability's *name*
--- while keeping the placeholder's spell ID -- and that ID has no cooldown and
--- applies no aura, so resolving to it silently tracks nothing.
+-- name -> spellID for rune abilities. These always beat the spellbook: an
+-- engraved slot reports the ability's *name* against the placeholder's spell
+-- ID, and that ID has no cooldown and applies no aura.
 Spellbook.runeAbilityByName = {}
 
---- The icon to display for a spell. Weapon enchants borrow the weapon's own
---- icon, since the enchant itself has no artwork of its own.
+-- Weapon enchants borrow the weapon's icon, having none of their own.
 function Spellbook:GetIcon(spellID)
     local enchant = ns.Constants.WEAPON_ENCHANT_BY_ID[spellID]
     if enchant then
@@ -44,8 +44,6 @@ function Spellbook:GetIcon(spellID)
     return icon
 end
 
---- The display name for a tracked entry, covering pseudo-spells that
---- GetSpellInfo knows nothing about.
 function Spellbook:GetName(spellID)
     local enchant = ns.Constants.WEAPON_ENCHANT_BY_ID[spellID]
     if enchant then return enchant.label end
@@ -53,13 +51,9 @@ function Spellbook:GetName(spellID)
     return (Compat.GetSpellInfo(spellID))
 end
 
---- Engraved runes appear in the spellbook as per-slot placeholders whose spell
---- IDs carry no cooldown, usability or aura. They are filtered out of the
---- pickable list because tracking one can only ever produce a dead icon; the
---- real abilities are added separately by AddRuneAbilities.
----
---- Matched by name, which is English-only for now -- the placeholder IDs are
---- not contiguous enough to key on reliably.
+-- Matched by name, so English-only for now: the placeholder IDs are not
+-- contiguous enough to key on. Filtered out of the picker because tracking one
+-- only ever produces a dead icon -- AddRuneAbilities adds the real ability.
 local function IsRunePlaceholder(name)
     return name ~= nil and name:find("Rune Ability", 1, true) ~= nil
 end
@@ -70,14 +64,9 @@ local function ParseRank(subName)
     return tonumber(subName:match("%d+"))
 end
 
---- Scans using whichever spellbook API is currently selected, then falls back
---- to the other one if it found nothing.
----
---- Which of the two APIs a given Classic build keeps is not something we can
---- reliably detect by feature-probing -- a build can expose C_SpellBook while
---- the old globals still work, or expose it while they have been removed. An
---- empty result is unambiguous, so the scan simply tries the other path and
---- keeps whichever produced spells.
+-- Feature-probing cannot tell which spellbook API a build kept -- C_SpellBook
+-- can be present while the old globals still work, or present while they are
+-- gone. An empty result is unambiguous, so it just tries the other path.
 function Spellbook:Scan()
     self:ScanWithCurrentPath()
     self:AddRuneAbilities()
@@ -118,16 +107,15 @@ function Spellbook:ScanWithCurrentPath()
             for i = offset + 1, offset + numSpells do
                 local spellID, itemType, name, subName = Compat.GetSpellBookItem(i)
 
-                -- Reject only the types we positively know are not castable
-                -- spells. An unrecognised type is kept: showing something odd
-                -- beats an empty picker when a build reports a type we have not
-                -- seen before.
+                -- A denylist, not an allowlist: an unrecognised type is kept,
+                -- because something odd in the picker beats an empty one when a
+                -- build reports a type we have not seen.
                 local isCastable = itemType ~= "FLYOUT"
                     and itemType ~= "FUTURESPELL"
                     and itemType ~= "PETACTION"
 
-                -- The spellbook does not always hand back a name; the spell
-                -- info does, and the name is what rank resolution keys on.
+                -- The spellbook does not always return a name, and the name is
+                -- what rank resolution keys on.
                 if spellID and not name then
                     name = Compat.GetSpellInfo(spellID)
                 end
@@ -161,17 +149,11 @@ function Spellbook:ScanWithCurrentPath()
     return self.spells
 end
 
---- Adds the real abilities behind any engraved runes.
----
---- The spellbook lists a rune as a slot placeholder ("Legs Rune Ability") whose
---- spell ID reports no cooldown and no usability, so tracking that entry gives
---- a permanently idle icon. The ability IDs from C_Engraving are the ones that
---- actually have cooldowns, so they are added alongside.
 function Spellbook:AddRuneAbilities()
     self.runeCount = 0
 
-    -- Cleared here rather than in the spellbook scan, which runs first: a
-    -- re-engraved slot must not keep the previous rune's art.
+    -- Cleared here, not in the scan that runs before it: a re-engraved slot
+    -- must not keep the previous rune's art.
     wipe(self.iconOverrides)
     wipe(self.runeAbilityByName)
 
@@ -184,9 +166,8 @@ function Spellbook:AddRuneAbilities()
         end
 
         if name then
-            -- Overwritten unconditionally. The spellbook scan runs first and
-            -- will already have claimed this name for the slot placeholder,
-            -- whose ID tracks nothing; the real ability has to win.
+            -- Unconditional: the earlier scan has already claimed this name for
+            -- the placeholder, whose ID tracks nothing.
             self.runeAbilityByName[name] = rune.spellID
             self.bestRankByName[name] = rune.spellID
         end
@@ -202,8 +183,6 @@ function Spellbook:AddRuneAbilities()
             }
             self.knownIDs[rune.spellID] = true
 
-            -- A rune ability has a single rank, so it is its own best rank
-            -- unless the spellbook already claimed that name.
             if not self.bestRankByName[name] then
                 self.bestRankByName[name] = rune.spellID
             end
@@ -220,31 +199,28 @@ function Spellbook:IsKnown(spellID)
     return Compat.IsSpellKnown(spellID)
 end
 
---- Turns a stored profile entry into the spell ID that should be displayed.
---- Returns nil when the character cannot cast the spell at all, which is how
---- unlearned ranks and unequipped SoD runes end up hidden rather than deleted.
+-- nil means the character cannot cast it, which is how unlearned ranks and
+-- unequipped runes end up hidden rather than deleted from the profile.
 function Spellbook:Resolve(entry)
     if not entry or not entry.spellID then return nil end
 
-    -- Weapon enchants are always "known": there is no spellbook entry to check
-    -- them against, only whether one is currently applied.
+    -- Always "known": there is no spellbook entry to check an enchant against,
+    -- only whether one is currently applied.
     if ns.Constants.IsWeaponEnchantID(entry.spellID) then
         return entry.spellID
     end
 
     if entry.rankIndependent then
-        -- Prefer the name recorded at save time; fall back to whatever the
-        -- stored ID resolves to now, which covers profiles written before the
-        -- name was captured.
+        -- Falling back to the stored ID covers profiles written before the name
+        -- was captured.
         local name = entry.name
         if not name then
             name = Compat.GetSpellInfo(entry.spellID)
         end
 
         if name then
-            -- A rune ability always wins, even over an exact stored ID: the
-            -- stored one is very often the slot placeholder, which resolves to
-            -- the right name but tracks nothing.
+            -- Wins even over an exact stored ID: the stored one is very often
+            -- the placeholder, which has the right name but tracks nothing.
             local rune = self.runeAbilityByName[name]
             if rune then return rune end
 
@@ -260,13 +236,9 @@ function Spellbook:Resolve(entry)
     return nil
 end
 
---- Resolves an entry for a particular group.
----
---- Aura groups deliberately bypass the "must be a known spell" requirement: a
---- buff can be picked directly off the player, and such an aura's spell ID is
---- frequently neither castable nor present in the spellbook -- true of most
---- Season of Discovery rune buffs. Demanding it be known would reject exactly
---- the auras the buff picker exists to add.
+-- Aura groups bypass the "must be known" requirement on purpose: a buff picked
+-- off the player is frequently neither castable nor in the spellbook -- true of
+-- most SoD rune buffs -- so requiring it would reject the whole point of it.
 function Spellbook:ResolveForGroup(entry, isAuraGroup)
     local spellID = self:Resolve(entry)
     if spellID then return spellID end
@@ -278,7 +250,6 @@ function Spellbook:ResolveForGroup(entry, isAuraGroup)
     return nil
 end
 
---- Convenience wrapper returning spellID, name, icon for a stored entry.
 function Spellbook:ResolveInfo(entry, isAuraGroup)
     local spellID = self:ResolveForGroup(entry, isAuraGroup)
     if not spellID then return nil end
@@ -286,8 +257,6 @@ function Spellbook:ResolveInfo(entry, isAuraGroup)
     return spellID, self:GetName(spellID), self:GetIcon(spellID)
 end
 
---- Every castable spell, deduplicated to the highest known rank. This is what
---- the spell picker lists.
 function Spellbook:GetPickableSpells()
     local seen, results = {}, {}
 

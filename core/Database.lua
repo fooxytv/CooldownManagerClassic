@@ -1,13 +1,16 @@
+--[[
+Copyright (C) 2023 FooxyTV (simon@fooxy.tv)
+All rights reserved.
+
+Programming by: FooxyTV
+]]
+
 local addonName, ns = ...
 
 local Const = ns.Constants
 
 local DB = {}
 ns.DB = DB
-
---------------------------------------------------------------------------------
--- Helpers
---------------------------------------------------------------------------------
 
 local function DeepCopy(source)
     if type(source) ~= "table" then return source end
@@ -19,9 +22,8 @@ local function DeepCopy(source)
 end
 ns.DeepCopy = DeepCopy
 
---- Fills in any key present in defaults but missing from target. Existing
---- values are never overwritten, so this doubles as the migration path when a
---- new option is added.
+-- Never overwrites an existing value, so it doubles as the migration path when
+-- a new option is added. See RunMigrations for changes that must be forced.
 local function ApplyDefaults(target, defaults)
     for k, v in pairs(defaults) do
         if type(v) == "table" then
@@ -35,11 +37,16 @@ local function ApplyDefaults(target, defaults)
 end
 ns.ApplyDefaults = ApplyDefaults
 
---- The profile a character uses unless it has been pointed elsewhere. Keyed on
---- class, so all your rogues share one layout but your shaman gets its own.
+-- Keyed on class, so all your rogues share a layout but your shaman gets its own.
+--
+-- Returns nil rather than falling back to "Default" when the class is not known
+-- yet. That fallback silently bound every character that hit it to one shared
+-- profile, so a shaman inherited a rogue's abilities and neither could be
+-- customised separately -- see SelectProfileForCharacter.
 function DB.GetDefaultProfileNameForPlayer()
     local localizedClass = UnitClass("player")
-    return localizedClass or "Default"
+    if not localizedClass or localizedClass == "" then return nil end
+    return localizedClass
 end
 
 function DB.GetCharacterKey()
@@ -48,12 +55,7 @@ function DB.GetCharacterKey()
     return name .. " - " .. realm
 end
 
---------------------------------------------------------------------------------
--- Defaults
---------------------------------------------------------------------------------
-
--- Default vertical offsets keep the three groups stacked without overlapping
--- on a fresh install.
+-- Keeps the groups from overlapping on a fresh install.
 local GROUP_DEFAULT_Y = {
     essential    = -140,
     utility      = -190,
@@ -62,8 +64,7 @@ local GROUP_DEFAULT_Y = {
 }
 
 local function DefaultGroup(key)
-    -- Shared defaults first, then the per-group sizing Blizzard uses for that
-    -- category, so Essential icons come out larger than Utility ones.
+    -- Shared defaults first, then Blizzard's per-category sizing on top.
     local appearance = DeepCopy(Const.DEFAULT_APPEARANCE)
     for option, value in pairs(Const.GROUP_APPEARANCE[key] or {}) do
         appearance[option] = value
@@ -85,8 +86,8 @@ end
 
 local function DefaultBar(key)
     return {
-        -- Off by default: resource bars duplicate the stock player frame, so
-        -- they are opt-in for people replacing it rather than adding to it.
+        -- Off by default: these duplicate the stock player frame, so they are
+        -- opt-in for people replacing it rather than adding to it.
         enabled = false,
         position = {
             point = "CENTER",
@@ -103,6 +104,9 @@ local function DefaultProfile()
         version = Const.PROFILE_FORMAT_VERSION,
         groups = {},
         bars = {},
+        -- Reactive proc/activation highlighting. Opt-in: it is a deliberate
+        -- rotation cue, not something to switch on for everyone by default.
+        highlightsEnabled = false,
     }
     for _, key in ipairs(Const.GROUP_ORDER) do
         profile.groups[key] = DefaultGroup(key)
@@ -117,22 +121,16 @@ DB.DefaultProfile = DefaultProfile
 local DEFAULT_GLOBAL = {
     locked = true,
     debug = false,
-    -- Spell and aura IDs on tooltips: the only practical way to find the ID of
-    -- a buff that is not in the spellbook.
+    -- On by default: the only practical way to find the ID of a buff that is
+    -- not in the spellbook.
     showTooltipIDs = true,
 }
 
---------------------------------------------------------------------------------
--- Migrations
---------------------------------------------------------------------------------
+-- Migrations, for changes ApplyDefaults cannot make: it never overwrites a
+-- stored value, so a changed *default* never reaches an existing profile.
+-- Guarded by dbVersion so each runs exactly once.
 
--- ApplyDefaults deliberately never overwrites a stored value, which is right
--- for user settings but means a changed *default* can never reach an existing
--- profile. Anything that has to be forced onto old profiles goes here instead,
--- guarded by dbVersion so it runs exactly once.
-
---- v2: adopt Blizzard's per-category icon sizing. Profiles written before this
---- had a flat 40px on every group, so Essential and Utility never differed.
+-- v2: profiles before this had a flat 40px on every group.
 local function MigrateGroupAppearance(root)
     for _, profile in pairs(root.profiles) do
         if type(profile) == "table" and type(profile.groups) == "table" then
@@ -148,12 +146,9 @@ local function MigrateGroupAppearance(root)
     end
 end
 
---- v3: drop rune-slot placeholders and switch the GCD swipe on.
----
---- Engraved runes appear in the spellbook as per-slot placeholders ("Legs Rune
---- Ability") whose spell IDs never report a cooldown, usability or aura, so a
---- tracked placeholder is a permanently dead icon. They are removed outright
---- rather than left for the user to find.
+-- v3: a tracked rune placeholder is a permanently dead icon -- its spell ID
+-- never reports a cooldown, usability or aura -- so they are removed outright
+-- rather than left for the user to find.
 local function MigrateRunePlaceholders(root)
     local removed = 0
 
@@ -197,10 +192,6 @@ function DB:RunMigrations(root)
     return from
 end
 
---------------------------------------------------------------------------------
--- Lifecycle
---------------------------------------------------------------------------------
-
 function DB:Initialize()
     _G.CooldownManagerClassicDB = _G.CooldownManagerClassicDB or {}
     local root = _G.CooldownManagerClassicDB
@@ -218,14 +209,52 @@ function DB:Initialize()
     -- After the profile table exists, since migrations rewrite stored profiles.
     self.migratedFrom = self:RunMigrations(root)
 
-    -- A new character gets a profile named after its class rather than sharing
-    -- one global Default. The tracked spells are class abilities, so a shared
-    -- profile means every alt inherits another class's list and looks broken.
-    -- Characters that already have an assignment keep it.
+    -- Deliberately not bound to a character here. This runs on ADDON_LOADED,
+    -- which does not guarantee UnitClass("player") has data yet, and choosing a
+    -- profile from a nil class is what put several characters on one. Default
+    -- is a placeholder so nothing between here and PLAYER_LOGIN sees a nil
+    -- profile; SelectProfileForCharacter replaces it.
+    self.currentProfileName = "Default"
+    self.profile = root.profiles["Default"]
+    self:NormalizeProfile(self.profile)
+
+    return self.profile
+end
+
+-- Was this character put on "Default" by the old nil-class fallback?
+--
+-- Signature: pointed at "Default" while at least one other character is too,
+-- and this character has a class profile it could be using instead. A single
+-- character deliberately sitting on Default is left alone.
+local function IsSharedDefaultBinding(root, charKey, profileName, className)
+    if profileName ~= "Default" then return false end
+    if not className or className == "Default" then return false end
+
+    for key, name in pairs(root.profileKeys) do
+        if name == "Default" and key ~= charKey then return true end
+    end
+    return false
+end
+
+-- Binds this character to its profile. Called at PLAYER_LOGIN, where the class
+-- is finally reliable. An existing assignment is kept, unless it was made by
+-- the shared-Default bug.
+function DB:SelectProfileForCharacter()
+    local root = self.root
     local charKey = DB.GetCharacterKey()
+    local className = DB.GetDefaultProfileNameForPlayer()
     local profileName = root.profileKeys[charKey]
+
+    if profileName and IsSharedDefaultBinding(root, charKey, profileName, className) then
+        -- Default keeps its contents: another character is still using it, and
+        -- it may hold this one's real layout. Core reports the switch so it can
+        -- be undone with /cdmc profile use Default.
+        self.repairedFromShared = profileName
+        profileName = nil
+    end
+
     if not profileName or not root.profiles[profileName] then
-        profileName = DB.GetDefaultProfileNameForPlayer()
+        profileName = className or profileName or "Default"
         if not root.profiles[profileName] then
             root.profiles[profileName] = DefaultProfile()
         end
@@ -240,8 +269,6 @@ function DB:Initialize()
     return self.profile
 end
 
---- Brings an arbitrary profile table (including a freshly imported one) up to
---- the current shape without discarding user data.
 function DB:NormalizeProfile(profile)
     profile.version = profile.version or Const.PROFILE_FORMAT_VERSION
     profile.groups = profile.groups or {}
@@ -262,8 +289,8 @@ function DB:NormalizeProfile(profile)
         end
         ApplyDefaults(group, DefaultGroup(key))
 
-        -- Tolerate the shorthand form used by presets and hand-written
-        -- imports, where a group is a plain array of spell IDs.
+        -- Tolerate the shorthand presets and hand-written imports use, where a
+        -- group is a plain array of spell IDs.
         for index, entry in ipairs(group.spells) do
             if type(entry) == "number" then
                 group.spells[index] = { spellID = entry, rankIndependent = true }
@@ -273,10 +300,6 @@ function DB:NormalizeProfile(profile)
 
     return profile
 end
-
---------------------------------------------------------------------------------
--- Accessors
---------------------------------------------------------------------------------
 
 function DB:GetProfile()
     return self.profile
@@ -294,6 +317,16 @@ function DB:GetGlobal()
     return self.root.global
 end
 
+function DB:AreHighlightsEnabled()
+    return self.profile and self.profile.highlightsEnabled == true
+end
+
+function DB:SetHighlightsEnabled(enabled)
+    if self.profile then
+        self.profile.highlightsEnabled = enabled and true or false
+    end
+end
+
 function DB:ListProfiles()
     local names = {}
     for name in pairs(self.root.profiles) do
@@ -306,10 +339,6 @@ end
 function DB:GetCurrentProfileName()
     return self.currentProfileName
 end
-
---------------------------------------------------------------------------------
--- Profile management
---------------------------------------------------------------------------------
 
 function DB:SetProfile(name)
     if not self.root.profiles[name] then
@@ -325,8 +354,8 @@ function DB:SetProfile(name)
     return true
 end
 
---- Creates a profile, optionally seeded from an existing one. Passing a table
---- as copyFrom seeds directly from that table (used by preset and import).
+-- copyFrom takes a profile name or a table outright (preset and import use the
+-- table form).
 function DB:CreateProfile(name, copyFrom)
     if not name or name == "" then
         return false, "Profile name cannot be empty."
@@ -355,15 +384,14 @@ function DB:DeleteProfile(name)
     if name == self.currentProfileName then
         return false, "Cannot delete the profile currently in use."
     end
-    -- Deleting a profile repoints its characters at "Default", so Default has to
-    -- outlive them. It is otherwise only recreated on the next login, leaving
-    -- those characters pointing at a profile that does not exist until then.
+    -- Deletion repoints characters at "Default", so it has to outlive them: it
+    -- is otherwise recreated only on the next login, and until then those
+    -- characters point at a profile that does not exist.
     if name == "Default" then
         return false, "Cannot delete the Default profile."
     end
 
     self.root.profiles[name] = nil
-    -- Any character pointing at the deleted profile falls back to Default.
     for charKey, profileName in pairs(self.root.profileKeys) do
         if profileName == name then
             self.root.profileKeys[charKey] = "Default"
@@ -377,10 +405,6 @@ function DB:ResetProfile()
     self.profile = self.root.profiles[self.currentProfileName]
     ns.Core:OnProfileChanged()
 end
-
---------------------------------------------------------------------------------
--- Spell list editing
---------------------------------------------------------------------------------
 
 function DB:GroupContains(groupKey, spellID)
     local group = self:GetGroup(groupKey)
@@ -446,10 +470,9 @@ function DB:SetGroupPosition(groupKey, point, relativePoint, x, y)
     group.position.y = y or 0
 end
 
---- The bar equivalent. Exists so Edit Mode's drag callback resolves the profile
---- when the drag happens rather than closing over the table that was current
---- when the frame was registered: after a profile switch that stale table is a
---- different profile's, and the new position was saved into the old profile.
+-- Takes a key, not the bar table, so Edit Mode's drag callback resolves the
+-- profile at drag time: closing over the table registered with the frame writes
+-- the new position into the old profile after a profile switch.
 function DB:SetBarPosition(barKey, point, relativePoint, x, y)
     local bar = self:GetBar(barKey)
     if not bar then return end
