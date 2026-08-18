@@ -593,8 +593,14 @@ ns.SpellPicker:Show("profiles")
 R.addBoxHiddenOnPanelTab = pickerFrame.addBox:IsShown()
 ns.SpellPicker:Show("cooldowns")
 
--- The bottom strip names the profile everything on screen belongs to.
+-- The bottom strip names the profile everything on screen belongs to, and no
+-- longer carries the hint line that used to peep out from behind it.
 R.profileDropdownBuilt = pickerFrame.profileDropdown ~= nil
+R.noBottomHint = pickerFrame.hint == nil
+
+-- The ID box hangs off the frame's right edge and the search fills what is
+-- left, so neither can push the other out of the window.
+R.addBoxAnchorsToFrame = pickerFrame.addBox.__points[1][1]
 
 -- The portrait follows the class rather than showing a fixed clock.
 _G.CLASS_ICON_TCOORDS = { ROGUE = { 0.5, 0.75, 0, 0.25 } }
@@ -1212,6 +1218,8 @@ def run(with_art):
     check("unknown class falls back to the addon icon", results["portraitFallback"],
           "Interface\\Icons\\INV_Misc_PocketWatch_01")
     check("profile dropdown built", results["profileDropdownBuilt"], True)
+    check("bottom hint line is gone", results["noBottomHint"], True)
+    check("ID box anchors to the frame edge", results["addBoxAnchorsToFrame"], "TOPRIGHT")
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")

@@ -1376,9 +1376,10 @@ local function CreateFrameOnce()
         search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     end
 
-    -- Narrow enough to leave the ID box beside it, which is where that box has
-    -- always been.
-    search:SetSize(CONTENT_WIDTH - 148, 20)
+    -- Height only: the width comes from anchoring both ends, once the ID box
+    -- below has claimed its space. Sizing this by hand is what pushed that box
+    -- off the right edge of the frame.
+    search:SetHeight(20)
     -- Kept clear of the portrait, which overhangs the top-left corner.
     search:SetPoint("TOPLEFT", 72, -34)
     search:SetAutoFocus(false)
@@ -1462,15 +1463,14 @@ local function CreateFrameOnce()
     frame.revertButton = revert
 
     -- Manual ID entry, for auras that appear nowhere the picker can find them.
-    -- Beside the search box, where it has always been.
-    local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    addLabel:SetPoint("LEFT", search, "RIGHT", 12, 0)
-    addLabel:SetText("Add ID:")
-    frame.addLabel = addLabel
-
+    -- Beside the search box, where it has always been -- but anchored to the
+    -- frame's own right edge rather than chained off the search, so it cannot be
+    -- pushed outside the window by however wide the search happens to be. The
+    -- search then fills whatever is left between the two.
     local addBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    addBox:SetSize(60, 18)
-    addBox:SetPoint("LEFT", addLabel, "RIGHT", 10, 0)
+    addBox:SetSize(56, 18)
+    -- The template's art overhangs the box on both sides, hence the inset.
+    addBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -35)
     addBox:SetAutoFocus(false)
     addBox:SetNumeric(true)
     addBox:SetScript("OnEnterPressed", function(self)
@@ -1484,11 +1484,14 @@ local function CreateFrameOnce()
     end)
     frame.addBox = addBox
 
-    -- Centred between the profile dropdown and Revert, which is all the room
-    -- the strip has left.
-    frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.hint:SetPoint("BOTTOM", frame, "BOTTOM", 0, 10)
-    frame.hint:SetText("Drag icons to move.")
+    local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    addLabel:SetPoint("RIGHT", addBox, "LEFT", -6, 0)
+    addLabel:SetText("Add ID:")
+    frame.addLabel = addLabel
+
+    -- The search takes what is left between the portrait and the label, so
+    -- neither box can push the other out of the frame.
+    search:SetPoint("RIGHT", addLabel, "LEFT", -8, 0)
 
     return frame
 end
@@ -1566,7 +1569,6 @@ function SpellPicker:Refresh()
 
     if currentTab == "profiles" then
         HideOptions()
-        frame.hint:SetText("Each character remembers its own profile.")
         frame.content:SetHeight(math.max(ShowProfiles(frame.content), 350))
         return
     end
@@ -1574,13 +1576,11 @@ function SpellPicker:Refresh()
     HideProfiles()
 
     if currentTab == "options" then
-        frame.hint:SetText("Changes apply immediately.")
         frame.content:SetHeight(math.max(ShowOptions(frame.content), 350))
         return
     end
 
     HideOptions()
-    frame.hint:SetText("Drag icons to move.")
 
     local yOffset = 0
     for _, definition in ipairs(tab.sections) do
