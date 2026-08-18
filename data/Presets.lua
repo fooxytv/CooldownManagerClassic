@@ -132,6 +132,9 @@ function Presets:Apply(preset, overwrite)
                         -- aura (Moonfire, Flame Shock, Slice and Dice, …) by that
                         -- aura, out of the box.
                         trackDebuff = Const.IsAuraSpell(spellID) or nil,
+                        -- A Druid's cat/bear abilities arrive tagged, so the
+                        -- preset is form-aware without any hand tagging.
+                        forms = Const.DefaultFormsFor(spellID),
                     }
                 end
             end

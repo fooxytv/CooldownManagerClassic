@@ -191,9 +191,15 @@ function Widget:SetMouseClickEnabled(enabled) self.__mouseClick = enabled end
 function Widget:SetMouseMotionEnabled(enabled) self.__mouseMotion = enabled end
 function Widget:EnableMouse(enabled) self.__mouse = enabled end
 
+-- Every frame ever created, so a test can reach one the addon keeps to itself.
+-- Core's event frame is a file-local with no name, and the events it dispatches
+-- are the seam where two wiring bugs have already hidden.
+_G.__frames = {}
+
 _G.CreateFrame = function(kind, name, parent, template)
     record("CreateFrame")
     local frame = newWidget(kind, name, parent)
+    _G.__frames[#_G.__frames + 1] = frame
     if name then _G[name] = frame end
     -- Templates the addon leans on for named children.
     if template and template:find("OptionsSliderTemplate") and name then
@@ -395,6 +401,12 @@ local SPELLS = {
     [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
     -- A self-buff with no cooldown: its aura is the only thing to show.
     [5171] = { name = "Slice and Dice", icon = "Interface\\Icons\\Ability_Rogue_SliceDice" },
+    -- Druid abilities for the form tags: one cat-only, one bear-only, one caster
+    -- spell that must stay untagged, and one that belongs in every form.
+    [1082] = { name = "Claw", icon = "Interface\\Icons\\Ability_Druid_Rake" },
+    [6807] = { name = "Maul", icon = "Interface\\Icons\\Ability_Druid_Maul" },
+    [5176] = { name = "Wrath", icon = "Interface\\Icons\\Spell_Nature_AbolishMagic" },
+    [1126] = { name = "Mark of the Wild", icon = "Interface\\Icons\\Spell_Nature_Regeneration" },
 }
 
 _G.C_Spell = {

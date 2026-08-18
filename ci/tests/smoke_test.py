@@ -344,6 +344,82 @@ for _, icon in ipairs(formGroup.icons) do nonDruidIDs[#nonDruidIDs + 1] = icon.s
 table.sort(nonDruidIDs)
 R.formNonDruid = table.concat(nonDruidIDs, ",")
 
+-- Default form tags (#43): a Druid's cat/bear abilities arrive tagged, so
+-- shapeshifting swaps them with no hand tagging. Driven through Core's event
+-- handler rather than a hand-called Layout -- the wiring is the part that only
+-- ran in the client until now.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+
+local dispatch
+for _, candidate in ipairs(_G.__frames) do
+    if candidate:GetScript("OnEvent") then dispatch = candidate:GetScript("OnEvent") end
+end
+R.eventHandlerFound = dispatch ~= nil
+
+-- Put back afterwards: the export/import check below runs on the tagged list
+-- this section replaces.
+local formTestSpells = ns.DB:GetGroup("essential").spells
+
+R.defaultTagCat = ns.Constants.DefaultFormsFor(1082) and ns.Constants.DefaultFormsFor(1082).cat or false
+R.defaultTagBear = ns.Constants.DefaultFormsFor(6807) and ns.Constants.DefaultFormsFor(6807).bear or false
+-- Caster spells are deliberately left alone (SoD runes cast in more than one form).
+R.defaultTagCaster = ns.Constants.DefaultFormsFor(5176) == nil
+-- Each entry gets its own table, or tagging one ability would tag every other.
+R.defaultTagCopies = ns.Constants.DefaultFormsFor(1082) ~= ns.Constants.DefaultFormsFor(1082)
+
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 1082, name = "Claw", forms = ns.Constants.DefaultFormsFor(1082) },
+    { spellID = 6807, name = "Maul", forms = ns.Constants.DefaultFormsFor(6807) },
+    { spellID = 1126, name = "Mark of the Wild" },
+}
+local shiftGroup = ns.Group.Create("essential")
+shiftGroup.unlocked = false
+shiftGroup:Layout()
+
+local function TrackedAfterShift(powerToken)
+    _G.UnitPowerType = function() return 0, powerToken end
+    ns.Auras:ClearCache()
+    dispatch(nil, "UPDATE_SHAPESHIFT_FORM")
+    local ids = {}
+    for _, icon in ipairs(shiftGroup.icons) do ids[#ids + 1] = icon.spellID end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
+R.shiftToCat = TrackedAfterShift("ENERGY")
+R.shiftToBear = TrackedAfterShift("RAGE")
+R.shiftToCaster = TrackedAfterShift("MANA")
+
+-- The backfill tags a layout built before the defaults existed, once, and never
+-- touches an ability someone tagged by hand.
+local legacy = {
+    groups = {
+        essential = { spells = {
+            { spellID = 1082, name = "Claw" },
+            { spellID = 6807, name = "Maul", forms = { cat = true, bear = true } },
+            { spellID = 1126, name = "Mark of the Wild" },
+        } },
+    },
+}
+R.backfillRan = ns.DB:BackfillFormTags(legacy)
+R.backfillTagged = legacy.groups.essential.spells[1].forms
+    and legacy.groups.essential.spells[1].forms.cat or false
+R.backfillKeptManual = legacy.groups.essential.spells[2].forms.cat
+    and legacy.groups.essential.spells[2].forms.bear or false
+R.backfillLeftUntagged = legacy.groups.essential.spells[3].forms == nil
+R.backfillOnlyOnce = ns.DB:BackfillFormTags(legacy)
+
+-- A non-Druid is untouched, and is not stamped as done -- a Druid alt sharing
+-- the profile still gets the pass later.
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
+local rogueProfile = { groups = { essential = { spells = { { spellID = 1082, name = "Claw" } } } } }
+R.backfillSkipsNonDruid = ns.DB:BackfillFormTags(rogueProfile)
+R.backfillLeavesFlagClear = rogueProfile.formTagsApplied == nil
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+
+_G.UnitPowerType = function() return 0, "MANA" end
+ns.DB:GetGroup("essential").spells = formTestSpells
+
 -- Form tags round-trip through export/import.
 ns.DB:GetGroup("essential").spells[3].forms = { cat = true }
 local formExport = ns.Serialization:Export()
@@ -954,6 +1030,21 @@ def run(with_art):
     check("druid form moonkin shows moonkin + untagged", results["formMoonkin"], "1126,5176")
     check("non-druid ignores form tags", results["formNonDruid"], "1082,1126,5176,6807")
     check("form tags round-trip", results["formRoundTrip"], True)
+    check("core event handler reachable", results["eventHandlerFound"], True)
+    check("cat ability tagged by default", results["defaultTagCat"], True)
+    check("bear ability tagged by default", results["defaultTagBear"], True)
+    check("caster spell left untagged", results["defaultTagCaster"], True)
+    check("each entry gets its own tag table", results["defaultTagCopies"], True)
+    check("shapeshift event shows cat set", results["shiftToCat"], "1082,1126")
+    check("shapeshift event shows bear set", results["shiftToBear"], "1126,6807")
+    check("shapeshift event shows caster set", results["shiftToCaster"], "1126")
+    check("backfill runs for a druid", results["backfillRan"], True)
+    check("backfill tags an untagged ability", results["backfillTagged"], True)
+    check("backfill keeps hand-set tags", results["backfillKeptManual"], True)
+    check("backfill leaves unlisted spells alone", results["backfillLeftUntagged"], True)
+    check("backfill runs only once", results["backfillOnlyOnce"], False)
+    check("backfill skips a non-druid", results["backfillSkipsNonDruid"], False)
+    check("backfill leaves a non-druid unflagged", results["backfillLeavesFlagClear"], True)
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)

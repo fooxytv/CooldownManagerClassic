@@ -265,8 +265,44 @@ function DB:SelectProfileForCharacter()
     self.profile = root.profiles[profileName]
 
     self:NormalizeProfile(self.profile)
+    self:BackfillFormTags(self.profile)
 
     return self.profile
+end
+
+-- Gives a Druid's existing entries the form tags they would have been created
+-- with today (#43), so form-aware tracking starts working on a layout that was
+-- built before the defaults existed.
+--
+-- Called from here rather than NormalizeProfile because it needs the class and
+-- the spell names, and neither is reliable at ADDON_LOADED -- the same reason
+-- profile binding waits for PLAYER_LOGIN. A non-Druid leaves without stamping
+-- the flag, so a Druid sharing the profile is still backfilled later.
+function DB:BackfillFormTags(profile)
+    if not profile or profile.formTagsApplied then return false end
+
+    local _, class = UnitClass("player")
+    if class ~= "DRUID" then return false end
+
+    local tagged = 0
+    for _, group in pairs(profile.groups or {}) do
+        for _, entry in ipairs(group.spells or {}) do
+            -- Only entries with no tags at all: a hand-tagged ability, including
+            -- one deliberately tagged for every form, is left as it is.
+            if type(entry) == "table" and entry.forms == nil then
+                local forms = Const.DefaultFormsFor(entry.spellID)
+                if forms then
+                    entry.forms = forms
+                    tagged = tagged + 1
+                end
+            end
+        end
+    end
+
+    profile.formTagsApplied = true
+    self.formTagsBackfilled = tagged
+
+    return true
 end
 
 function DB:NormalizeProfile(profile)

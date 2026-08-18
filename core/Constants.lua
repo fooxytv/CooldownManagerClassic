@@ -232,6 +232,52 @@ for _, key in ipairs(Const.DRUID_FORMS) do
     Const.FORM_KEY_SET[key] = true
 end
 
+-- The tags a Druid ability starts with, so form-aware tracking works without
+-- anyone tagging anything by hand (#43). Matched by name, like the aura list, so
+-- it holds across ranks and flavours.
+--
+-- Only abilities that are form-locked everywhere we run. Caster spells are left
+-- alone even though Wrath and Starfire are caster/moonkin-only on Era: Season of
+-- Discovery runes break that rule -- Sunfire is castable in more than one form --
+-- and a wrong tag *hides* an ability, which is worse than showing it in a form
+-- where it cannot be cast.
+local CAT_ONLY = {
+    "Claw", "Rake", "Shred", "Rip", "Ferocious Bite", "Tiger's Fury",
+    "Pounce", "Ravage", "Cower", "Prowl", "Dash",
+}
+
+local BEAR_ONLY = {
+    "Maul", "Swipe", "Bash", "Demoralizing Roar", "Enrage",
+    "Frenzied Regeneration", "Growl", "Challenging Roar",
+}
+
+Const.DRUID_FORM_ABILITIES = {}
+for _, name in ipairs(CAT_ONLY) do
+    Const.DRUID_FORM_ABILITIES[name] = { cat = true }
+end
+for _, name in ipairs(BEAR_ONLY) do
+    Const.DRUID_FORM_ABILITIES[name] = { bear = true }
+end
+
+--- The form tags a newly tracked entry should carry, or nil for anything not on
+--- the list. A fresh table every call: the sets above are shared, and handing one
+--- out directly would alias every entry that uses it, so tagging one ability by
+--- hand would tag them all.
+function Const.DefaultFormsFor(spellID)
+    if not spellID then return nil end
+
+    local _, class = UnitClass("player")
+    if class ~= "DRUID" then return nil end
+
+    local name = ns.Compat and ns.Compat.GetSpellInfo and ns.Compat.GetSpellInfo(spellID)
+    local forms = name and Const.DRUID_FORM_ABILITIES[name]
+    if not forms then return nil end
+
+    local copy = {}
+    for key in pairs(forms) do copy[key] = true end
+    return copy
+end
+
 -- Order and labels for the per-ability form toggles shown to Druids.
 Const.FORM_TAG_OPTIONS = {
     { value = "cat",     label = "Cat" },

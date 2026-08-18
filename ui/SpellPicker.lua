@@ -269,6 +269,7 @@ local function DropInto(targetGroup, targetIndex)
             -- aura defaults to aura tracking. A moved entry keeps whatever flag
             -- it already had.
             trackDebuff = Const.IsAuraSpell(drag.spellID) or nil,
+            forms = Const.DefaultFormsFor(drag.spellID),
         }
 
     if targetGroup and working[targetGroup] then
@@ -416,6 +417,15 @@ local function ShowEntryMenu(button)
                 end
                 UIDropDownMenu_AddButton(info)
             end
+
+            -- Tags are ignored while a group is unlocked, so that every row can
+            -- be dragged (ui/Group.lua). Said here because testing the feature
+            -- from inside Edit Mode otherwise looks like it does nothing.
+            local note = UIDropDownMenu_CreateInfo()
+            note.text = "|cff888888(all forms show while unlocked)|r"
+            note.isTitle = true
+            note.notCheckable = true
+            UIDropDownMenu_AddButton(note)
         end
     end, "MENU")
 
@@ -480,6 +490,7 @@ local function CreateIconButton(parent)
                     -- An ability whose value is its aura defaults to aura
                     -- tracking when first added.
                     trackDebuff = Const.IsAuraSpell(self.spellID) or nil,
+                    forms = Const.DefaultFormsFor(self.spellID),
                 })
             end
         end
@@ -1275,6 +1286,7 @@ function SpellPicker:AddByID(spellID)
         -- it must not be re-pointed at another rank by name.
         rankIndependent = false,
         trackDebuff = Const.IsAuraSpell(spellID) or nil,
+        forms = Const.DefaultFormsFor(spellID),
     })
 
     CommitEdit()
