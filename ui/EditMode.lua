@@ -178,7 +178,27 @@ local function DropdownValues(labels)
     return values
 end
 
+-- Refills `values` in place with the directions the group's current orientation
+-- allows. In place because the dropdown's menu closes over the table it was
+-- registered with: rebuilding it as a new table would leave the menu showing the
+-- directions that were valid at login.
+local function FillDirectionValues(groupKey, values)
+    local orientation = GetOption(groupKey, "orientation", "Horizontal")
+    local allowed = Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal
+
+    wipe(values)
+    for _, direction in ipairs(allowed) do
+        values[#values + 1] = { text = direction }
+    end
+
+    return values
+end
+
 local function BuildSettings(groupKey)
+    -- Icon Direction's choices depend on the orientation, so its list is owned
+    -- here and refilled whenever that changes.
+    local directionValues = FillDirectionValues(groupKey, {})
+
     local settings = {
         {
             order = 1,
@@ -200,6 +220,7 @@ local function BuildSettings(groupKey)
                 if not stillValid then
                     SetOption(groupKey, "iconDirection", allowed[1])
                 end
+                FillDirectionValues(groupKey, directionValues)
             end,
         },
         {
@@ -218,9 +239,13 @@ local function BuildSettings(groupKey)
             name = "Icon Direction",
             kind = lem.SettingType.Dropdown,
             default = "Down",
+            -- `values`, not `optionfunc`: the Edit Mode dialog's dropdown builds
+            -- its menu from `values` (or a `generator`) alone and ignores
+            -- `optionfunc`, which only the settings-mode surfaces honour. With
+            -- neither, the control rendered as an empty box with no menu.
+            values = directionValues,
             optionfunc = function()
-                local orientation = GetOption(groupKey, "orientation", "Horizontal")
-                return DropdownValues(Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal)
+                return FillDirectionValues(groupKey, directionValues)
             end,
             get = function() return GetOption(groupKey, "iconDirection", "Down") end,
             set = function(_, value) SetOption(groupKey, "iconDirection", value) end,
@@ -634,6 +659,19 @@ function EditMode:RegisterWithLibEQOL()
 
             lem:AddFrameSettings(bar.frame, BuildBarSettings(key))
             lem:SetFrameResetVisible(bar.frame, true)
+
+            -- The styling options (borders, colours, textures, fonts) live in
+            -- BarPanel, which is normally opened by clicking a bar. LibEQOL owns
+            -- selection while it is driving Edit Mode, so that click never
+            -- reaches us and the dialog was the only surface -- with none of
+            -- those settings on it. This button is the way through, mirroring
+            -- the groups' Advanced Cooldown Settings.
+            lem:AddFrameSettingsButton(bar.frame, {
+                text = "Bar Style Settings",
+                click = function()
+                    if ns.BarPanel then ns.BarPanel:Show(key) end
+                end,
+            })
         end
     end
 

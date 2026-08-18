@@ -68,9 +68,18 @@ local backdropMethods = {
     SetBackdropBorderColor = function(self, r, g, b, a) self.__backdropBorder = { r, g, b, a } end,
 }
 
+-- PascalCase keys that are frames hung off a frame rather than methods. Without
+-- these the heuristic below hands back a function, and code that reasonably
+-- expects a table (`frame.Selection.system`) errors on something the real client
+-- would have left nil.
+local FIELD_KEYS = {
+    Selection = true,
+}
+
 setmetatable(Widget, {
     __index = function(_, key)
         if type(key) ~= "string" then return nil end
+        if FIELD_KEYS[key] then return nil end
 
         local backdrop = backdropMethods[key]
         if backdrop then
@@ -226,6 +235,53 @@ _G.ColorPickerFrame = colorPicker
 -- Frames only inherit BackdropTemplate where the mixin exists; Compat reads this
 -- to decide whether to pass the template to CreateFrame at all.
 _G.BackdropTemplateMixin = {}
+
+-- A stand-in for LibEQOL's Edit Mode. In game that library owns selection and
+-- the settings dialog, so everything registered through it -- which is most of
+-- what a player actually clicks -- used to run only in the client. Registrations
+-- are recorded here for the test to inspect.
+--
+-- LibStub answers for this one library; every other lookup stays nil, which is
+-- what the rest of the addon already expects under the stub.
+local editMode = {
+    SettingType = {
+        Checkbox = "Checkbox",
+        Dropdown = "Dropdown",
+        Slider = "Slider",
+    },
+    frames = {},
+    settings = {},
+    buttons = {},
+    callbacks = {},
+}
+
+function editMode:AddFrame(frame, callback, defaults)
+    self.frames[frame] = { callback = callback, defaults = defaults }
+    -- The library gives a registered frame its selection overlay, which the
+    -- addon then fills in a system name on.
+    frame.Selection = newWidget("Frame", nil, frame)
+end
+
+function editMode:AddFrameSettings(frame, settings)
+    self.settings[frame] = settings
+end
+
+function editMode:AddFrameSettingsButton(frame, data)
+    self.buttons[frame] = self.buttons[frame] or {}
+    table.insert(self.buttons[frame], data)
+end
+
+function editMode:SetFrameResetVisible() end
+
+function editMode:RegisterCallback(event, handler)
+    self.callbacks[event] = handler
+end
+
+_G.__editMode = editMode
+_G.LibStub = function(name)
+    if name == "LibEQOLEditMode-1.0" then return editMode end
+    return nil
+end
 
 _G.UIParent = newWidget("Frame", "UIParent")
 _G.GameTooltip = newWidget("GameTooltip", "GameTooltip")

@@ -683,6 +683,59 @@ ns.DB:GetBar("power").appearance.fontOutline = ""
 R.packRoundTrip = ("%.2f/%.2f/%.2f/%.2f"):format(
     ns.Constants.UnpackColor(ns.Constants.PackColor(0.25, 0.5, 0.75, 0.6), 0, 0, 0, 0))
 
+-- LibEQOL Edit Mode registration. In game this is the surface a player clicks --
+-- the library owns selection, so our own click-to-open panel never fires -- and
+-- it went untested until a dropdown shipped blank.
+R.libEQOLRegistered = ns.EditMode:Register() and true or false
+
+local lem = _G.__editMode
+
+-- Every dropdown must carry a `values` list. The dialog's dropdown builds its
+-- menu from `values` (or a `generator`) and ignores `optionfunc`, so a setting
+-- with only the latter renders as an empty box with no menu.
+local emptyDropdowns, dropdownCount = {}, 0
+for _, settings in pairs(lem.settings) do
+    for _, setting in ipairs(settings) do
+        if setting.kind == lem.SettingType.Dropdown then
+            dropdownCount = dropdownCount + 1
+            if type(setting.values) ~= "table" or #setting.values == 0 then
+                emptyDropdowns[#emptyDropdowns + 1] = setting.name
+            end
+        end
+    end
+end
+R.dropdownCount = dropdownCount
+R.emptyDropdowns = table.concat(emptyDropdowns, ",")
+
+-- Icon Direction's choices follow the orientation, and the dialog holds the very
+-- table registered at login -- so the setter has to refill it in place.
+local function FindSetting(frame, name)
+    for _, setting in ipairs(lem.settings[frame] or {}) do
+        if setting.name == name then return setting end
+    end
+end
+
+local essentialFrame = ns.groups.essential.frame
+local direction = FindSetting(essentialFrame, "Icon Direction")
+local orientation = FindSetting(essentialFrame, "Orientation")
+R.directionBefore = direction.values[1].text .. "," .. direction.values[2].text
+
+local sameTable = direction.values
+orientation.set(nil, "Vertical")
+R.directionAfter = direction.values[1].text .. "," .. direction.values[2].text
+R.directionSameTable = direction.values == sameTable
+R.directionValueFixed = ns.DB:GetGroup("essential").appearance.iconDirection
+orientation.set(nil, "Horizontal")
+
+-- Each bar carries a button through to the styling panel, which is otherwise
+-- unreachable while LibEQOL owns the click.
+local barButtons = lem.buttons[ns.bars.power.frame] or {}
+R.barButtonText = barButtons[1] and barButtons[1].text or "none"
+ns.BarPanel:Hide()
+if barButtons[1] then barButtons[1].click() end
+R.barButtonOpensPanel = _G.CDMCBarPanel:IsShown()
+ns.BarPanel:Hide()
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -897,6 +950,15 @@ def run(with_art):
     check("fill colour round-trips", results["rtFillColor"], "0.500,0.250,0.125,1.000")
     check("font outline round-trips", results["rtFontOutline"], "OUTLINE")
     check("packed colour round-trips", results["packRoundTrip"], "0.25/0.50/0.75/0.60")
+    check("LibEQOL registration succeeds", results["libEQOLRegistered"], True)
+    check("edit mode dropdowns registered", results["dropdownCount"] > 0, True)
+    check("no dropdown registered without values", results["emptyDropdowns"], "")
+    check("icon direction follows horizontal", results["directionBefore"], "Down,Up")
+    check("icon direction follows vertical", results["directionAfter"], "Right,Left")
+    check("icon direction list refilled in place", results["directionSameTable"], True)
+    check("stale icon direction corrected", results["directionValueFixed"], "Right")
+    check("bar carries a style button", results["barButtonText"], "Bar Style Settings")
+    check("bar style button opens the panel", results["barButtonOpensPanel"], True)
     check("atlas probe", results["artMask"], with_art)
 
 
