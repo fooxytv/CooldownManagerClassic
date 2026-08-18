@@ -223,6 +223,9 @@ end
 local function BeginDrag(button)
     if not button.spellID then return end
 
+    -- A menu left open from a right-click would sit over the drop targets.
+    if SpellPicker.CloseEntryMenu then SpellPicker.CloseEntryMenu() end
+
     drag = {
         spellID = button.spellID,
         fromGroup = button.groupKey,
@@ -372,10 +375,33 @@ end
 -- Right-click menu on a tracked icon (Druids only): a checkable toggle per form.
 -- Checking every form -- the default -- is the same as untagged.
 local formMenu
+
+-- The menu is a free-floating frame owned by nothing, so it outlives whatever
+-- opened it: closing the picker, switching tab or dragging an icon otherwise
+-- left it hanging over the game world.
+local function CloseEntryMenu()
+    if _G.CloseDropDownMenus then CloseDropDownMenus() end
+end
+SpellPicker.CloseEntryMenu = CloseEntryMenu
+
+-- Re-reads the check marks from the entry while the menu stays open. Toggling a
+-- form can change every other tick -- tagging the last untagged form is the same
+-- as untagging the ability -- and the client only repaints the one clicked.
+local function RefreshEntryMenu()
+    if formMenu and _G.UIDropDownMenu_Refresh then
+        UIDropDownMenu_Refresh(formMenu, false, 1)
+    end
+end
+
 local function ShowEntryMenu(button)
     if not formMenu then
         formMenu = CreateFrame("Frame", "CDMCFormMenu", UIParent, "UIDropDownMenuTemplate")
     end
+
+    -- Closed first: ToggleDropDownMenu on the same frame would otherwise treat a
+    -- right-click on a *different* icon as "close the one already open", so the
+    -- second icon's menu never appeared.
+    CloseEntryMenu()
 
     UIDropDownMenu_Initialize(formMenu, function()
         local entry = button.entry
@@ -387,11 +413,13 @@ local function ShowEntryMenu(button)
         local dot = UIDropDownMenu_CreateInfo()
         dot.text = "Track its aura (buff or DoT)"
         dot.isNotRadio = true
-        dot.keepShownOnClick = true
+        -- Not kept shown: this is a single decision, and a menu that stays open
+        -- after it reads as one that failed to take the click.
         dot.checked = entry.trackDebuff and true or false
         dot.func = function()
             entry.trackDebuff = not entry.trackDebuff or nil
             CommitEdit()
+            CloseEntryMenu()
             SpellPicker:Refresh()
         end
         UIDropDownMenu_AddButton(dot)
@@ -410,10 +438,15 @@ local function ShowEntryMenu(button)
                 info.isNotRadio = true
                 info.keepShownOnClick = true
                 info.checked = Const.FormAllows(entry.forms, opt.value)
+                -- Kept shown, unlike the aura toggle: forms are picked in
+                -- combination, and reopening the menu per tick is worse. The
+                -- other ticks are repainted by hand afterwards.
+                info.keepShownOnClick = true
                 info.func = function()
                     ToggleEntryForm(entry, opt.value)
                     CommitEdit()
                     SpellPicker:Refresh()
+                    RefreshEntryMenu()
                 end
                 UIDropDownMenu_AddButton(info)
             end
@@ -1352,6 +1385,9 @@ end
 
 function SpellPicker:Show(tabKey)
     CreateFrameOnce()
+    -- A menu opened on the previous tab's icons has no business surviving
+    -- into this one.
+    CloseEntryMenu()
     if tabKey and TABS[tabKey] then currentTab = tabKey end
     LoadWorking()
     TakeOpenSnapshot()
@@ -1360,6 +1396,7 @@ function SpellPicker:Show(tabKey)
 end
 
 function SpellPicker:Hide()
+    CloseEntryMenu()
     if frame then frame:Hide() end
 end
 

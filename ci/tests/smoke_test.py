@@ -484,6 +484,59 @@ hlCheck:SetChecked(false)
 hlCheck:GetScript("OnClick")(hlCheck)
 R.highlightCheckboxOff = ns.DB:AreHighlightsEnabled()
 
+-- The right-click menu on a tracked icon. It is a free-floating frame owned by
+-- nothing, so what it does on a click, and whether anything ever closes it, is
+-- worth pinning down.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 1082, name = "Claw", rankIndependent = true },
+}
+ns.SpellPicker:Show("cooldowns")
+
+local menuIcon
+for _, section in ipairs({ _G.CDMCSettingsFrame }) do
+    -- The tracked icon is the first button carrying a group key.
+    for _, candidate in ipairs(_G.__frames) do
+        if candidate.cdmcIsIcon and candidate.groupKey == "essential" and candidate.spellID == 1082 then
+            menuIcon = candidate
+        end
+    end
+end
+R.menuIconFound = menuIcon ~= nil
+
+menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
+R.menuOpens = _G.__dropdownOpen
+
+local items = _G.__buildDropdown(_G.CDMCFormMenu)
+local auraItem, catItem
+for _, item in ipairs(items) do
+    if item.text and item.text:find("Track its aura", 1, true) then auraItem = item end
+    if item.text == "Cat" then catItem = item end
+end
+R.menuHasAura = auraItem ~= nil
+R.menuHasForms = catItem ~= nil
+
+-- The aura toggle is a single decision: it applies and the menu closes.
+auraItem.func()
+R.menuAuraApplied = ns.DB:GetGroup("essential").spells[1].trackDebuff == true
+R.menuClosesAfterAura = _G.__dropdownOpen
+
+-- Form ticks are picked in combination, so that one stays open -- and repaints,
+-- since toggling one form changes what the others show.
+menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
+_G.__buildDropdown(_G.CDMCFormMenu)
+local before = _G.__dropdownRefreshed
+catItem.func()
+R.menuStaysOpenForForms = _G.__dropdownOpen
+R.menuRepaintsForms = _G.__dropdownRefreshed > before
+
+-- Nothing else closes it, so the picker has to: hiding the window must not
+-- leave a menu floating over the game world.
+ns.SpellPicker:Hide()
+R.menuClosedWithPicker = _G.__dropdownOpen
+ns.SpellPicker:Show("cooldowns")
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
+
 -- Every tab must render. A panel tab builds its own widgets instead of spell
 -- sections, so a mistake there throws rather than looking merely empty.
 ns.SpellPicker:Show("profiles")
@@ -1059,6 +1112,15 @@ def run(with_art):
     check("edit panel opens", results["panelShown"], True)
     check("highlight checkbox enables", results["highlightCheckboxOn"], True)
     check("highlight checkbox disables", results["highlightCheckboxOff"], False)
+    check("tracked icon found for the menu", results["menuIconFound"], True)
+    check("right-click opens the entry menu", results["menuOpens"], True)
+    check("menu offers aura tracking", results["menuHasAura"], True)
+    check("menu offers form tags for a druid", results["menuHasForms"], True)
+    check("aura toggle applies", results["menuAuraApplied"], True)
+    check("menu closes after the aura toggle", results["menuClosesAfterAura"], False)
+    check("menu stays open for form ticks", results["menuStaysOpenForForms"], True)
+    check("form ticks repaint the menu", results["menuRepaintsForms"], True)
+    check("closing the picker closes the menu", results["menuClosedWithPicker"], False)
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")

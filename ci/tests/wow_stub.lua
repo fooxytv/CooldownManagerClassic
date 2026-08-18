@@ -345,12 +345,31 @@ _G.IsSpellKnown = function() return true end
 _G.IsPassiveSpell = function() return false end
 _G.GetNumSpellTabs = function() return 0 end
 _G.GetSpellTabInfo = function() return nil end
-_G.CloseDropDownMenus = function() end
+-- Dropdown menus, with enough state to test one: the initialiser is kept so a
+-- test can build the menu's contents and click an item, and open/closed is
+-- tracked because "the menu stays up after you pick something" is a bug that is
+-- invisible to a no-op stub.
+_G.__dropdownOpen = false
+_G.__dropdownButtons = {}
+_G.__dropdownRefreshed = 0
+
+_G.CloseDropDownMenus = function() _G.__dropdownOpen = false end
+_G.ToggleDropDownMenu = function() _G.__dropdownOpen = true end
 _G.UIDropDownMenu_SetWidth = function() end
-_G.UIDropDownMenu_Initialize = function() end
+_G.UIDropDownMenu_Initialize = function(frame, initializer)
+    if frame then frame.__initializer = initializer end
+end
 _G.UIDropDownMenu_CreateInfo = function() return {} end
-_G.UIDropDownMenu_AddButton = function() end
+_G.UIDropDownMenu_AddButton = function(info) table.insert(_G.__dropdownButtons, info) end
 _G.UIDropDownMenu_SetText = function() end
+_G.UIDropDownMenu_Refresh = function() _G.__dropdownRefreshed = _G.__dropdownRefreshed + 1 end
+
+-- Runs a menu's initialiser, as opening it would, and hands back the items.
+_G.__buildDropdown = function(frame)
+    _G.__dropdownButtons = {}
+    if frame and frame.__initializer then frame.__initializer() end
+    return _G.__dropdownButtons
+end
 _G.StaticPopup_Show = function() end
 _G.StaticPopupDialogs = {}
 _G.PowerBarColor = {}
