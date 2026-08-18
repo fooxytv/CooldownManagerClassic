@@ -391,6 +391,22 @@ ns.SpellPicker:Show("cooldowns")
 R.mediaFontFallback = ns.Media.Fetch("font", "", "FALLBACK.ttf")
 R.mediaBarFallback = ns.Media.Fetch("statusbar", "Unregistered", "FALLBACK.tga")
 
+-- The built-in media we register with LibSharedMedia: every path must sit under
+-- Interface\, since LSM silently refuses anything else and the picker would then
+-- offer a name that fetches nothing. (The library itself is absent here, so this
+-- checks the table rather than the registration.)
+local badMedia = 0
+local mediaCount = 0
+for _, entries in pairs(ns.Media.BUILTIN) do
+    for _, path in pairs(entries) do
+        mediaCount = mediaCount + 1
+        if not path:lower():find("^interface") then badMedia = badMedia + 1 end
+    end
+end
+R.builtinMediaBadPaths = badMedia
+R.builtinMediaRegistered = mediaCount > 0
+R.builtinMediaWithoutLSM = ns.Media.RegisterBuiltins()
+
 -- A bar with a chosen texture still lays out (falls back, no error).
 ns.DB:GetBar("power").appearance.barTexture = "Some LSM Bar"
 ns.bars.power:Layout()
@@ -800,6 +816,9 @@ def run(with_art):
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")
+    check("built-in media paths are under Interface", results["builtinMediaBadPaths"], 0)
+    check("built-in media is offered", results["builtinMediaRegistered"], True)
+    check("built-in media skipped without LSM", results["builtinMediaWithoutLSM"], False)
     check("media bar still lays out", results["mediaBarLaidOut"], True)
     check("media font still configures", results["mediaFontLaidOut"], True)
     check("keybind mapped from bar", results["keybindMapped"], "s2")
