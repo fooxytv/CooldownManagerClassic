@@ -736,6 +736,13 @@ if barButtons[1] then barButtons[1].click() end
 R.barButtonOpensPanel = _G.CDMCBarPanel:IsShown()
 ns.BarPanel:Hide()
 
+-- The UI probe walks the client for templates and libraries; under the stub
+-- everything answers yes, so this only proves it runs without erroring -- which
+-- is the point, since it is what a player is asked to run when something looks
+-- wrong.
+ns.Core:PrintUIProbe()
+R.uiProbeRan = true
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -950,6 +957,7 @@ def run(with_art):
     check("fill colour round-trips", results["rtFillColor"], "0.500,0.250,0.125,1.000")
     check("font outline round-trips", results["rtFontOutline"], "OUTLINE")
     check("packed colour round-trips", results["packRoundTrip"], "0.25/0.50/0.75/0.60")
+    check("ui probe runs", results["uiProbeRan"], True)
     check("LibEQOL registration succeeds", results["libEQOLRegistered"], True)
     check("edit mode dropdowns registered", results["dropdownCount"] > 0, True)
     check("no dropdown registered without values", results["emptyDropdowns"], "")

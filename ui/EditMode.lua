@@ -690,8 +690,10 @@ function EditMode:Register()
         end
 
         -- Fall through to the basic path rather than leaving the groups with no
-        -- way to be moved at all.
+        -- way to be moved at all. The error is kept for /cdmc ui, since the
+        -- chat line scrolls away long before anyone goes looking.
         ns.Print("|cffffcc00Edit Mode integration failed, using the basic handles:|r " .. tostring(err))
+        self.registrationError = err
         lem = nil
         self.usingLibEQOL = false
     end

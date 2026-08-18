@@ -22,6 +22,8 @@ globals = {
     "C_Texture",
     "C_EventUtils",
     "C_Item",
+    "C_AddOns",
+    "GetAddOnMetadata",
     "Enum",
     "EventRegistry",
     "EditModeManagerFrame",
