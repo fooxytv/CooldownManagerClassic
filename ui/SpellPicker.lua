@@ -29,7 +29,7 @@ local COLLAPSE_TEXTURES = {
 -- spell from whichever group it was in.
 local TABS = {
     cooldowns = {
-        title = "Advanced Cooldown Settings",
+        title = "Cooldown Settings",
         sections = {
             { key = "essential",    label = "Essential Cooldowns" },
             { key = "utility",      label = "Utility Cooldowns" },
@@ -38,7 +38,7 @@ local TABS = {
         },
     },
     buffs = {
-        title = "Advanced Buff Settings",
+        title = "Buff Settings",
         sections = {
             { key = "buffs", label = "Tracked Buffs" },
             { key = nil,     label = "Not Displayed" },
@@ -1072,7 +1072,13 @@ local function EnsureProfileWidgets(parent)
         end
     end, "Deletes the selected profile. The profile in use and the Default profile cannot be deleted.")
 
-    y = y - 2 * (BUTTON_H + 6) - 8
+    -- Sharing lives here rather than on the bottom strip: it belongs with the
+    -- other profile actions, and the strip is now the profile in use and Revert.
+    profileWidgets.shareButton = AddButton("Share Profile", 0, 2, function()
+        ns.ProfileShare:ShowExport()
+    end, "Exports the profile in use as a string to paste to someone else, and imports one they send you.")
+
+    y = y - 3 * (BUTTON_H + 6) - 8
 
     profileWidgets.status = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     profileWidgets.status:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
@@ -1130,6 +1136,7 @@ local function ShowProfiles(parent)
     widgets.createButton:Show()
     widgets.useButton:Show()
     widgets.deleteButton:Show()
+    widgets.shareButton:Show()
 
     -- Both are rejected by the DB anyway; disabling says why before the click.
     widgets.deleteButton:SetEnabled(selectedProfile ~= nil
@@ -1151,6 +1158,7 @@ local function HideProfiles()
     profileWidgets.createButton:Hide()
     profileWidgets.useButton:Hide()
     profileWidgets.deleteButton:Hide()
+    profileWidgets.shareButton:Hide()
 end
 
 local function ShowOptions(parent)
@@ -1214,17 +1222,32 @@ local function SetDialogTitle(dialog, text)
     if titleText then titleText:SetText(text) end
 end
 
-local function SetDialogPortrait(dialog, texture)
+-- `coords` selects a region of an atlas, for art that is already round -- the
+-- class circles. That path deliberately skips the circle mask: masking a
+-- texture that carries a TexCoord is exactly what breaks below, and the class
+-- art needs no mask, being a circle on transparency already.
+local function SetDialogPortrait(dialog, texture, coords)
     local portrait = (dialog.PortraitContainer and dialog.PortraitContainer.portrait)
         or dialog.portrait
         or _G["CDMCSettingsFramePortrait"]
 
     if not portrait then return end
 
-    -- Never SetTexCoord here: this texture is masked by the template's
+    portrait:SetTexture(texture)
+
+    if coords then
+        if portrait.SetTexCoord then
+            portrait:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        end
+        return
+    end
+
+    -- Reset, in case the portrait was showing a cropped class circle before.
+    if portrait.SetTexCoord then portrait:SetTexCoord(0, 1, 0, 1) end
+
+    -- Never SetTexCoord on this path: the texture is masked by the template's
     -- CircleMask, and a non-default TexCoord on a masked texture breaks the
     -- masking. (SetPortraitToTexture does not exist on Classic at all.)
-    portrait:SetTexture(texture)
 
     -- SetTexture drops the texture's mask associations, so the circle mask has
     -- to be attached again afterwards or the icon renders as a bare square
@@ -1235,48 +1258,19 @@ local function SetDialogPortrait(dialog, texture)
     end
 end
 
--- The cog beside the search box. Holds what the restyle displaced: manual ID
--- entry, which had a labelled box in the most prominent spot on the frame for
--- something used once in a while, and profile sharing, which had a permanent
--- button on the bottom bar.
-local cogMenu
-local function ShowCogMenu(anchor)
-    if not cogMenu then
-        cogMenu = CreateFrame("Frame", "CDMCPickerCogMenu", UIParent, "UIDropDownMenuTemplate")
+-- The portrait follows the character's class rather than showing a fixed clock.
+-- CLASS_ICON_TCOORDS is the long-standing mapping into the class-circle sheet;
+-- without it, or on a class it does not know, the addon's own icon stands.
+local function ApplyClassPortrait(dialog)
+    local _, class = UnitClass("player")
+    local coords = class and _G.CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
+
+    if coords then
+        SetDialogPortrait(dialog, "Interface\\TargetingFrame\\UI-Classes-Circles", coords)
+    else
+        SetDialogPortrait(dialog, "Interface\\Icons\\INV_Misc_PocketWatch_01")
     end
-
-    CloseEntryMenu()
-
-    UIDropDownMenu_Initialize(cogMenu, function()
-        local addRow = frame and frame.addRow
-
-        local add = UIDropDownMenu_CreateInfo()
-        add.text = "Add spell by ID"
-        add.isNotRadio = true
-        add.checked = addRow ~= nil and addRow:IsShown()
-        add.func = function()
-            if addRow then
-                local showing = not addRow:IsShown()
-                addRow:SetShown(showing)
-                if showing and frame.addBox then frame.addBox:SetFocus() end
-            end
-            CloseDropDownMenus()
-        end
-        UIDropDownMenu_AddButton(add)
-
-        local share = UIDropDownMenu_CreateInfo()
-        share.text = "Share profile"
-        share.notCheckable = true
-        share.func = function()
-            CloseDropDownMenus()
-            ns.ProfileShare:ShowExport()
-        end
-        UIDropDownMenu_AddButton(share)
-    end, "MENU")
-
-    ToggleDropDownMenu(1, nil, cogMenu, anchor, 0, 0)
 end
-SpellPicker.ShowCogMenu = ShowCogMenu
 
 local function CreateFrameOnce()
     if frame then return frame end
@@ -1293,7 +1287,7 @@ local function CreateFrameOnce()
     frame:Hide()
     tinsert(UISpecialFrames, "CDMCSettingsFrame")
 
-    SetDialogPortrait(frame, "Interface\\Icons\\INV_Misc_PocketWatch_01")
+    ApplyClassPortrait(frame)
 
     -- Push the inset down to leave room for the tab row and the search box,
     -- which sit above it rather than inside the scrolling area.
@@ -1382,7 +1376,9 @@ local function CreateFrameOnce()
         search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     end
 
-    search:SetSize(CONTENT_WIDTH - 40, 20)
+    -- Narrow enough to leave the ID box beside it, which is where that box has
+    -- always been.
+    search:SetSize(CONTENT_WIDTH - 148, 20)
     -- Kept clear of the portrait, which overhangs the top-left corner.
     search:SetPoint("TOPLEFT", 72, -34)
     search:SetAutoFocus(false)
@@ -1398,22 +1394,6 @@ local function CreateFrameOnce()
     end)
     frame.search = search
 
-    -- The cog beside the search, holding what used to sit on the frame itself:
-    -- manual ID entry and profile sharing. Both are occasional, and both were
-    -- taking prime space at the top and bottom of the window.
-    local cog = CreateFrame("Button", nil, frame)
-    cog:SetSize(20, 20)
-    cog:SetPoint("LEFT", search, "RIGHT", 6, 0)
-    cog:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
-    cog:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-    cog:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("More")
-        GameTooltip:Show()
-    end)
-    cog:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    cog:SetScript("OnClick", function(self) ShowCogMenu(self) end)
-    frame.cog = cog
 
     local anchor = frame.Inset or frame
     local scroll = CreateFrame("ScrollFrame", "CDMCSettingsScroll", frame, "UIPanelScrollFrameTemplate")
@@ -1430,8 +1410,30 @@ local function CreateFrameOnce()
     -- Retail's frame has it. Done is gone -- edits commit as they happen, so it
     -- only ever closed the window, which the frame's own close button does.
     local profileDropdown = CreateFrame("Frame", "CDMCPickerProfile", frame, "UIDropDownMenuTemplate")
-    profileDropdown:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", -4, 0)
-    UIDropDownMenu_SetWidth(profileDropdown, 120)
+    profileDropdown:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", -6, 1)
+    UIDropDownMenu_SetWidth(profileDropdown, 118)
+
+    -- UIDropDownMenuTemplate carries heavy gold-bevel art that reads as a widget
+    -- dropped on the frame rather than part of the bottom strip. Its three
+    -- border pieces are hidden and a flat plate drawn in their place, keeping
+    -- the arrow button and the label the template already positions.
+    for _, piece in ipairs({ "Left", "Middle", "Right" }) do
+        local art = _G["CDMCPickerProfile" .. piece]
+        if art then art:Hide() end
+    end
+
+    local plateEdge = profileDropdown:CreateTexture(nil, "BACKGROUND")
+    plateEdge:SetPoint("TOPLEFT", 15, -5)
+    plateEdge:SetPoint("BOTTOMRIGHT", -13, 9)
+    plateEdge:SetColorTexture(0.35, 0.33, 0.28, 0.9)
+
+    local plate = profileDropdown:CreateTexture(nil, "BORDER")
+    plate:SetPoint("TOPLEFT", plateEdge, "TOPLEFT", 1, -1)
+    plate:SetPoint("BOTTOMRIGHT", plateEdge, "BOTTOMRIGHT", -1, 1)
+    plate:SetColorTexture(0.09, 0.09, 0.11, 0.95)
+
+    local profileText = _G["CDMCPickerProfileText"]
+    if profileText then profileText:SetTextColor(1, 0.82, 0) end
     UIDropDownMenu_Initialize(profileDropdown, function()
         for _, name in ipairs(ns.DB:ListProfiles()) do
             local info = UIDropDownMenu_CreateInfo()
@@ -1460,33 +1462,25 @@ local function CreateFrameOnce()
     frame.revertButton = revert
 
     -- Manual ID entry, for auras that appear nowhere the picker can find them.
-    -- Hidden until asked for from the cog: it is a rare thing to need, and it
-    -- was taking the space beside the search box.
-    local addRow = CreateFrame("Frame", nil, frame)
-    addRow:SetSize(CONTENT_WIDTH, 20)
-    addRow:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -4)
-    addRow:Hide()
-    frame.addRow = addRow
-
-    local addLabel = addRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    addLabel:SetPoint("LEFT", 2, 0)
+    -- Beside the search box, where it has always been.
+    local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    addLabel:SetPoint("LEFT", search, "RIGHT", 12, 0)
     addLabel:SetText("Add ID:")
+    frame.addLabel = addLabel
 
-    local addBox = CreateFrame("EditBox", nil, addRow, "InputBoxTemplate")
-    addBox:SetSize(80, 18)
-    addBox:SetPoint("LEFT", addLabel, "RIGHT", 12, 0)
+    local addBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    addBox:SetSize(60, 18)
+    addBox:SetPoint("LEFT", addLabel, "RIGHT", 10, 0)
     addBox:SetAutoFocus(false)
     addBox:SetNumeric(true)
     addBox:SetScript("OnEnterPressed", function(self)
         SpellPicker:AddByID(tonumber(self:GetText()))
         self:SetText("")
         self:ClearFocus()
-        addRow:Hide()
     end)
     addBox:SetScript("OnEscapePressed", function(self)
         self:SetText("")
         self:ClearFocus()
-        addRow:Hide()
     end)
     frame.addBox = addBox
 
@@ -1559,14 +1553,14 @@ function SpellPicker:Refresh()
 
     ReleaseSections()
 
-    -- Search, the cog and Revert only mean anything on the spell tabs. The
+    -- Search, the ID box and Revert only mean anything on the spell tabs. The
     -- profile dropdown is shown throughout: it says which profile everything on
     -- screen belongs to, which matters most on the Profiles tab.
     local isPanel = PANEL_TABS[currentTab] or false
     frame.search:SetShown(not isPanel)
-    frame.cog:SetShown(not isPanel)
+    frame.addLabel:SetShown(not isPanel)
+    frame.addBox:SetShown(not isPanel)
     frame.revertButton:SetShown(not isPanel)
-    if isPanel then frame.addRow:Hide() end
 
     UIDropDownMenu_SetText(frame.profileDropdown, ns.DB:GetCurrentProfileName() or "Default")
 
@@ -1599,6 +1593,10 @@ end
 
 function SpellPicker:Show(tabKey)
     CreateFrameOnce()
+    -- Re-applied on every open rather than only at build time: the frame is
+    -- built lazily, and whether that happened before the class was known is not
+    -- something to depend on.
+    ApplyClassPortrait(frame)
     -- A menu opened on the previous tab's icons has no business surviving
     -- into this one.
     CloseEntryMenu()

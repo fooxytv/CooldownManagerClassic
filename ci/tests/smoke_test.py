@@ -585,25 +585,28 @@ local iconButton = iconSection.buttons[1]
 R.gridSectionHasEntries = iconButton ~= nil
 R.gridHasNoPlate = iconButton ~= nil and not iconButton.plate:IsShown()
 
--- The cog carries what the restyle displaced, and the ID box is hidden until
--- asked for.
-R.addRowHiddenByDefault = pickerFrame.addRow:IsShown()
-ns.SpellPicker.ShowCogMenu(pickerFrame.cog)
-local cogItems = _G.__buildDropdown(_G.CDMCPickerCogMenu)
-local addItem, shareItem
-for _, item in ipairs(cogItems) do
-    if item.text == "Add spell by ID" then addItem = item end
-    if item.text == "Share profile" then shareItem = item end
-end
-R.cogHasAddID = addItem ~= nil
-R.cogHasShare = shareItem ~= nil
-addItem.func()
-R.addRowShownFromCog = pickerFrame.addRow:IsShown()
-addItem.func()
-R.addRowTogglesOff = pickerFrame.addRow:IsShown()
+-- The ID box sits beside the search on the spell tabs, and neither belongs on a
+-- panel tab.
+R.addBoxShownOnSpellTab = pickerFrame.addBox:IsShown()
+R.titleOnCooldowns = pickerFrame.__title
+ns.SpellPicker:Show("profiles")
+R.addBoxHiddenOnPanelTab = pickerFrame.addBox:IsShown()
+ns.SpellPicker:Show("cooldowns")
 
 -- The bottom strip names the profile everything on screen belongs to.
 R.profileDropdownBuilt = pickerFrame.profileDropdown ~= nil
+
+-- The portrait follows the class rather than showing a fixed clock.
+_G.CLASS_ICON_TCOORDS = { ROGUE = { 0.5, 0.75, 0, 0.25 } }
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
+ns.SpellPicker:Show("cooldowns")
+R.portraitTexture = pickerFrame.PortraitContainer.portrait:GetTexture()
+
+-- A class the mapping does not know keeps the addon's own icon.
+_G.UnitClass = function() return "Tinker", "TINKER", 99 end
+ns.SpellPicker:Show("cooldowns")
+R.portraitFallback = pickerFrame.PortraitContainer.portrait:GetTexture()
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 
 -- Every tab must render. A panel tab builds its own widgets instead of spell
 -- sections, so a mistake there throws rather than looking merely empty.
@@ -1201,11 +1204,13 @@ def run(with_art):
     check("bar preview is named", results["barPreviewName"], "Maelstrom Weapon")
     check("grid section has an entry to compare", results["gridSectionHasEntries"], True)
     check("grid sections have no bar plate", results["gridHasNoPlate"], True)
-    check("ID entry hidden by default", results["addRowHiddenByDefault"], False)
-    check("cog offers add-by-ID", results["cogHasAddID"], True)
-    check("cog offers share profile", results["cogHasShare"], True)
-    check("cog reveals the ID entry", results["addRowShownFromCog"], True)
-    check("cog toggles the ID entry off", results["addRowTogglesOff"], False)
+    check("ID box sits on the spell tabs", results["addBoxShownOnSpellTab"], True)
+    check("ID box hidden on panel tabs", results["addBoxHiddenOnPanelTab"], False)
+    check("title reads Cooldown Settings", results["titleOnCooldowns"], "Cooldown Settings")
+    check("portrait uses the class art", results["portraitTexture"],
+          "Interface\\TargetingFrame\\UI-Classes-Circles")
+    check("unknown class falls back to the addon icon", results["portraitFallback"],
+          "Interface\\Icons\\INV_Misc_PocketWatch_01")
     check("profile dropdown built", results["profileDropdownBuilt"], True)
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")

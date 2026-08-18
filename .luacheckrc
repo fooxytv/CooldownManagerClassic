@@ -80,6 +80,7 @@ globals = {
     "GameTooltip",
     "TooltipDataProcessor",
     "PowerBarColor",
+    "CLASS_ICON_TCOORDS",
     "GetMouseFoci",
     "GetMouseFocus",
     "LibStub",
