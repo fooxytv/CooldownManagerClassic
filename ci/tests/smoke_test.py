@@ -223,6 +223,34 @@ R.dotBuffUnflagged = ns.Auras:GetTrackedState(8921, false).active and true or fa
 -- Icon path: the DoT drives the icon countdown for a flagged spell.
 R.dotIconRemaining = math.floor(ns.Cooldowns:GetIconState(8921, false, true).remaining + 0.5)
 
+-- The same flag follows an ability whose aura lands on the *player* with no
+-- cooldown behind it (Slice and Dice). Reading only the target debuff left these
+-- blank in every section but the cooldown bars.
+_G.__aura = { spellId = 5171, name = "Slice and Dice", icon = "x",
+              applications = 0, duration = 21, expirationTime = GetTime() + 21, timeMod = 1 }
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+
+R.selfBuffIcon = math.floor(ns.Cooldowns:GetIconState(5171, false, true).remaining + 0.5)
+R.selfBuffTracked = math.floor(ns.Auras:GetTrackedState(5171, true).remaining + 0.5)
+R.selfBuffBar = ns.Cooldowns:GetBarState(5171, true).phase
+-- Unflagged, an icon still shows the cooldown alone -- nothing else changed.
+R.selfBuffUnflaggedIcon = ns.Cooldowns:GetIconState(5171, false, false).remaining
+-- And it is one of the abilities the picker flags for you.
+R.selfBuffAutoFlagged = ns.Constants.IsAuraSpell(5171) and true or false
+
+-- A flagged ability with neither aura up reads as inactive rather than erroring.
+_G.__aura = { spellId = 0, name = "None", duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+R.selfBuffGone = ns.Auras:GetTrackedState(5171, true).active and true or false
+
+_G.__aura = { spellId = 187880, name = "Maelstrom Weapon", applications = 5,
+              duration = 30, expirationTime = GetTime() + 12, timeMod = 1 }
+_G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "player",
+                    duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+
 -- A debuff cast by someone else on the same target is ignored.
 _G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "party1",
                     duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
@@ -786,6 +814,12 @@ def run(with_art):
     check("dot flag surfaces in tracked buffs", results["dotBuffActive"], True)
     check("unflagged buff ignores target dot", results["dotBuffUnflagged"], False)
     check("dot flag drives icon countdown", results["dotIconRemaining"], 9)
+    check("self-buff drives the icon countdown", results["selfBuffIcon"], 21)
+    check("self-buff drives tracked buffs", results["selfBuffTracked"], 21)
+    check("self-buff drives the cooldown bar", results["selfBuffBar"], "active")
+    check("unflagged self-buff still cooldown-only", results["selfBuffUnflaggedIcon"], 0)
+    check("self-buff auto-flags for aura tracking", results["selfBuffAutoFlagged"], True)
+    check("flagged ability with no aura is inactive", results["selfBuffGone"], False)
     check("target dot ignores others' casts", results["dotIgnoresOthers"], "ready")
     check("target dot falls back to ready with no target", results["dotNoTarget"], "ready")
     check("flame shock icon shows dot not cd", results["flameShockRemaining"], 15)

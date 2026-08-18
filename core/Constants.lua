@@ -260,13 +260,17 @@ function Const.FormAllows(forms, formKey)
     return forms[formKey] == true
 end
 
--- Abilities whose value is the DoT they leave on the target rather than a
--- cooldown (Moonfire, Sunfire, Flame Shock, …). An entry may set
--- `trackDebuff` to be tracked by that target debuff in any section; the class
--- packs set it automatically for these, and the spell picker defaults the toggle
--- on when one is added. Matched by name so it holds across ranks and flavours.
--- Not exhaustive -- extend per class pack.
-Const.DOT_SPELL_NAMES = {
+-- Abilities whose value is the aura they leave rather than a cooldown: a DoT on
+-- the target (Moonfire, Flame Shock, …) or a buff on the player with no cooldown
+-- to speak of (Slice and Dice). An entry may set `trackDebuff` to be followed by
+-- that aura in any section -- the player's own buff first, the target's debuff
+-- second. The field keeps its old name so saved profiles and shared strings
+-- still load; the behaviour is no longer target-only.
+--
+-- The class packs set it automatically for these, and the spell picker defaults
+-- the toggle on when one is added. Matched by name so it holds across ranks and
+-- flavours. Not exhaustive -- extend per class pack.
+Const.AURA_SPELL_NAMES = {
     ["Moonfire"]        = true,
     ["Sunfire"]         = true,   -- SoD Druid rune
     ["Insect Swarm"]    = true,
@@ -280,13 +284,16 @@ Const.DOT_SPELL_NAMES = {
     ["Curse of Agony"]  = true,
     ["Serpent Sting"]   = true,
     ["Deadly Poison"]   = true,
+    -- A self-buff, not a DoT: no cooldown, so the buff's uptime is the only
+    -- thing an icon or bar can usefully show.
+    ["Slice and Dice"]  = true,
 }
 
--- Whether a spell should default to DoT tracking, matched by its current name.
-function Const.IsDotSpell(spellID)
+-- Whether a spell should default to aura tracking, matched by its current name.
+function Const.IsAuraSpell(spellID)
     if not spellID then return false end
     local name = ns.Compat and ns.Compat.GetSpellInfo and ns.Compat.GetSpellInfo(spellID)
-    return name ~= nil and Const.DOT_SPELL_NAMES[name] == true
+    return name ~= nil and Const.AURA_SPELL_NAMES[name] == true
 end
 
 -- Maelstrom Weapon is an ordinary stacking self-buff, so its count is read from

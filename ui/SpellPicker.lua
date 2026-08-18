@@ -265,9 +265,10 @@ local function DropInto(targetGroup, targetIndex)
             spellID = drag.spellID,
             name = drag.entry and drag.entry.name,
             rankIndependent = true,
-            -- Dragged in fresh from Not Displayed: a known DoT defaults to DoT
-            -- tracking. A moved entry keeps whatever flag it already had.
-            trackDebuff = Const.IsDotSpell(drag.spellID) or nil,
+            -- Dragged in fresh from Not Displayed: an ability whose value is its
+            -- aura defaults to aura tracking. A moved entry keeps whatever flag
+            -- it already had.
+            trackDebuff = Const.IsAuraSpell(drag.spellID) or nil,
         }
 
     if targetGroup and working[targetGroup] then
@@ -379,10 +380,11 @@ local function ShowEntryMenu(button)
         local entry = button.entry
         if not entry then return end
 
-        -- Track-as-DoT applies to every class: the ability is followed by the
-        -- debuff it leaves on the target rather than (only) its cooldown.
+        -- Aura tracking applies to every class: the ability is followed by the
+        -- aura it leaves rather than (only) its cooldown -- its own buff on the
+        -- player when one is up, the debuff on the target otherwise.
         local dot = UIDropDownMenu_CreateInfo()
-        dot.text = "Track as DoT (on target)"
+        dot.text = "Track its aura (buff or DoT)"
         dot.isNotRadio = true
         dot.keepShownOnClick = true
         dot.checked = entry.trackDebuff and true or false
@@ -441,12 +443,12 @@ local function CreateIconButton(parent)
     button.formText:SetTextColor(0.4, 0.8, 1)
     button.formText:Hide()
 
-    -- DoT-tracking badge, opposite corner, shown when the entry is tracked by its
-    -- target debuff.
+    -- Aura-tracking badge, opposite corner, shown when the entry is followed by
+    -- the aura it leaves rather than its cooldown.
     button.dotText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     button.dotText:SetPoint("BOTTOMRIGHT", -1, 1)
     button.dotText:SetTextColor(1, 0.5, 0.3)
-    button.dotText:SetText("DoT")
+    button.dotText:SetText("aura")
     button.dotText:Hide()
 
     button.cdmcIsIcon = true
@@ -457,8 +459,8 @@ local function CreateIconButton(parent)
     button:SetScript("OnDragStop", ResolveDrop)
 
     -- Left-click moves a spell between tracked and not-displayed without
-    -- dragging; right-click on a tracked icon opens the tracking menu (Track as
-    -- DoT for any class, plus form tags for Druids).
+    -- dragging; right-click on a tracked icon opens the tracking menu (aura
+    -- tracking for any class, plus form tags for Druids).
     button:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
             if self.groupKey then
@@ -475,8 +477,9 @@ local function CreateIconButton(parent)
                     spellID = self.spellID,
                     name = self.entry and self.entry.name,
                     rankIndependent = true,
-                    -- A known DoT defaults to DoT tracking when first added.
-                    trackDebuff = Const.IsDotSpell(self.spellID) or nil,
+                    -- An ability whose value is its aura defaults to aura
+                    -- tracking when first added.
+                    trackDebuff = Const.IsAuraSpell(self.spellID) or nil,
                 })
             end
         end
@@ -1271,7 +1274,7 @@ function SpellPicker:AddByID(spellID)
         -- Exact: a manually entered ID is the specific one the user wants, so
         -- it must not be re-pointed at another rank by name.
         rankIndependent = false,
-        trackDebuff = Const.IsDotSpell(spellID) or nil,
+        trackDebuff = Const.IsAuraSpell(spellID) or nil,
     })
 
     CommitEdit()

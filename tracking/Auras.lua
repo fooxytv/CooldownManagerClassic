@@ -231,14 +231,30 @@ function Auras:GetTargetDotState(spellID)
     return FillAuraState(state, spellID, self:LookupTargetDot(spellID))
 end
 
--- The state an aura-tracked entry should show: its own debuff on the target when
--- the entry is flagged as a DoT, otherwise the aura on the player. Lets the
--- Tracked Buffs group and any aura consumer track a DoT with one call.
-function Auras:GetTrackedState(spellID, trackDebuff)
-    if trackDebuff then
-        return self:GetTargetDotState(spellID)
+-- The state an aura-tracked entry should show. Unflagged, that is the aura on
+-- the player. Flagged, the ability is followed by whatever aura it leaves: the
+-- player's own buff when one is up, and the debuff on the target otherwise.
+--
+-- The flag used to *replace* the player lookup with the target one, which meant
+-- ticking it on an ability whose payload is a self-buff (Slice and Dice) stopped
+-- it being tracked at all. Preferring the player buff also matches
+-- Cooldowns:GetBarState, which has always read it first.
+function Auras:GetTrackedState(spellID, trackAura)
+    local player = self:GetState(spellID)
+    if not trackAura then return player end
+
+    if player and player.active and (player.remaining or 0) > 0 then
+        return player
     end
-    return self:GetState(spellID)
+
+    local dot = self:GetTargetDotState(spellID)
+    if dot and dot.active and (dot.remaining or 0) > 0 then
+        return dot
+    end
+
+    -- Neither is up. The player state stands in, so an inactive entry reads the
+    -- same as any other.
+    return player
 end
 
 function Auras:ClearCache()

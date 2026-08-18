@@ -334,6 +334,8 @@ local SPELLS = {
     [324] = { name = "Lightning Shield", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
     [2645] = { name = "Ghost Wolf", icon = "Interface\\Icons\\Spell_Nature_SpiritWolf" },
     [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
+    -- A self-buff with no cooldown: its aura is the only thing to show.
+    [5171] = { name = "Slice and Dice", icon = "Interface\\Icons\\Ability_Rogue_SliceDice" },
 }
 
 _G.C_Spell = {

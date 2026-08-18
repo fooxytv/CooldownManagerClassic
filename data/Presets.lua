@@ -128,9 +128,10 @@ function Presets:Apply(preset, overwrite)
                     group.spells[#group.spells + 1] = {
                         spellID = spellID,
                         rankIndependent = true,
-                        -- A class pack tracks its DoTs (Moonfire, Flame Shock, …)
-                        -- by the debuff they leave on the target, out of the box.
-                        trackDebuff = Const.IsDotSpell(spellID) or nil,
+                        -- A class pack tracks the abilities whose value is their
+                        -- aura (Moonfire, Flame Shock, Slice and Dice, …) by that
+                        -- aura, out of the box.
+                        trackDebuff = Const.IsAuraSpell(spellID) or nil,
                     }
                 end
             end
