@@ -128,6 +128,9 @@ local DEFAULT_GLOBAL = {
     -- preference rather than part of a layout, so it lives here and not in the
     -- profile -- switching profile should not re-open everything.
     collapsedSections = {},
+    -- Layouts the player saved themselves, by name. Per account rather than per
+    -- profile, so one can seed a new character (see Presets:SaveCurrentAs).
+    customPresets = {},
 }
 
 -- Migrations, for changes ApplyDefaults cannot make: it never overwrites a

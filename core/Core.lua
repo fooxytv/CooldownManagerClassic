@@ -804,7 +804,7 @@ local function PrintHelp()
         "|cffffff00/cdmc|r or |cffffff00/cdm|r - open the spell picker",
         "|cffffff00/cdme|r - toggle edit mode (same as unlock / lock)",
         "|cffffff00/cdmc unlock|r / |cffffff00lock|r - move the groups",
-        "|cffffff00/cdmc preset|r - load your class starter layout",
+        "|cffffff00/cdmc preset|r [list | <name>] - load a starter layout",
         "|cffffff00/cdmc export|r / |cffffff00import|r - share a profile",
         "|cffffff00/cdmc profile|r [list | use | new | copy | delete] <name>",
         "|cffffff00/cdmc reset|r - reset the current profile",
@@ -904,7 +904,25 @@ SlashCmdList["CDMC"] = function(input)
         ns.Print("groups locked.")
 
     elseif command == "preset" then
-        ns.Presets:ApplyDefaultForPlayer(true)
+        -- Bare: the class default, as before. Named: any layout offered to this
+        -- character, built-in or saved. "list" enumerates them.
+        if rest == "" then
+            ns.Presets:ApplyDefaultForPlayer(true)
+        elseif rest:lower() == "list" then
+            local presets, class = ns.Presets:ListForPlayer()
+            ns.Print(("layouts for %s:"):format(class and class:lower() or "this class"))
+            for _, preset in ipairs(presets) do
+                DEFAULT_CHAT_FRAME:AddMessage(("  |cffffff00%s|r%s")
+                    :format(preset.name, preset.custom and " |cff888888(saved)|r" or ""))
+            end
+        else
+            local ok, result = ns.Presets:ApplyByKey(rest, true)
+            if ok then
+                ns.Print(("Loaded the %s layout."):format(result))
+            else
+                ns.Print("|cffff5555" .. tostring(result) .. "|r")
+            end
+        end
 
     elseif command == "export" then
         ns.ProfileShare:ShowExport()

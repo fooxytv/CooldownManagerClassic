@@ -614,6 +614,103 @@ ns.SpellPicker:Show("cooldowns")
 R.portraitFallback = pickerFrame.PortraitContainer.portrait:GetTexture()
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 
+-- Presets (#42): a class can offer several layouts, and a Druid's feral pack
+-- arrives with its form tags so shifting swaps the set with no setup.
+-- Applying a layout rewrites every group, so what was here is put back at the
+-- end: the checks below this point expect the groups they set up themselves.
+local beforePresets = {}
+for _, key in ipairs(ns.Constants.GROUP_ORDER) do
+    -- Copied, not referenced: Apply wipes the group's own table in place, so a
+    -- plain reference would hand back an emptied list.
+    beforePresets[key] = ns.DeepCopy(ns.DB:GetGroup(key).spells)
+end
+
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+local druidLayouts = ns.Presets:ListForPlayer()
+R.druidLayoutCount = #druidLayouts
+R.druidLayoutNames = (function()
+    local names = {}
+    for _, preset in ipairs(druidLayouts) do names[#names + 1] = preset.name end
+    return table.concat(names, ",")
+end)()
+
+R.feralApplied = select(2, ns.Presets:ApplyByKey("druid-feral", true))
+local feralEssential = ns.DB:GetGroup("essential").spells
+R.feralTracksClaw = (function()
+    for _, entry in ipairs(feralEssential) do
+        if entry.spellID == 1082 then return entry.forms ~= nil and entry.forms.cat == true end
+    end
+    return false
+end)()
+R.feralTracksMaul = (function()
+    for _, entry in ipairs(feralEssential) do
+        if entry.spellID == 6807 then return entry.forms ~= nil and entry.forms.bear == true end
+    end
+    return false
+end)()
+
+-- An unknown name is refused rather than wiping the profile.
+R.unknownLayoutRejected = select(1, ns.Presets:ApplyByKey("Not A Layout", true))
+R.profileSurvivedUnknown = #ns.DB:GetGroup("essential").spells
+
+-- Saving the current layout keeps the flags, is offered on any character, and
+-- round-trips as its own entry rather than sharing tables with the profile.
+R.saveRejectsEmptyName = select(1, ns.Presets:SaveCurrentAs(""))
+R.saveRejectsBuiltinName = select(1, ns.Presets:SaveCurrentAs("Feral Druid"))
+R.saved = select(1, ns.Presets:SaveCurrentAs("My Feral"))
+R.savedListed = (function()
+    for _, preset in ipairs(ns.Presets:ListForPlayer()) do
+        if preset.name == "My Feral" then return preset.custom == true end
+    end
+    return false
+end)()
+
+-- Applying a saved layout must not hand the profile the stored tables.
+ns.Presets:ApplyByKey("custom:My Feral", true)
+local storedFirst = ns.Presets:GetCustom()["My Feral"].groups.essential[1]
+local liveFirst = ns.DB:GetGroup("essential").spells[1]
+R.savedCopiesEntries = storedFirst ~= liveFirst and storedFirst.spellID == liveFirst.spellID
+R.savedKeepsTags = liveFirst.forms ~= nil or liveFirst.spellID ~= 1082
+
+-- A saved layout survives on another class, a built-in one for another class
+-- does not appear.
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
+local rogueLayouts = ns.Presets:ListForPlayer()
+R.rogueSeesSaved = (function()
+    for _, preset in ipairs(rogueLayouts) do
+        if preset.name == "My Feral" then return true end
+    end
+    return false
+end)()
+R.rogueDoesNotSeeDruidPacks = (function()
+    for _, preset in ipairs(rogueLayouts) do
+        if preset.name == "Feral Druid" then return false end
+    end
+    return true
+end)()
+
+R.deleteSaved = select(1, ns.Presets:DeleteCustom("My Feral"))
+R.deleteBuiltinRefused = select(1, ns.Presets:DeleteCustom("Rogue"))
+
+-- The Profiles tab lists them and its buttons act on the selection.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+ns.SpellPicker:Show("profiles")
+local profilePanel = ns.SpellPicker
+R.layoutRowsShown = (function()
+    local shown = 0
+    for _, candidate in ipairs(_G.__frames) do
+        if candidate.layoutKey and candidate:IsShown() then shown = shown + 1 end
+    end
+    return shown
+end)()
+ns.SpellPicker:Show("cooldowns")
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
+
+for key, spells in pairs(beforePresets) do
+    ns.DB:GetGroup(key).spells = spells
+end
+ns.Core:RefreshAll()
+
 -- Every tab must render. A panel tab builds its own widgets instead of spell
 -- sections, so a mistake there throws rather than looking merely empty.
 ns.SpellPicker:Show("profiles")
@@ -1220,6 +1317,24 @@ def run(with_art):
     check("profile dropdown built", results["profileDropdownBuilt"], True)
     check("bottom hint line is gone", results["noBottomHint"], True)
     check("ID box anchors to the frame edge", results["addBoxAnchorsToFrame"], "TOPRIGHT")
+    check("druid offers three layouts", results["druidLayoutCount"], 3)
+    check("druid layout names", results["druidLayoutNames"],
+          "Balance Druid,Feral Druid,Restoration Druid")
+    check("feral layout applies", results["feralApplied"], "Feral Druid")
+    check("feral claw is cat-tagged", results["feralTracksClaw"], True)
+    check("feral maul is bear-tagged", results["feralTracksMaul"], True)
+    check("unknown layout is refused", results["unknownLayoutRejected"], False)
+    check("profile survives a refused layout", results["profileSurvivedUnknown"], 7)
+    check("saving needs a name", results["saveRejectsEmptyName"], False)
+    check("saving cannot shadow a built-in", results["saveRejectsBuiltinName"], False)
+    check("layout saves", results["saved"], True)
+    check("saved layout is listed", results["savedListed"], True)
+    check("saved layout copies its entries", results["savedCopiesEntries"], True)
+    check("saved layout offered on another class", results["rogueSeesSaved"], True)
+    check("other classes' packs stay hidden", results["rogueDoesNotSeeDruidPacks"], True)
+    check("saved layout deletes", results["deleteSaved"], True)
+    check("built-in layout cannot be deleted", results["deleteBuiltinRefused"], False)
+    check("profiles tab lists the layouts", results["layoutRowsShown"], 3)
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")

@@ -891,10 +891,14 @@ end
 -- a separate button, so picking a profile to copy or delete does not drag the
 -- character onto it first.
 local selectedProfile = nil
+-- The layout highlighted in the starter-layout list, by key.
+local selectedLayout = nil
 local profileWidgets = nil
 
 local PROFILE_ROWS = 10
 local PROFILE_ROW_HEIGHT = 20
+-- Built-in layouts for one class plus whatever has been saved by hand.
+local LAYOUT_ROWS = 8
 
 local function SetProfileStatus(text, isError)
     if not profileWidgets then return end
@@ -1086,6 +1090,93 @@ local function EnsureProfileWidgets(parent)
     profileWidgets.status:SetJustifyH("LEFT")
     y = y - 30
 
+    -- Starter layouts. A profile is where your setup lives; a layout is a set of
+    -- spells to pour into it, so they belong on the same tab but not in the same
+    -- list -- applying one rewrites what the profile tracks.
+    local layoutHeading = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    layoutHeading:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
+    layoutHeading:SetText("Starter layouts:")
+    profileWidgets.layoutHeading = layoutHeading
+    y = y - 18
+
+    profileWidgets.layoutRows = {}
+    for index = 1, LAYOUT_ROWS do
+        local row = CreateFrame("Button", nil, parent)
+        row:SetSize(CONTENT_WIDTH - 16, PROFILE_ROW_HEIGHT)
+        row:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        local selected = row:CreateTexture(nil, "BACKGROUND")
+        selected:SetAllPoints()
+        selected:SetColorTexture(0.2, 0.5, 0.9, 0.35)
+        selected:Hide()
+        row.selectedTexture = selected
+
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.label:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.label:SetJustifyH("LEFT")
+
+        row:SetScript("OnClick", function(self)
+            selectedLayout = self.layoutKey
+            SetProfileStatus(nil)
+            SpellPicker:Refresh()
+        end)
+
+        profileWidgets.layoutRows[index] = row
+        y = y - PROFILE_ROW_HEIGHT
+    end
+
+    y = y - 8
+
+    -- Applying overwrites what this profile tracks. Nothing is lost while the
+    -- window is open: Revert restores the layout as it was when it opened.
+    profileWidgets.applyLayout = AddButton("Apply Layout", 0, 0, function()
+        if not selectedLayout then
+            SetProfileStatus("Select a layout first.", true)
+            return
+        end
+
+        local ok, result = ns.Presets:ApplyByKey(selectedLayout, true)
+        if ok then
+            SetProfileStatus(("Loaded the %s layout. Revert puts back what was here."):format(result))
+            SpellPicker:Refresh()
+        else
+            SetProfileStatus(result, true)
+        end
+    end, "Replaces what this profile tracks with the selected layout. Revert restores what was here when this window opened.")
+
+    profileWidgets.saveLayout = AddButton("Save Current As", 1, 0, function()
+        local name = NewProfileName()
+        local ok, result = ns.Presets:SaveCurrentAs(name)
+        if ok then
+            profileWidgets.nameBox:SetText("")
+            selectedLayout = "custom:" .. result
+            SetProfileStatus(("Saved this layout as %q. It is offered on every character."):format(result))
+            SpellPicker:Refresh()
+        else
+            SetProfileStatus(result, true)
+        end
+    end, "Saves what this profile currently tracks as a named layout, under the name typed above. Saved layouts are offered on every character on this account.")
+
+    profileWidgets.deleteLayout = AddButton("Delete Layout", 0, 1, function()
+        local preset = selectedLayout and ns.Presets:GetByKey(selectedLayout)
+        if not preset or not preset.custom then
+            SetProfileStatus("Only a saved layout can be deleted.", true)
+            return
+        end
+
+        local ok, err = ns.Presets:DeleteCustom(preset.name)
+        if ok then
+            selectedLayout = nil
+            SetProfileStatus(("Deleted the %s layout."):format(preset.name))
+            SpellPicker:Refresh()
+        else
+            SetProfileStatus(err, true)
+        end
+    end, "Deletes the selected saved layout. The built-in class layouts cannot be deleted.")
+
+    y = y - 2 * (BUTTON_H + 6) - 10
+
     profileWidgets.height = -y + 10
     return profileWidgets
 end
@@ -1138,6 +1229,42 @@ local function ShowProfiles(parent)
     widgets.deleteButton:Show()
     widgets.shareButton:Show()
 
+    -- Starter layouts: this class's built-in packs, then anything saved by hand.
+    local layouts = ns.Presets:ListForPlayer()
+    widgets.layoutHeading:Show()
+
+    local selectedPreset = selectedLayout and ns.Presets:GetByKey(selectedLayout)
+    if selectedLayout and not selectedPreset then
+        -- Deleted underneath the selection.
+        selectedLayout = nil
+    end
+
+    for index, row in ipairs(widgets.layoutRows) do
+        local preset = layouts[index]
+        if preset then
+            row.layoutKey = preset.key
+            row.label:SetText(preset.custom and (preset.name .. " |cff888888(saved)|r") or preset.name)
+            row.selectedTexture:SetShown(preset.key == selectedLayout)
+            row:Show()
+        else
+            row.layoutKey = nil
+            row:Hide()
+        end
+    end
+
+    widgets.applyLayout:Show()
+    widgets.saveLayout:Show()
+    widgets.deleteLayout:Show()
+    widgets.applyLayout:SetEnabled(selectedLayout ~= nil)
+    -- Built-in packs are not the player's to delete.
+    widgets.deleteLayout:SetEnabled(selectedPreset ~= nil and selectedPreset.custom == true)
+
+    if #layouts > LAYOUT_ROWS then
+        widgets.status:SetText(("Showing the first %d of %d layouts - use /cdmc preset list for the rest.")
+            :format(LAYOUT_ROWS, #layouts))
+        widgets.status:SetTextColor(1, 0.8, 0.3)
+    end
+
     -- Both are rejected by the DB anyway; disabling says why before the click.
     widgets.deleteButton:SetEnabled(selectedProfile ~= nil
         and selectedProfile ~= current and selectedProfile ~= "Default")
@@ -1159,6 +1286,11 @@ local function HideProfiles()
     profileWidgets.useButton:Hide()
     profileWidgets.deleteButton:Hide()
     profileWidgets.shareButton:Hide()
+    profileWidgets.layoutHeading:Hide()
+    for _, row in ipairs(profileWidgets.layoutRows) do row:Hide() end
+    profileWidgets.applyLayout:Hide()
+    profileWidgets.saveLayout:Hide()
+    profileWidgets.deleteLayout:Hide()
 end
 
 local function ShowOptions(parent)
