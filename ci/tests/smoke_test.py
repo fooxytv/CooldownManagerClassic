@@ -223,6 +223,34 @@ R.dotBuffUnflagged = ns.Auras:GetTrackedState(8921, false).active and true or fa
 -- Icon path: the DoT drives the icon countdown for a flagged spell.
 R.dotIconRemaining = math.floor(ns.Cooldowns:GetIconState(8921, false, true).remaining + 0.5)
 
+-- The same flag follows an ability whose aura lands on the *player* with no
+-- cooldown behind it (Slice and Dice). Reading only the target debuff left these
+-- blank in every section but the cooldown bars.
+_G.__aura = { spellId = 5171, name = "Slice and Dice", icon = "x",
+              applications = 0, duration = 21, expirationTime = GetTime() + 21, timeMod = 1 }
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+
+R.selfBuffIcon = math.floor(ns.Cooldowns:GetIconState(5171, false, true).remaining + 0.5)
+R.selfBuffTracked = math.floor(ns.Auras:GetTrackedState(5171, true).remaining + 0.5)
+R.selfBuffBar = ns.Cooldowns:GetBarState(5171, true).phase
+-- Unflagged, an icon still shows the cooldown alone -- nothing else changed.
+R.selfBuffUnflaggedIcon = ns.Cooldowns:GetIconState(5171, false, false).remaining
+-- And it is one of the abilities the picker flags for you.
+R.selfBuffAutoFlagged = ns.Constants.IsAuraSpell(5171) and true or false
+
+-- A flagged ability with neither aura up reads as inactive rather than erroring.
+_G.__aura = { spellId = 0, name = "None", duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+R.selfBuffGone = ns.Auras:GetTrackedState(5171, true).active and true or false
+
+_G.__aura = { spellId = 187880, name = "Maelstrom Weapon", applications = 5,
+              duration = 30, expirationTime = GetTime() + 12, timeMod = 1 }
+_G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "player",
+                    duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+
 -- A debuff cast by someone else on the same target is ignored.
 _G.__targetAura = { spellId = 8921, name = "Moonfire", sourceUnit = "party1",
                     duration = 12, expirationTime = GetTime() + 9, timeMod = 1 }
@@ -391,6 +419,22 @@ ns.SpellPicker:Show("cooldowns")
 R.mediaFontFallback = ns.Media.Fetch("font", "", "FALLBACK.ttf")
 R.mediaBarFallback = ns.Media.Fetch("statusbar", "Unregistered", "FALLBACK.tga")
 
+-- The built-in media we register with LibSharedMedia: every path must sit under
+-- Interface\, since LSM silently refuses anything else and the picker would then
+-- offer a name that fetches nothing. (The library itself is absent here, so this
+-- checks the table rather than the registration.)
+local badMedia = 0
+local mediaCount = 0
+for _, entries in pairs(ns.Media.BUILTIN) do
+    for _, path in pairs(entries) do
+        mediaCount = mediaCount + 1
+        if not path:lower():find("^interface") then badMedia = badMedia + 1 end
+    end
+end
+R.builtinMediaBadPaths = badMedia
+R.builtinMediaRegistered = mediaCount > 0
+R.builtinMediaWithoutLSM = ns.Media.RegisterBuiltins()
+
 -- A bar with a chosen texture still lays out (falls back, no error).
 ns.DB:GetBar("power").appearance.barTexture = "Some LSM Bar"
 ns.bars.power:Layout()
@@ -523,15 +567,242 @@ ns.DB:GetBar("combo").appearance.segmentStyle = "pips"
 _G.GetComboPoints = function() return 0 end
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 
+-- Border art (#38): a LibSharedMedia border draws through the backdrop API when
+-- the client has one, and falls back to the solid edges when it does not. The
+-- library is absent under the stub, so the fetch is stood in for -- what is under
+-- test is the rendering path, not LSM itself.
+local realFetch = ns.Media.Fetch
+ns.Media.Fetch = function(mediatype, key, fallback)
+    if mediatype == "border" and key == "Chunky" then
+        return "Interface/Test/ChunkyBorder"
+    end
+    return realFetch(mediatype, key, fallback)
+end
+
+ns.DB:GetBar("power").appearance.borderSize = 2
+ns.DB:GetBar("power").appearance.borderTexture = "Chunky"
+styleBar:Layout()
+R.borderEdgeFile = styleBar.borderFrame.__backdrop and styleBar.borderFrame.__backdrop.edgeFile
+R.borderFrameShown = styleBar.borderFrame:IsShown()
+R.borderSolidHiddenWithArt = styleBar.borders.top:IsShown()
+
+-- An unknown border name is not art: the solid edges come back rather than the
+-- bar losing its border altogether.
+ns.DB:GetBar("power").appearance.borderTexture = "Not Registered"
+styleBar:Layout()
+R.borderUnknownFallsBack = styleBar.borders.top:IsShown()
+
+-- No backdrop API (Classic Era may ship without it): same fallback, no error.
+ns.DB:GetBar("power").appearance.borderTexture = "Chunky"
+_G.__setBackdropPresent(false)
+styleBar:Layout()
+R.borderNoBackdropFallsBack = styleBar.borders.top:IsShown()
+R.borderFrameHiddenNoBackdrop = styleBar.borderFrame:IsShown()
+_G.__setBackdropPresent(true)
+
+ns.Media.Fetch = realFetch
+ns.DB:GetBar("power").appearance.borderTexture = ""
+
+-- Fill colour override: pinned, the bar draws it instead of the power colour.
+ns.DB:GetBar("power").appearance.fillColor = "1,0,0,1"
+styleBar:Update()
+R.fillOverride = ("%.2f/%.2f/%.2f"):format(styleBar.statusBar.__barColor[1],
+    styleBar.statusBar.__barColor[2], styleBar.statusBar.__barColor[3])
+ns.DB:GetBar("power").appearance.fillColor = ""
+styleBar:Update()
+R.fillAuto = ("%.2f/%.2f/%.2f"):format(styleBar.statusBar.__barColor[1],
+    styleBar.statusBar.__barColor[2], styleBar.statusBar.__barColor[3])
+
+-- Font outline: the flags reach SetFont, and "" really means none.
+ns.DB:GetBar("power").appearance.fontOutline = "THICKOUTLINE"
+styleBar:Layout()
+R.fontOutline = styleBar.text.__fontFlags
+ns.DB:GetBar("power").appearance.fontOutline = ""
+styleBar:Layout()
+R.fontOutlineNone = styleBar.text.__fontFlags
+
+-- A chosen face, then back to Default: the built-in font has to return, which it
+-- only does because the font object is re-applied before the face is read.
+local realFontFetch = ns.Media.Fetch
+ns.Media.Fetch = function(mediatype, key, fallback)
+    if mediatype == "font" and key == "Blocky" then return "Interface/Test/Blocky.ttf" end
+    return realFontFetch(mediatype, key, fallback)
+end
+ns.DB:GetBar("power").appearance.fontFace = "Blocky"
+styleBar:Layout()
+R.fontFaceApplied = styleBar.text.__fontFile
+ns.DB:GetBar("power").appearance.fontFace = ""
+styleBar:Layout()
+R.fontFaceDefault = styleBar.text.__fontFile
+ns.Media.Fetch = realFontFetch
+
+-- The colour swatches drive Blizzard's picker and write a packed string back;
+-- right-click puts the default back.
+ns.BarPanel:Show("power")
+local bgSwatch = _G.CDMCBarPanel.bgColor
+bgSwatch:GetScript("OnClick")(bgSwatch, "LeftButton")
+_G.ColorPickerFrame:SetColorRGB(0.2, 0.4, 0.6)
+_G.ColorPickerFrame.__color[4] = 0.8
+_G.ColorPickerFrame.__info.swatchFunc()
+R.swatchWrites = ns.DB:GetBar("power").appearance.bgColor
+
+bgSwatch:GetScript("OnClick")(bgSwatch, "RightButton")
+R.swatchResets = ns.DB:GetBar("power").appearance.bgColor
+
+-- Cancelling restores what was stored, which for the unset fill override is ""
+-- and not the colour the picker was seeded with.
+local fillSwatch = _G.CDMCBarPanel.fillColor
+fillSwatch:GetScript("OnClick")(fillSwatch, "LeftButton")
+_G.ColorPickerFrame:SetColorRGB(1, 1, 0)
+_G.ColorPickerFrame.__info.swatchFunc()
+R.fillSwatchWrites = ns.DB:GetBar("power").appearance.fillColor ~= ""
+_G.ColorPickerFrame.__info.cancelFunc()
+R.fillSwatchCancels = ns.DB:GetBar("power").appearance.fillColor
+ns.BarPanel:Hide()
+
 -- New styling fields round-trip through export/import.
 ns.DB:GetBar("power").appearance.borderSize = 3
 ns.DB:GetBar("power").appearance.bgColor = "0.1,0.2,0.3,0.4"
+ns.DB:GetBar("power").appearance.borderTexture = "Chunky"
+ns.DB:GetBar("power").appearance.fillColor = "0.500,0.250,0.125,1.000"
+ns.DB:GetBar("power").appearance.fontOutline = "OUTLINE"
 ns.DB:GetBar("combo").appearance.segmentStyle = "ticks"
 local styleImport = ns.Serialization:Import(ns.Serialization:Export())
 R.rtBorderSize = styleImport.bars.power.appearance.borderSize
 R.rtBgColor = styleImport.bars.power.appearance.bgColor
 R.rtSegment = styleImport.bars.combo.appearance.segmentStyle
+R.rtBorderTexture = styleImport.bars.power.appearance.borderTexture
+R.rtFillColor = styleImport.bars.power.appearance.fillColor
+R.rtFontOutline = styleImport.bars.power.appearance.fontOutline
 ns.DB:GetBar("combo").appearance.segmentStyle = "pips"
+ns.DB:GetBar("power").appearance.borderTexture = ""
+ns.DB:GetBar("power").appearance.fillColor = ""
+ns.DB:GetBar("power").appearance.fontOutline = ""
+
+-- PackColor is UnpackColor's inverse: what a swatch writes reads back the same.
+R.packRoundTrip = ("%.2f/%.2f/%.2f/%.2f"):format(
+    ns.Constants.UnpackColor(ns.Constants.PackColor(0.25, 0.5, 0.75, 0.6), 0, 0, 0, 0))
+
+-- LibEQOL Edit Mode registration. In game this is the surface a player clicks --
+-- the library owns selection, so our own click-to-open panel never fires -- and
+-- it went untested until a dropdown shipped blank.
+R.libEQOLRegistered = ns.EditMode:Register() and true or false
+
+local lem = _G.__editMode
+
+-- Every dropdown must carry a `values` list. The dialog's dropdown builds its
+-- menu from `values` (or a `generator`) and ignores `optionfunc`, so a setting
+-- with only the latter renders as an empty box with no menu.
+local emptyDropdowns, dropdownCount = {}, 0
+for _, settings in pairs(lem.settings) do
+    for _, setting in ipairs(settings) do
+        if setting.kind == lem.SettingType.Dropdown then
+            dropdownCount = dropdownCount + 1
+            if type(setting.values) ~= "table" or #setting.values == 0 then
+                emptyDropdowns[#emptyDropdowns + 1] = setting.name
+            end
+        end
+    end
+end
+R.dropdownCount = dropdownCount
+R.emptyDropdowns = table.concat(emptyDropdowns, ",")
+
+-- Icon Direction's choices follow the orientation, and the dialog holds the very
+-- table registered at login -- so the setter has to refill it in place.
+local function FindSetting(frame, name)
+    for _, setting in ipairs(lem.settings[frame] or {}) do
+        if setting.name == name then return setting end
+    end
+end
+
+local essentialFrame = ns.groups.essential.frame
+local direction = FindSetting(essentialFrame, "Icon Direction")
+local orientation = FindSetting(essentialFrame, "Orientation")
+R.directionBefore = direction.values[1].text .. "," .. direction.values[2].text
+
+local sameTable = direction.values
+orientation.set(nil, "Vertical")
+R.directionAfter = direction.values[1].text .. "," .. direction.values[2].text
+R.directionSameTable = direction.values == sameTable
+R.directionValueFixed = ns.DB:GetGroup("essential").appearance.iconDirection
+orientation.set(nil, "Horizontal")
+
+-- The styling options belong in the Edit Mode dialog itself: LibEQOL owns the
+-- click while it drives Edit Mode, so a panel that opens on a click is not a
+-- surface a player can reach there.
+local powerSettings = lem.settings[ns.bars.power.frame] or {}
+local byName = {}
+for _, setting in ipairs(powerSettings) do
+    if setting.name then byName[setting.name] = setting end
+end
+
+local missing = {}
+for _, name in ipairs({ "Bar Texture", "Border Size", "Border Texture", "Border Colour",
+                        "Background Colour", "Custom Fill Colour", "Font", "Font Outline",
+                        "Text Align", "Show Percentage", "Smooth Fill", "Edge Spark" }) do
+    if not byName[name] then missing[#missing + 1] = name end
+end
+R.barStyleMissing = table.concat(missing, ",")
+
+-- Every styling row hangs off the collapsible header, so the basics at the top
+-- of the dialog are not buried under fourteen more.
+local header, orphans = nil, 0
+for _, setting in ipairs(powerSettings) do
+    if setting.kind == lem.SettingType.Collapsible then header = setting.id end
+end
+for _, name in ipairs({ "Bar Texture", "Border Size", "Font", "Edge Spark" }) do
+    if byName[name].parentId ~= header then orphans = orphans + 1 end
+end
+R.styleHeader = tostring(header)
+R.styleOrphans = orphans
+-- The rows that were there before stay at the top level.
+R.enabledNotNested = byName["Enabled"].parentId == nil
+
+-- Combo-only rows sit on the class-resource bar and nowhere else.
+local comboSettings = lem.settings[ns.bars.combo.frame] or {}
+local comboNames = {}
+for _, setting in ipairs(comboSettings) do
+    if setting.name then comboNames[setting.name] = true end
+end
+R.comboHasSource = comboNames["Resource Source"] and true or false
+R.powerHasSource = byName["Resource Source"] and true or false
+
+-- A media dropdown speaks display strings: "" reads as Default, and a name
+-- registered after login still reaches the menu, since the list is refilled from
+-- `get` (the only hook the dialog gives us).
+ns.DB:GetBar("power").appearance.barTexture = ""
+R.mediaDropdownDefault = byName["Bar Texture"].get()
+byName["Bar Texture"].set(nil, "Solid")
+R.mediaDropdownSet = ns.DB:GetBar("power").appearance.barTexture
+byName["Bar Texture"].set(nil, "Default")
+R.mediaDropdownCleared = ns.DB:GetBar("power").appearance.barTexture
+
+-- A label/value dropdown maps both ways.
+byName["Font Outline"].set(nil, "Thick Outline")
+R.choiceDropdownSet = ns.DB:GetBar("power").appearance.fontOutline
+R.choiceDropdownGet = byName["Font Outline"].get()
+
+-- Colours arrive as {r,g,b,a} and are stored packed.
+byName["Border Colour"].set(nil, { r = 0.25, g = 0.5, b = 0.75, a = 0.5 })
+R.colorSettingStored = ns.DB:GetBar("power").appearance.borderColor
+local readBack = byName["Border Colour"].get()
+R.colorSettingRead = ("%.2f/%.2f"):format(readBack.r, readBack.a)
+
+-- The fill override: the checkbox holds "is there one at all", the swatch holds
+-- the colour, and unticking clears it back to the resource's own.
+byName["Custom Fill Colour"].set(nil, true)
+R.fillCheckOn = byName["Custom Fill Colour"].get() and true or false
+byName["Custom Fill Colour"].colorSet(nil, { r = 1, g = 0, b = 0, a = 1 })
+R.fillCheckColor = ns.DB:GetBar("power").appearance.fillColor
+byName["Custom Fill Colour"].set(nil, false)
+R.fillCheckOff = ns.DB:GetBar("power").appearance.fillColor
+
+-- The UI probe walks the client for templates and libraries; under the stub
+-- everything answers yes, so this only proves it runs without erroring -- which
+-- is the point, since it is what a player is asked to run when something looks
+-- wrong.
+ns.Core:PrintUIProbe()
+R.uiProbeRan = true
 
 R.artMask = ns.Icon.art.mask and true or false
 return R
@@ -664,6 +935,12 @@ def run(with_art):
     check("dot flag surfaces in tracked buffs", results["dotBuffActive"], True)
     check("unflagged buff ignores target dot", results["dotBuffUnflagged"], False)
     check("dot flag drives icon countdown", results["dotIconRemaining"], 9)
+    check("self-buff drives the icon countdown", results["selfBuffIcon"], 21)
+    check("self-buff drives tracked buffs", results["selfBuffTracked"], 21)
+    check("self-buff drives the cooldown bar", results["selfBuffBar"], "active")
+    check("unflagged self-buff still cooldown-only", results["selfBuffUnflaggedIcon"], 0)
+    check("self-buff auto-flags for aura tracking", results["selfBuffAutoFlagged"], True)
+    check("flagged ability with no aura is inactive", results["selfBuffGone"], False)
     check("target dot ignores others' casts", results["dotIgnoresOthers"], "ready")
     check("target dot falls back to ready with no target", results["dotNoTarget"], "ready")
     check("flame shock icon shows dot not cd", results["flameShockRemaining"], 15)
@@ -694,6 +971,9 @@ def run(with_art):
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")
+    check("built-in media paths are under Interface", results["builtinMediaBadPaths"], 0)
+    check("built-in media is offered", results["builtinMediaRegistered"], True)
+    check("built-in media skipped without LSM", results["builtinMediaWithoutLSM"], False)
     check("media bar still lays out", results["mediaBarLaidOut"], True)
     check("media font still configures", results["mediaFontLaidOut"], True)
     check("keybind mapped from bar", results["keybindMapped"], "s2")
@@ -715,9 +995,53 @@ def run(with_art):
     check("tick divider count", results["tickCount"], 4)
     check("tick style fills the bar", results["tickFill"], 3)
     check("tick style hides pips", results["tickPipsHidden"], True)
+    check("border art uses the edge file", results["borderEdgeFile"], "Interface/Test/ChunkyBorder")
+    check("border art frame shown", results["borderFrameShown"], True)
+    check("border art replaces the solid edges", results["borderSolidHiddenWithArt"], False)
+    check("unknown border falls back to solid", results["borderUnknownFallsBack"], True)
+    check("no backdrop falls back to solid", results["borderNoBackdropFallsBack"], True)
+    check("no backdrop hides the border frame", results["borderFrameHiddenNoBackdrop"], False)
+    check("fill colour override applies", results["fillOverride"], "1.00/0.00/0.00")
+    check("fill colour returns to the resource's own", results["fillAuto"], "0.00/0.55/1.00")
+    check("font outline applies", results["fontOutline"], "THICKOUTLINE")
+    check("empty outline means none", results["fontOutlineNone"], "")
+    check("font face applies", results["fontFaceApplied"], "Interface/Test/Blocky.ttf")
+    check("font face returns to the built-in", results["fontFaceDefault"], "Fonts\\FRIZQT__.TTF")
+    check("swatch writes a packed colour", results["swatchWrites"], "0.200,0.400,0.600,0.800")
+    check("right-click resets a swatch", results["swatchResets"], "0,0,0,0.5")
+    check("fill swatch pins a colour", results["fillSwatchWrites"], True)
+    check("cancel restores the unset fill", results["fillSwatchCancels"], "")
     check("border size round-trips", results["rtBorderSize"], 3)
     check("bg colour round-trips", results["rtBgColor"], "0.1,0.2,0.3,0.4")
     check("segment style round-trips", results["rtSegment"], "ticks")
+    check("border texture round-trips", results["rtBorderTexture"], "Chunky")
+    check("fill colour round-trips", results["rtFillColor"], "0.500,0.250,0.125,1.000")
+    check("font outline round-trips", results["rtFontOutline"], "OUTLINE")
+    check("packed colour round-trips", results["packRoundTrip"], "0.25/0.50/0.75/0.60")
+    check("ui probe runs", results["uiProbeRan"], True)
+    check("LibEQOL registration succeeds", results["libEQOLRegistered"], True)
+    check("edit mode dropdowns registered", results["dropdownCount"] > 0, True)
+    check("no dropdown registered without values", results["emptyDropdowns"], "")
+    check("icon direction follows horizontal", results["directionBefore"], "Down,Up")
+    check("icon direction follows vertical", results["directionAfter"], "Right,Left")
+    check("icon direction list refilled in place", results["directionSameTable"], True)
+    check("stale icon direction corrected", results["directionValueFixed"], "Right")
+    check("bar styling is in the edit mode dialog", results["barStyleMissing"], "")
+    check("styling sits under a collapsible header", results["styleHeader"], "cdmcBarStyle")
+    check("no styling row outside that header", results["styleOrphans"], 0)
+    check("existing rows stay at the top level", results["enabledNotNested"], True)
+    check("resource source on the class bar", results["comboHasSource"], True)
+    check("resource source not on other bars", results["powerHasSource"], False)
+    check("media dropdown shows Default for ''", results["mediaDropdownDefault"], "Default")
+    check("media dropdown stores the name", results["mediaDropdownSet"], "Solid")
+    check("media dropdown clears on Default", results["mediaDropdownCleared"], "")
+    check("choice dropdown stores the value", results["choiceDropdownSet"], "THICKOUTLINE")
+    check("choice dropdown shows the label", results["choiceDropdownGet"], "Thick Outline")
+    check("colour setting packs the value", results["colorSettingStored"], "0.250,0.500,0.750,0.500")
+    check("colour setting reads back", results["colorSettingRead"], "0.25/0.50")
+    check("fill override ticks on", results["fillCheckOn"], True)
+    check("fill override takes a colour", results["fillCheckColor"], "1.000,0.000,0.000,1.000")
+    check("fill override clears when unticked", results["fillCheckOff"], "")
     check("atlas probe", results["artMask"], with_art)
 
 

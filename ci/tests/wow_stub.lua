@@ -53,9 +53,40 @@ end
 -- implement, and anything else stays nil -- which is what an absent child
 -- widget looks like in the real client, and what the addon's `if frame.overlay
 -- then` guards are testing for.
+-- Backdrops are conditional, unlike everything else the metatable makes up: the
+-- addon tests for SetBackdrop's presence, because a plain frame on a modern
+-- client has none. __setBackdropPresent(false) takes the methods away so the
+-- solid-border fallback is exercised too.
+_G.__backdropAvailable = true
+_G.__setBackdropPresent = function(present)
+    _G.__backdropAvailable = present and true or false
+end
+
+local backdropMethods = {
+    SetBackdrop = function(self, backdrop) self.__backdrop = backdrop end,
+    SetBackdropColor = function(self, r, g, b, a) self.__backdropColor = { r, g, b, a } end,
+    SetBackdropBorderColor = function(self, r, g, b, a) self.__backdropBorder = { r, g, b, a } end,
+}
+
+-- PascalCase keys that are frames hung off a frame rather than methods. Without
+-- these the heuristic below hands back a function, and code that reasonably
+-- expects a table (`frame.Selection.system`) errors on something the real client
+-- would have left nil.
+local FIELD_KEYS = {
+    Selection = true,
+}
+
 setmetatable(Widget, {
     __index = function(_, key)
         if type(key) ~= "string" then return nil end
+        if FIELD_KEYS[key] then return nil end
+
+        local backdrop = backdropMethods[key]
+        if backdrop then
+            if not _G.__backdropAvailable then return nil end
+            return backdrop
+        end
+
         local first = key:sub(1, 1)
         if first ~= first:upper() or first == "_" then return nil end
         return function(...)
@@ -121,9 +152,14 @@ end
 -- FontString
 function Widget:SetText(text) self.__text = text end
 function Widget:GetText() return self.__text end
-function Widget:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "" end
-function Widget:SetFont(file, size, flags) self.__fontSize = size end
-function Widget:SetFontObject(object) self.__font = object end
+function Widget:GetFont() return self.__fontFile or "Fonts\\FRIZQT__.TTF", self.__fontSize or 12, self.__fontFlags or "" end
+function Widget:SetFont(file, size, flags) self.__fontFile, self.__fontSize, self.__fontFlags = file, size, flags end
+-- Clears what SetFont put there, as the real API does: the object supplies the
+-- file, size and flags again until something overrides them.
+function Widget:SetFontObject(object)
+    self.__font = object
+    self.__fontFile, self.__fontSize, self.__fontFlags = nil, nil, nil
+end
 
 -- StatusBar
 function Widget:SetMinMaxValues(min, max) self.__min, self.__max = min, max end
@@ -177,6 +213,79 @@ _G.CreateFrame = function(kind, name, parent, template)
     return frame
 end
 
+-- The colour picker in its modern shape (SetupColorPickerAndShow). Real methods
+-- rather than the metatable's no-ops, so a test can open it, move the colour and
+-- fire the callback the addon handed it.
+local colorPicker = newWidget("Frame", "ColorPickerFrame")
+colorPicker.__color = { 1, 1, 1, 1 }
+colorPicker.SetColorRGB = function(self, r, g, b)
+    self.__color[1], self.__color[2], self.__color[3] = r, g, b
+end
+colorPicker.GetColorRGB = function(self)
+    return self.__color[1], self.__color[2], self.__color[3]
+end
+colorPicker.GetColorAlpha = function(self) return self.__color[4] end
+colorPicker.SetupColorPickerAndShow = function(self, info)
+    self.__info = info
+    self.__color = { info.r, info.g, info.b, info.opacity or 1 }
+    self.__shown = true
+end
+_G.ColorPickerFrame = colorPicker
+
+-- Frames only inherit BackdropTemplate where the mixin exists; Compat reads this
+-- to decide whether to pass the template to CreateFrame at all.
+_G.BackdropTemplateMixin = {}
+
+-- A stand-in for LibEQOL's Edit Mode. In game that library owns selection and
+-- the settings dialog, so everything registered through it -- which is most of
+-- what a player actually clicks -- used to run only in the client. Registrations
+-- are recorded here for the test to inspect.
+--
+-- LibStub answers for this one library; every other lookup stays nil, which is
+-- what the rest of the addon already expects under the stub.
+local editMode = {
+    SettingType = {
+        Checkbox = "Checkbox",
+        Dropdown = "Dropdown",
+        Slider = "Slider",
+        Color = "Color",
+        CheckboxColor = "CheckboxColor",
+        Divider = "Divider",
+    },
+    frames = {},
+    settings = {},
+    buttons = {},
+    callbacks = {},
+}
+
+function editMode:AddFrame(frame, callback, defaults)
+    self.frames[frame] = { callback = callback, defaults = defaults }
+    -- The library gives a registered frame its selection overlay, which the
+    -- addon then fills in a system name on.
+    frame.Selection = newWidget("Frame", nil, frame)
+end
+
+function editMode:AddFrameSettings(frame, settings)
+    self.settings[frame] = settings
+end
+
+function editMode:AddFrameSettingsButton(frame, data)
+    self.buttons[frame] = self.buttons[frame] or {}
+    table.insert(self.buttons[frame], data)
+end
+
+function editMode:SetFrameResetVisible() end
+
+function editMode:RegisterCallback(event, handler)
+    self.callbacks[event] = handler
+end
+
+_G.__editMode = editMode
+_G.LibStub = function(name)
+    if name == "LibEQOLEditMode-1.0" then return editMode end
+    return nil
+end
+
 _G.UIParent = newWidget("Frame", "UIParent")
 _G.GameTooltip = newWidget("GameTooltip", "GameTooltip")
 _G.DEFAULT_CHAT_FRAME = newWidget("Frame", "DEFAULT_CHAT_FRAME")
@@ -186,7 +295,7 @@ _G.DEFAULT_CHAT_FRAME = newWidget("Frame", "DEFAULT_CHAT_FRAME")
 --------------------------------------------------------------------------------
 
 for _, font in ipairs({
-    "GameFontNormal", "GameFontNormalSmall", "GameFontHighlight",
+    "GameFontNormal", "GameFontNormalSmall", "GameFontHighlight", "GameFontHighlightSmall",
     "GameFontHighlightOutline", "GameFontHighlightHugeOutline",
     "NumberFontNormal", "NumberFontNormalSmall", "NumberFontNormalHuge",
 }) do
@@ -284,6 +393,8 @@ local SPELLS = {
     [324] = { name = "Lightning Shield", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
     [2645] = { name = "Ghost Wolf", icon = "Interface\\Icons\\Spell_Nature_SpiritWolf" },
     [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
+    -- A self-buff with no cooldown: its aura is the only thing to show.
+    [5171] = { name = "Slice and Dice", icon = "Interface\\Icons\\Ability_Rogue_SliceDice" },
 }
 
 _G.C_Spell = {

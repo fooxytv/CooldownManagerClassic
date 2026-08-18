@@ -178,7 +178,27 @@ local function DropdownValues(labels)
     return values
 end
 
+-- Refills `values` in place with the directions the group's current orientation
+-- allows. In place because the dropdown's menu closes over the table it was
+-- registered with: rebuilding it as a new table would leave the menu showing the
+-- directions that were valid at login.
+local function FillDirectionValues(groupKey, values)
+    local orientation = GetOption(groupKey, "orientation", "Horizontal")
+    local allowed = Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal
+
+    wipe(values)
+    for _, direction in ipairs(allowed) do
+        values[#values + 1] = { text = direction }
+    end
+
+    return values
+end
+
 local function BuildSettings(groupKey)
+    -- Icon Direction's choices depend on the orientation, so its list is owned
+    -- here and refilled whenever that changes.
+    local directionValues = FillDirectionValues(groupKey, {})
+
     local settings = {
         {
             order = 1,
@@ -200,6 +220,7 @@ local function BuildSettings(groupKey)
                 if not stillValid then
                     SetOption(groupKey, "iconDirection", allowed[1])
                 end
+                FillDirectionValues(groupKey, directionValues)
             end,
         },
         {
@@ -218,9 +239,13 @@ local function BuildSettings(groupKey)
             name = "Icon Direction",
             kind = lem.SettingType.Dropdown,
             default = "Down",
+            -- `values`, not `optionfunc`: the Edit Mode dialog's dropdown builds
+            -- its menu from `values` (or a `generator`) alone and ignores
+            -- `optionfunc`, which only the settings-mode surfaces honour. With
+            -- neither, the control rendered as an empty box with no menu.
+            values = directionValues,
             optionfunc = function()
-                local orientation = GetOption(groupKey, "orientation", "Horizontal")
-                return DropdownValues(Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal)
+                return FillDirectionValues(groupKey, directionValues)
             end,
             get = function() return GetOption(groupKey, "iconDirection", "Down") end,
             set = function(_, value) SetOption(groupKey, "iconDirection", value) end,
@@ -432,6 +457,104 @@ local function SetBarOption(key, option, value)
     if bar then bar:Layout() end
 end
 
+-- LibEQOL dropdowns speak in display strings, so "" -- our "use the built-in"
+-- media -- shows and reads back as this.
+local MEDIA_DEFAULT = "Default"
+
+-- The dialog builds a dropdown's menu from the `values` table the setting was
+-- registered with, and ignores `optionfunc`. A LibSharedMedia list grows as
+-- other addons load, so the table is refilled in place from `get`, which the
+-- dialog calls whenever it builds or refreshes the row -- the one hook there is.
+local function FillMediaValues(values, mediatype)
+    wipe(values)
+    values[1] = { text = MEDIA_DEFAULT }
+    for _, name in ipairs(ns.Media.List(mediatype)) do
+        values[#values + 1] = { text = name }
+    end
+    return values
+end
+
+local function MediaSetting(order, name, key, option, mediatype)
+    local values = FillMediaValues({}, mediatype)
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Dropdown,
+        default = MEDIA_DEFAULT,
+        values = values,
+        get = function()
+            FillMediaValues(values, mediatype)
+            local current = GetBarOption(key, option, "")
+            return (current ~= "" and current) or MEDIA_DEFAULT
+        end,
+        set = function(_, value)
+            SetBarOption(key, option, value ~= MEDIA_DEFAULT and value or "")
+        end,
+    }
+end
+
+-- A dropdown over one of the Const {value, label} lists. The dialog holds the
+-- label, so both directions map through the list.
+local function ChoiceSetting(order, name, key, option, choices)
+    local values = {}
+    for _, choice in ipairs(choices) do
+        values[#values + 1] = { text = choice.label }
+    end
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Dropdown,
+        default = choices[1].label,
+        values = values,
+        get = function()
+            local current = GetBarOption(key, option)
+            for _, choice in ipairs(choices) do
+                if choice.value == current then return choice.label end
+            end
+            return choices[1].label
+        end,
+        set = function(_, value)
+            for _, choice in ipairs(choices) do
+                if choice.label == value then
+                    SetBarOption(key, option, choice.value)
+                    return
+                end
+            end
+        end,
+    }
+end
+
+-- Colours are stored as packed strings (they have to survive the scalar
+-- appearance serialiser); the dialog works in {r, g, b, a} tables.
+local function PackedColor(value)
+    if type(value) ~= "table" then return nil end
+    return Const.PackColor(value.r or value[1], value.g or value[2],
+                           value.b or value[3], value.a or value[4] or 1)
+end
+
+local function ColorSetting(order, name, key, option, fallback)
+    local function Current()
+        local r, g, b, a = Const.UnpackColor(GetBarOption(key, option),
+            Const.UnpackColor(fallback, 1, 1, 1, 1))
+        return { r = r, g = g, b = b, a = a }
+    end
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Color,
+        hasOpacity = true,
+        default = Current(),
+        get = Current,
+        set = function(_, value)
+            local packed = PackedColor(value)
+            if packed then SetBarOption(key, option, packed) end
+        end,
+    }
+end
+
 local function BuildBarSettings(key)
     local settings = {
         {
@@ -537,6 +660,131 @@ local function BuildBarSettings(key)
         }
     end
 
+    -- Styling (#34, #38). These used to live only in BarPanel, which opens on a
+    -- click -- and while LibEQOL is driving Edit Mode it owns the click, so this
+    -- dialog is the surface a player actually has. BarPanel keeps the same
+    -- options for the clients where LibEQOL is absent.
+    --
+    -- Gathered under one collapsible header rather than appended to the list:
+    -- fourteen more rows would bury Enabled and Visibility, and the library
+    -- remembers the section's state for us.
+    local STYLE_SECTION = "cdmcBarStyle"
+    local style = {}
+
+    settings[#settings + 1] = {
+        order = 20,
+        name = "Style",
+        kind = lem.SettingType.Collapsible,
+        id = STYLE_SECTION,
+        defaultCollapsed = false,
+    }
+
+    style[#style + 1] = MediaSetting(21, "Bar Texture", key, "barTexture", "statusbar")
+
+    style[#style + 1] = {
+        order = 22,
+        name = "Border Size",
+        kind = lem.SettingType.Slider,
+        default = Const.DEFAULT_BAR_APPEARANCE.borderSize,
+        minValue = 0,
+        maxValue = 12,
+        valueStep = 1,
+        get = function() return GetBarOption(key, "borderSize") end,
+        set = function(_, value) SetBarOption(key, "borderSize", math.floor(value + 0.5)) end,
+    }
+
+    style[#style + 1] = MediaSetting(23, "Border Texture", key, "borderTexture", "border")
+    style[#style + 1] = ColorSetting(24, "Border Colour", key, "borderColor",
+        Const.DEFAULT_BAR_APPEARANCE.borderColor)
+    style[#style + 1] = ColorSetting(25, "Background Colour", key, "bgColor",
+        Const.DEFAULT_BAR_APPEARANCE.bgColor)
+
+    -- The fill override is a checkbox with its own swatch: unticked ("") leaves
+    -- the resource its own colour, which no colour value can express.
+    style[#style + 1] = {
+        order = 26,
+        name = "Custom Fill Colour",
+        kind = lem.SettingType.CheckboxColor,
+        hasOpacity = false,
+        default = false,
+        get = function()
+            local current = GetBarOption(key, "fillColor", "")
+            return current ~= "" and current ~= nil
+        end,
+        set = function(_, value)
+            if not value then
+                SetBarOption(key, "fillColor", "")
+                return
+            end
+            -- Seeded from what the bar draws now, so ticking it changes nothing
+            -- until a colour is actually chosen.
+            local bar = ns.bars[key]
+            local statusBar = bar and bar.statusBar
+            local r, g, b = 1, 1, 1
+            if statusBar and statusBar.GetStatusBarColor then
+                local sr, sg, sb = statusBar:GetStatusBarColor()
+                if sr then r, g, b = sr, sg, sb end
+            end
+            SetBarOption(key, "fillColor", Const.PackColor(r, g, b, 1))
+        end,
+        colorGet = function()
+            local r, g, b, a = Const.UnpackColor(GetBarOption(key, "fillColor", ""), 1, 1, 1, 1)
+            return { r = r, g = g, b = b, a = a }
+        end,
+        colorSet = function(_, value)
+            local packed = PackedColor(value)
+            if packed then SetBarOption(key, "fillColor", packed) end
+        end,
+    }
+
+    style[#style + 1] = MediaSetting(27, "Font", key, "fontFace", "font")
+    style[#style + 1] = ChoiceSetting(28, "Font Outline", key, "fontOutline",
+        Const.FONT_OUTLINE_OPTIONS)
+    style[#style + 1] = ChoiceSetting(29, "Text Align", key, "textAlign",
+        Const.TEXT_ALIGN_OPTIONS)
+
+    style[#style + 1] = {
+        order = 30,
+        name = "Show Percentage",
+        kind = lem.SettingType.Checkbox,
+        default = false,
+        get = function() return GetBarOption(key, "showPercent") and true or false end,
+        set = function(_, value) SetBarOption(key, "showPercent", value and true or false) end,
+    }
+
+    style[#style + 1] = {
+        order = 31,
+        name = "Smooth Fill",
+        kind = lem.SettingType.Checkbox,
+        default = false,
+        get = function() return GetBarOption(key, "animate") and true or false end,
+        set = function(_, value) SetBarOption(key, "animate", value and true or false) end,
+    }
+
+    style[#style + 1] = {
+        order = 32,
+        name = "Edge Spark",
+        kind = lem.SettingType.Checkbox,
+        default = false,
+        get = function() return GetBarOption(key, "spark") and true or false end,
+        set = function(_, value) SetBarOption(key, "spark", value and true or false) end,
+    }
+
+    -- The class-resource bar alone: how a segmented resource draws, and which
+    -- resource it shows.
+    if key == "combo" then
+        style[#style + 1] = ChoiceSetting(33, "Segments", key, "segmentStyle",
+            Const.BAR_SEGMENT_OPTIONS)
+        style[#style + 1] = ChoiceSetting(34, "Resource Source", key, "resourceSource",
+            Const.RESOURCE_SOURCE_OPTIONS)
+    end
+
+    -- Every styling row hangs off the collapsible header above.
+    for _, setting in ipairs(style) do
+        setting.parentId = STYLE_SECTION
+        settings[#settings + 1] = setting
+    end
+
     return settings
 end
 
@@ -634,6 +882,7 @@ function EditMode:RegisterWithLibEQOL()
 
             lem:AddFrameSettings(bar.frame, BuildBarSettings(key))
             lem:SetFrameResetVisible(bar.frame, true)
+
         end
     end
 
@@ -652,8 +901,10 @@ function EditMode:Register()
         end
 
         -- Fall through to the basic path rather than leaving the groups with no
-        -- way to be moved at all.
+        -- way to be moved at all. The error is kept for /cdmc ui, since the
+        -- chat line scrolls away long before anyone goes looking.
         ns.Print("|cffffcc00Edit Mode integration failed, using the basic handles:|r " .. tostring(err))
+        self.registrationError = err
         lem = nil
         self.usingLibEQOL = false
     end

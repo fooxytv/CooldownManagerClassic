@@ -96,6 +96,15 @@ Const.DEFAULT_BAR_APPEARANCE = {
     -- API and nothing Retail-only is required.
     borderSize = 1,
     borderColor = "0,0,0,1",
+    -- LibSharedMedia border name, "" meaning the solid edges above. Edge art
+    -- needs the backdrop API, so a client without it falls back to solid.
+    borderTexture = "",
+    -- Overrides the fill colour the resource picks for itself. "" leaves it be.
+    fillColor = "",
+    -- Value text: a LibSharedMedia font name ("" = the built-in face) and the
+    -- SetFont outline flags ("" = none); see FONT_OUTLINE_OPTIONS.
+    fontFace = "",
+    fontOutline = "",
     -- Class-resource ("combo") bar only: "pips" (discrete blocks) or "ticks" (a
     -- continuous fill divided by tick marks).
     segmentStyle = "pips",
@@ -119,6 +128,22 @@ function Const.UnpackColor(str, dr, dg, db, da)
     end
     return dr, dg, db, da
 end
+
+-- The inverse of UnpackColor, for the colour pickers. Fixed precision so the
+-- same colour always writes the same string -- export strings stay stable -- and
+-- so the result always matches UnpackColor's pattern.
+function Const.PackColor(r, g, b, a)
+    return ("%.3f,%.3f,%.3f,%.3f"):format(r or 0, g or 0, b or 0, a == nil and 1 or a)
+end
+
+-- SetFont's flag string. Passed through verbatim, so "" really is "no outline"
+-- rather than "leave the font object's flags alone".
+Const.FONT_OUTLINE_OPTIONS = {
+    { value = "",                    label = "None" },
+    { value = "OUTLINE",             label = "Outline" },
+    { value = "THICKOUTLINE",        label = "Thick Outline" },
+    { value = "OUTLINE, MONOCHROME", label = "Outline (Sharp)" },
+}
 
 -- Render style for the class-resource bar's segmented sources.
 Const.BAR_SEGMENT_OPTIONS = {
@@ -235,13 +260,17 @@ function Const.FormAllows(forms, formKey)
     return forms[formKey] == true
 end
 
--- Abilities whose value is the DoT they leave on the target rather than a
--- cooldown (Moonfire, Sunfire, Flame Shock, …). An entry may set
--- `trackDebuff` to be tracked by that target debuff in any section; the class
--- packs set it automatically for these, and the spell picker defaults the toggle
--- on when one is added. Matched by name so it holds across ranks and flavours.
--- Not exhaustive -- extend per class pack.
-Const.DOT_SPELL_NAMES = {
+-- Abilities whose value is the aura they leave rather than a cooldown: a DoT on
+-- the target (Moonfire, Flame Shock, …) or a buff on the player with no cooldown
+-- to speak of (Slice and Dice). An entry may set `trackDebuff` to be followed by
+-- that aura in any section -- the player's own buff first, the target's debuff
+-- second. The field keeps its old name so saved profiles and shared strings
+-- still load; the behaviour is no longer target-only.
+--
+-- The class packs set it automatically for these, and the spell picker defaults
+-- the toggle on when one is added. Matched by name so it holds across ranks and
+-- flavours. Not exhaustive -- extend per class pack.
+Const.AURA_SPELL_NAMES = {
     ["Moonfire"]        = true,
     ["Sunfire"]         = true,   -- SoD Druid rune
     ["Insect Swarm"]    = true,
@@ -255,13 +284,16 @@ Const.DOT_SPELL_NAMES = {
     ["Curse of Agony"]  = true,
     ["Serpent Sting"]   = true,
     ["Deadly Poison"]   = true,
+    -- A self-buff, not a DoT: no cooldown, so the buff's uptime is the only
+    -- thing an icon or bar can usefully show.
+    ["Slice and Dice"]  = true,
 }
 
--- Whether a spell should default to DoT tracking, matched by its current name.
-function Const.IsDotSpell(spellID)
+-- Whether a spell should default to aura tracking, matched by its current name.
+function Const.IsAuraSpell(spellID)
     if not spellID then return false end
     local name = ns.Compat and ns.Compat.GetSpellInfo and ns.Compat.GetSpellInfo(spellID)
-    return name ~= nil and Const.DOT_SPELL_NAMES[name] == true
+    return name ~= nil and Const.AURA_SPELL_NAMES[name] == true
 end
 
 -- Maelstrom Weapon is an ordinary stacking self-buff, so its count is read from

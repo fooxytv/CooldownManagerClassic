@@ -485,6 +485,78 @@ function Core:ImportString(text)
     ns.Print(("Imported into profile %q and switched to it."):format(name))
 end
 
+-- Which UI pieces this client actually has.
+--
+-- The settings dialog LibEQOL draws is built from modern templates
+-- (SettingsDropdownWithButtonsTemplate, WowStyle1DropdownTemplate and the menu
+-- API behind them). A Classic build without them does not raise an error -- the
+-- row simply comes up with no control on it -- so a missing dropdown looks
+-- exactly like a bug in our settings table. This tells the two apart, and says
+-- which surface a given client should be using.
+function Core:PrintUIProbe()
+    local out = function(line) DEFAULT_CHAT_FRAME:AddMessage("  " .. line) end
+    local function yes(value) return value and "|cff00ff00yes|r" or "|cffff5555no|r" end
+
+    -- pcall: an unknown template is an error, not a nil return.
+    local function hasTemplate(frameType, template)
+        local ok = pcall(CreateFrame, frameType, nil, UIParent, template)
+        return ok
+    end
+
+    ns.Print("ui probe")
+
+    local version = "?"
+    if _G.C_AddOns and C_AddOns.GetAddOnMetadata then
+        version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
+    elseif _G.GetAddOnMetadata then
+        version = GetAddOnMetadata(addonName, "Version") or "?"
+    end
+
+    out(("addon |cffffff00%s|r  build has: border art %s  colour picker %s  bar styling %s")
+        :format(version,
+                yes(ns.Compat.SetBorderTexture ~= nil),
+                yes(ns.Compat.ShowColorPicker ~= nil),
+                yes(ns.Media.RegisterBuiltins ~= nil)))
+
+    out(("edit mode: LibEQOL %s  EditModeManagerFrame %s  our unlock %s")
+        :format(yes(ns.EditMode.usingLibEQOL), yes(_G.EditModeManagerFrame ~= nil),
+                yes(ns.EditMode.manualUnlock)))
+    if ns.EditMode.registrationError then
+        out("|cffff5555LibEQOL registration failed:|r " .. tostring(ns.EditMode.registrationError))
+    end
+
+    -- The templates LibEQOL's dialog needs, then the old ones our own panels use.
+    out(("dialog templates: dropdown-row %s  dropdown-button %s  checkbox-row %s")
+        :format(yes(hasTemplate("Frame", "SettingsDropdownWithButtonsTemplate")),
+                yes(hasTemplate("DropdownButton", "WowStyle1DropdownTemplate")),
+                yes(hasTemplate("Frame", "EditModeSettingCheckboxTemplate"))))
+
+    out(("our templates: UIDropDownMenu %s  SearchBox %s  Backdrop %s")
+        :format(yes(hasTemplate("Frame", "UIDropDownMenuTemplate")),
+                yes(hasTemplate("EditBox", "SearchBoxTemplate")),
+                yes(ns.Compat.backdropTemplate ~= nil)))
+
+    local picker = _G.ColorPickerFrame
+    out(("colour picker: frame %s  modern setup %s")
+        :format(yes(picker ~= nil), yes(picker ~= nil and picker.SetupColorPickerAndShow ~= nil)))
+
+    out(("shared media: library %s  borders |cffffff00%d|r  bar textures |cffffff00%d|r  fonts |cffffff00%d|r")
+        :format(yes(ns.Media.lib ~= nil), #ns.Media.List("border"),
+                #ns.Media.List("statusbar"), #ns.Media.List("font")))
+
+    for _, key in ipairs(Const.BAR_ORDER) do
+        local bar = ns.DB:GetBar(key)
+        local appearance = bar and bar.appearance or {}
+        out(("  bar %-7s enabled %s  border %s/%s  texture %q  fill %q")
+            :format(key, yes(bar and bar.enabled),
+                    tostring(appearance.borderSize), tostring(appearance.borderTexture ~= "" and appearance.borderTexture or "solid"),
+                    tostring(appearance.barTexture), tostring(appearance.fillColor)))
+    end
+
+    out("|cff888888If the dialog templates read no, that client cannot draw LibEQOL's|r")
+    out("|cff888888dropdowns -- use /cdme and click a bar, or the Bar Style Settings button.|r")
+end
+
 -- A spell can go missing at four stages -- spellbook scan, rank resolution,
 -- layout, or the frame being hidden -- and none of them raise a Lua error, so
 -- each is reported separately.
@@ -742,6 +814,7 @@ local function PrintHelp()
         "|cffffff00/cdmc highlight|r [on | off] - reactive proc glow on tracked icons",
         "|cffffff00/cdmc ids|r - toggle spell IDs on tooltips",
         "|cffffff00/cdmc status|r - diagnostics",
+        "|cffffff00/cdmc ui|r - what this client's UI supports",
         "|cffffff00/cdmc probe|r - arm the cooldown probe",
         "|cffffff00/cdmc debug|r - toggle debug output",
     }
@@ -849,6 +922,9 @@ SlashCmdList["CDMC"] = function(input)
 
     elseif command == "status" then
         Core:PrintStatus()
+
+    elseif command == "ui" then
+        Core:PrintUIProbe()
 
     elseif command == "probe" then
         Core:ArmCooldownProbe()

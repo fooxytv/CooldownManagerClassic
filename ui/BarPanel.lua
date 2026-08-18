@@ -137,6 +137,67 @@ local function CreateCheckbox(parent, label, option, handlers)
     return check
 end
 
+-- The colour a swatch opens on. An unset option -- the fill override, whose
+-- default is "" -- seeds from what the bar is drawing right now, so the picker
+-- starts at the resource's own colour rather than an arbitrary one.
+local function SwatchColor(option)
+    local packed = Get(option)
+    if type(packed) == "string" and packed ~= "" then
+        return Const.UnpackColor(packed, 1, 1, 1, 1)
+    end
+
+    local bar = currentBar and ns.bars[currentBar]
+    local statusBar = bar and bar.statusBar
+    if statusBar and statusBar.GetStatusBarColor then
+        local r, g, b = statusBar:GetStatusBarColor()
+        if r then return r, g, b, 1 end
+    end
+
+    return 1, 1, 1, 1
+end
+
+-- A colour swatch: a bordered square that opens Blizzard's colour picker and
+-- writes the result back as a packed string. Right-click restores the default,
+-- which is the only way to clear the fill override ("" = the resource's own
+-- colour) once one is set.
+local function CreateSwatch(parent, label, option)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(22, 22)
+
+    local edge = button:CreateTexture(nil, "BACKGROUND")
+    edge:SetAllPoints()
+    edge:SetColorTexture(0, 0, 0, 1)
+
+    local swatch = button:CreateTexture(nil, "ARTWORK")
+    swatch:SetPoint("TOPLEFT", 1, -1)
+    swatch:SetPoint("BOTTOMRIGHT", -1, 1)
+    button.swatch = swatch
+
+    local caption = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    caption:SetPoint("TOP", button, "BOTTOM", 0, -2)
+    caption:SetText(label)
+
+    button.option = option
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    button:SetScript("OnClick", function(_, mouseButton)
+        if mouseButton == "RightButton" then
+            Set(option, Const.DEFAULT_BAR_APPEARANCE[option])
+            return
+        end
+
+        -- Captured before the picker opens: cancelling has to put back what was
+        -- stored, which for an unset override is "" and not the seed colour.
+        local previous = Get(option)
+        local r, g, b, a = SwatchColor(option)
+
+        ns.Compat.ShowColorPicker(r, g, b, a, true,
+            function(nr, ng, nb, na) Set(option, Const.PackColor(nr, ng, nb, na)) end,
+            function() Set(option, previous) end)
+    end)
+
+    return button
+end
+
 local function MediaChoices(mediatype)
     return function()
         local choices = { { value = "", label = "Default" } }
@@ -148,55 +209,67 @@ local function MediaChoices(mediatype)
 end
 
 -- Vertical order of the panel's widgets: each one's field on `panel`, its left
--- inset, and the gap to the next. A `barKey` restricts a row to a single bar --
--- the Resource Source dropdown only makes sense for the adaptive class-resource
--- ("combo") bar. LayoutWidgets re-runs on every Show so a skipped row leaves no
--- gap and the panel height tracks what is actually visible.
+-- inset, the gap to the next, and which column it sits in. A `barKey` restricts
+-- a row to a single bar -- the Resource Source dropdown only makes sense for the
+-- adaptive class-resource ("combo") bar. LayoutWidgets re-runs on every Show so a
+-- skipped row leaves no gap and the panel height tracks what is actually visible.
+--
+-- Two columns rather than one long strip: the styling options outgrew a single
+-- column, and a panel taller than the screen cannot be reached at all.
 local WIDGET_LAYOUT = {
     { field = "enabled",        x = 20, gap = 34 },
     { field = "width",          x = 24, gap = 46 },
     { field = "height",         x = 24, gap = 46 },
     { field = "opacity",        x = 24, gap = 40 },
     { field = "border",         x = 24, gap = 46 },
-    { field = "showText",       x = 20, gap = 34 },
-    { field = "showPercent",    x = 20, gap = 34 },
-    { field = "textAlign",      x = 16, gap = 46 },
+    { field = "borderTexture",  x = 16, gap = 46 },
+    -- Taller than a dropdown row: the swatches carry captions underneath.
+    { field = "colors",         x = 24, gap = 56 },
     { field = "barTexture",     x = 16, gap = 46 },
-    { field = "visibility",     x = 16, gap = 50 },
+    { field = "visibility",     x = 16, gap = 46 },
     { field = "segmentStyle",   x = 16, gap = 46, barKey = "combo" },
     { field = "resourceSource", x = 16, gap = 46, barKey = "combo" },
-    { field = "animate",        x = 20, gap = 34 },
-    { field = "spark",          x = 20, gap = 34 },
-    { field = "revert",         x = 20, gap = 26 },
-    { field = "reset",          x = 20, gap = 26 },
+
+    { field = "showText",       x = 20, gap = 34, column = 2 },
+    { field = "showPercent",    x = 20, gap = 40, column = 2 },
+    { field = "textAlign",      x = 16, gap = 46, column = 2 },
+    { field = "fontFace",       x = 16, gap = 46, column = 2 },
+    { field = "fontOutline",    x = 16, gap = 46, column = 2 },
+    { field = "animate",        x = 20, gap = 34, column = 2 },
+    { field = "spark",          x = 20, gap = 40, column = 2 },
+    { field = "revert",         x = 16, gap = 26, column = 2 },
+    { field = "reset",          x = 16, gap = 26, column = 2 },
 }
+
+local COLUMN_X = { 0, 232 }
 
 local function LayoutWidgets()
     if not panel then return end
 
-    local y = -32
+    local y = { -32, -32 }
     for _, item in ipairs(WIDGET_LAYOUT) do
         local widget = panel[item.field]
         if widget then
             if item.barKey and item.barKey ~= currentBar then
                 widget:Hide()
             else
+                local column = item.column or 1
                 widget:ClearAllPoints()
-                widget:SetPoint("TOPLEFT", item.x, y)
+                widget:SetPoint("TOPLEFT", COLUMN_X[column] + item.x, y[column])
                 widget:Show()
-                y = y - item.gap
+                y[column] = y[column] - item.gap
             end
         end
     end
 
-    panel:SetHeight(math.abs(y) + 20)
+    panel:SetHeight(math.max(math.abs(y[1]), math.abs(y[2])) + 20)
 end
 
 local function BuildPanel()
     if panel then return panel end
 
     panel = CreateFrame("Frame", "CDMCBarPanel", UIParent, "ButtonFrameTemplate")
-    panel:SetSize(250, 380)
+    panel:SetSize(470, 380)
     panel:SetPoint("CENTER", UIParent, "CENTER", 320, 0)
     panel:SetFrameStrata("DIALOG")
     panel:SetMovable(true)
@@ -221,12 +294,39 @@ local function BuildPanel()
     panel.width = CreateSlider(panel, "Width", "width", 60, 400, 5)
     panel.height = CreateSlider(panel, "Height", "height", 6, 48, 1)
     panel.opacity = CreateSlider(panel, "Opacity", "opacity", 10, 100, 5)
-    panel.border = CreateSlider(panel, "Border", "borderSize", 0, 5, 1)
+    -- Pixels for the solid border; a texture border reads it as its edge size,
+    -- with a floor (see ResourceBar's MIN_EDGE_SIZE) so edge art is never a
+    -- hairline.
+    panel.border = CreateSlider(panel, "Border", "borderSize", 0, 12, 1)
+    panel.borderTexture = CreateDropdown(panel, "Border Texture", "borderTexture",
+        MediaChoices("border"))
+
+    -- The three colours share a row: full-width rows for one swatch each would
+    -- cost as much height as a dropdown and say less.
+    panel.colors = CreateFrame("Frame", nil, panel)
+    panel.colors:SetSize(200, 52)
+    panel.colors.label = panel.colors:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.colors.label:SetPoint("TOPLEFT", 0, 0)
+    panel.colors.label:SetText("Colours (right-click resets)")
+
+    panel.bgColor = CreateSwatch(panel.colors, "Back", "bgColor")
+    panel.bgColor:SetPoint("TOPLEFT", panel.colors, "TOPLEFT", 6, -14)
+    panel.borderColor = CreateSwatch(panel.colors, "Edge", "borderColor")
+    panel.borderColor:SetPoint("TOPLEFT", panel.colors, "TOPLEFT", 68, -14)
+    panel.fillColor = CreateSwatch(panel.colors, "Fill", "fillColor")
+    panel.fillColor:SetPoint("TOPLEFT", panel.colors, "TOPLEFT", 130, -14)
+
     panel.showText = CreateCheckbox(panel, "Show Text", "showText")
     panel.showPercent = CreateCheckbox(panel, "Show Percentage", "showPercent")
 
     panel.textAlign = CreateDropdown(panel, "Text Align", "textAlign", function()
         return Const.TEXT_ALIGN_OPTIONS
+    end)
+
+    panel.fontFace = CreateDropdown(panel, "Font", "fontFace", MediaChoices("font"))
+
+    panel.fontOutline = CreateDropdown(panel, "Font Outline", "fontOutline", function()
+        return Const.FONT_OUTLINE_OPTIONS
     end)
 
     panel.barTexture = CreateDropdown(panel, "Bar Texture", "barTexture", MediaChoices("statusbar"))
@@ -283,9 +383,15 @@ function Panel:Refresh()
         end
     end
 
+    for _, swatch in ipairs({ panel.bgColor, panel.borderColor, panel.fillColor }) do
+        local r, g, b, a = SwatchColor(swatch.option)
+        swatch.swatch:SetColorTexture(r, g, b, a)
+    end
+
     for _, container in ipairs({
         panel.barTexture, panel.visibility, panel.textAlign,
         panel.segmentStyle, panel.resourceSource,
+        panel.borderTexture, panel.fontFace, panel.fontOutline,
     }) do
         local current = Get(container.option)
         local text = tostring(current)

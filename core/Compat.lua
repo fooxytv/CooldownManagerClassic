@@ -42,6 +42,94 @@ function Compat.AtlasExists(name)
     return ok and info ~= nil
 end
 
+-- Backdrops draw LibSharedMedia border art (an "edge file"), and the API is not
+-- guaranteed: on a client built from the modern engine a plain frame has no
+-- SetBackdrop unless it inherits BackdropTemplate, while older builds carry the
+-- method outright. Frames that may want one are created with this template --
+-- nil where the mixin is absent, which CreateFrame accepts -- and every use goes
+-- through the two functions below, which report failure rather than erroring so
+-- the caller can fall back to its own art.
+Compat.backdropTemplate = _G.BackdropTemplateMixin and "BackdropTemplate" or nil
+
+--- Draws `edgeFile` as the frame's border, tinted, and shows the frame. Returns
+--- false when this client has no backdrop API.
+function Compat.SetBorderTexture(frame, edgeFile, edgeSize, r, g, b, a)
+    if not frame or not edgeFile or not frame.SetBackdrop then return false end
+
+    local ok = pcall(frame.SetBackdrop, frame, {
+        edgeFile = edgeFile,
+        edgeSize = math.max(edgeSize or 8, 1),
+    })
+    if not ok then return false end
+
+    if frame.SetBackdropBorderColor then
+        frame:SetBackdropBorderColor(r or 0, g or 0, b or 0, a or 1)
+    end
+
+    frame:Show()
+    return true
+end
+
+function Compat.ClearBorderTexture(frame)
+    if not frame then return end
+    if frame.SetBackdrop then pcall(frame.SetBackdrop, frame, nil) end
+    frame:Hide()
+end
+
+-- Blizzard's colour picker, across the two shapes it has had: 10.2 replaced the
+-- loose fields with a single setup call, and which one a Classic build carries
+-- depends on when it was branched. Returns false when neither is there, so a
+-- swatch stays inert rather than erroring.
+--
+-- `onChange(r, g, b, a)` fires as the user drags; `onCancel()` puts back what
+-- was there before. Alpha is read back from the frame rather than from the
+-- slider's value, because the legacy slider holds transparency, not alpha.
+function Compat.ShowColorPicker(r, g, b, a, hasOpacity, onChange, onCancel)
+    local picker = _G.ColorPickerFrame
+    if not picker or not picker.SetColorRGB then return false end
+
+    local function Read()
+        local nr, ng, nb = picker:GetColorRGB()
+        local na = 1
+        if hasOpacity then
+            if picker.GetColorAlpha then
+                na = picker:GetColorAlpha()
+            elseif _G.OpacitySliderFrame then
+                na = 1 - (OpacitySliderFrame:GetValue() or 0)
+            end
+        end
+        onChange(nr or r, ng or g, nb or b, na)
+    end
+
+    local function Cancel()
+        if onCancel then onCancel() end
+    end
+
+    if picker.SetupColorPickerAndShow then
+        picker:SetupColorPickerAndShow({
+            r = r, g = g, b = b,
+            opacity = a,
+            hasOpacity = hasOpacity and true or false,
+            swatchFunc = Read,
+            opacityFunc = Read,
+            cancelFunc = Cancel,
+        })
+        return true
+    end
+
+    -- The legacy fields take transparency where the modern table takes alpha.
+    local transparency = 1 - (a or 1)
+    picker.func, picker.opacityFunc, picker.cancelFunc = Read, Read, Cancel
+    picker.hasOpacity = hasOpacity and true or false
+    picker.opacity = transparency
+    picker.previousValues = { r = r, g = g, b = b, opacity = transparency }
+    picker:SetColorRGB(r, g, b)
+    -- Hidden first so OnShow re-runs when the picker is already open.
+    picker:Hide()
+    picker:Show()
+    return true
+end
+
 -- C_Engraving exists on every Era client, SoD or not, so the table's presence
 -- proves nothing -- IsEngravingEnabled is the real test.
 Compat.isSoD = false
