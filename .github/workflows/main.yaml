@@ -18,6 +18,9 @@ on:
 jobs:
   publish-addon:
     runs-on: ubuntu-latest
+    # A stuck step matters more here than in CI: this one holds up a release and
+    # the CurseForge upload behind it. See the same guard in ci.yaml.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,8 +35,12 @@ jobs:
           chmod +x ./ci/scripts/version.sh
 
       - name: Lint
+        timeout-minutes: 6
         run: |
-          sudo apt-get update && sudo apt-get install -y luarocks
+          # Retried once, as in ci.yaml: a stalled or 503-ing mirror is the most
+          # common way this fails for reasons that are not ours.
+          sudo apt-get update -qq || (sleep 5 && sudo apt-get update -qq)
+          sudo apt-get install -y --no-install-recommends luarocks
           sudo luarocks install luacheck
           ./ci/scripts/lint.sh
 
