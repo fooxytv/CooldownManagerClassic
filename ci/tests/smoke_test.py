@@ -727,14 +727,75 @@ R.directionSameTable = direction.values == sameTable
 R.directionValueFixed = ns.DB:GetGroup("essential").appearance.iconDirection
 orientation.set(nil, "Horizontal")
 
--- Each bar carries a button through to the styling panel, which is otherwise
--- unreachable while LibEQOL owns the click.
-local barButtons = lem.buttons[ns.bars.power.frame] or {}
-R.barButtonText = barButtons[1] and barButtons[1].text or "none"
-ns.BarPanel:Hide()
-if barButtons[1] then barButtons[1].click() end
-R.barButtonOpensPanel = _G.CDMCBarPanel:IsShown()
-ns.BarPanel:Hide()
+-- The styling options belong in the Edit Mode dialog itself: LibEQOL owns the
+-- click while it drives Edit Mode, so a panel that opens on a click is not a
+-- surface a player can reach there.
+local powerSettings = lem.settings[ns.bars.power.frame] or {}
+local byName = {}
+for _, setting in ipairs(powerSettings) do
+    if setting.name then byName[setting.name] = setting end
+end
+
+local missing = {}
+for _, name in ipairs({ "Bar Texture", "Border Size", "Border Texture", "Border Colour",
+                        "Background Colour", "Custom Fill Colour", "Font", "Font Outline",
+                        "Text Align", "Show Percentage", "Smooth Fill", "Edge Spark" }) do
+    if not byName[name] then missing[#missing + 1] = name end
+end
+R.barStyleMissing = table.concat(missing, ",")
+
+-- Every styling row hangs off the collapsible header, so the basics at the top
+-- of the dialog are not buried under fourteen more.
+local header, orphans = nil, 0
+for _, setting in ipairs(powerSettings) do
+    if setting.kind == lem.SettingType.Collapsible then header = setting.id end
+end
+for _, name in ipairs({ "Bar Texture", "Border Size", "Font", "Edge Spark" }) do
+    if byName[name].parentId ~= header then orphans = orphans + 1 end
+end
+R.styleHeader = tostring(header)
+R.styleOrphans = orphans
+-- The rows that were there before stay at the top level.
+R.enabledNotNested = byName["Enabled"].parentId == nil
+
+-- Combo-only rows sit on the class-resource bar and nowhere else.
+local comboSettings = lem.settings[ns.bars.combo.frame] or {}
+local comboNames = {}
+for _, setting in ipairs(comboSettings) do
+    if setting.name then comboNames[setting.name] = true end
+end
+R.comboHasSource = comboNames["Resource Source"] and true or false
+R.powerHasSource = byName["Resource Source"] and true or false
+
+-- A media dropdown speaks display strings: "" reads as Default, and a name
+-- registered after login still reaches the menu, since the list is refilled from
+-- `get` (the only hook the dialog gives us).
+ns.DB:GetBar("power").appearance.barTexture = ""
+R.mediaDropdownDefault = byName["Bar Texture"].get()
+byName["Bar Texture"].set(nil, "Solid")
+R.mediaDropdownSet = ns.DB:GetBar("power").appearance.barTexture
+byName["Bar Texture"].set(nil, "Default")
+R.mediaDropdownCleared = ns.DB:GetBar("power").appearance.barTexture
+
+-- A label/value dropdown maps both ways.
+byName["Font Outline"].set(nil, "Thick Outline")
+R.choiceDropdownSet = ns.DB:GetBar("power").appearance.fontOutline
+R.choiceDropdownGet = byName["Font Outline"].get()
+
+-- Colours arrive as {r,g,b,a} and are stored packed.
+byName["Border Colour"].set(nil, { r = 0.25, g = 0.5, b = 0.75, a = 0.5 })
+R.colorSettingStored = ns.DB:GetBar("power").appearance.borderColor
+local readBack = byName["Border Colour"].get()
+R.colorSettingRead = ("%.2f/%.2f"):format(readBack.r, readBack.a)
+
+-- The fill override: the checkbox holds "is there one at all", the swatch holds
+-- the colour, and unticking clears it back to the resource's own.
+byName["Custom Fill Colour"].set(nil, true)
+R.fillCheckOn = byName["Custom Fill Colour"].get() and true or false
+byName["Custom Fill Colour"].colorSet(nil, { r = 1, g = 0, b = 0, a = 1 })
+R.fillCheckColor = ns.DB:GetBar("power").appearance.fillColor
+byName["Custom Fill Colour"].set(nil, false)
+R.fillCheckOff = ns.DB:GetBar("power").appearance.fillColor
 
 -- The UI probe walks the client for templates and libraries; under the stub
 -- everything answers yes, so this only proves it runs without erroring -- which
@@ -965,8 +1026,22 @@ def run(with_art):
     check("icon direction follows vertical", results["directionAfter"], "Right,Left")
     check("icon direction list refilled in place", results["directionSameTable"], True)
     check("stale icon direction corrected", results["directionValueFixed"], "Right")
-    check("bar carries a style button", results["barButtonText"], "Bar Style Settings")
-    check("bar style button opens the panel", results["barButtonOpensPanel"], True)
+    check("bar styling is in the edit mode dialog", results["barStyleMissing"], "")
+    check("styling sits under a collapsible header", results["styleHeader"], "cdmcBarStyle")
+    check("no styling row outside that header", results["styleOrphans"], 0)
+    check("existing rows stay at the top level", results["enabledNotNested"], True)
+    check("resource source on the class bar", results["comboHasSource"], True)
+    check("resource source not on other bars", results["powerHasSource"], False)
+    check("media dropdown shows Default for ''", results["mediaDropdownDefault"], "Default")
+    check("media dropdown stores the name", results["mediaDropdownSet"], "Solid")
+    check("media dropdown clears on Default", results["mediaDropdownCleared"], "")
+    check("choice dropdown stores the value", results["choiceDropdownSet"], "THICKOUTLINE")
+    check("choice dropdown shows the label", results["choiceDropdownGet"], "Thick Outline")
+    check("colour setting packs the value", results["colorSettingStored"], "0.250,0.500,0.750,0.500")
+    check("colour setting reads back", results["colorSettingRead"], "0.25/0.50")
+    check("fill override ticks on", results["fillCheckOn"], True)
+    check("fill override takes a colour", results["fillCheckColor"], "1.000,0.000,0.000,1.000")
+    check("fill override clears when unticked", results["fillCheckOff"], "")
     check("atlas probe", results["artMask"], with_art)
 
 
