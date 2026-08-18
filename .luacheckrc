@@ -102,6 +102,7 @@ globals = {
     "UIDropDownMenu_CreateInfo",
     "UIDropDownMenu_AddButton",
     "UIDropDownMenu_SetText",
+    "UIDropDownMenu_Refresh",
     "UIDropDownMenu_SetWidth",
     "ColorPickerFrame",
     "OpacitySliderFrame",

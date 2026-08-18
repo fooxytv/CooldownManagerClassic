@@ -191,9 +191,15 @@ function Widget:SetMouseClickEnabled(enabled) self.__mouseClick = enabled end
 function Widget:SetMouseMotionEnabled(enabled) self.__mouseMotion = enabled end
 function Widget:EnableMouse(enabled) self.__mouse = enabled end
 
+-- Every frame ever created, so a test can reach one the addon keeps to itself.
+-- Core's event frame is a file-local with no name, and the events it dispatches
+-- are the seam where two wiring bugs have already hidden.
+_G.__frames = {}
+
 _G.CreateFrame = function(kind, name, parent, template)
     record("CreateFrame")
     local frame = newWidget(kind, name, parent)
+    _G.__frames[#_G.__frames + 1] = frame
     if name then _G[name] = frame end
     -- Templates the addon leans on for named children.
     if template and template:find("OptionsSliderTemplate") and name then
@@ -339,12 +345,31 @@ _G.IsSpellKnown = function() return true end
 _G.IsPassiveSpell = function() return false end
 _G.GetNumSpellTabs = function() return 0 end
 _G.GetSpellTabInfo = function() return nil end
-_G.CloseDropDownMenus = function() end
+-- Dropdown menus, with enough state to test one: the initialiser is kept so a
+-- test can build the menu's contents and click an item, and open/closed is
+-- tracked because "the menu stays up after you pick something" is a bug that is
+-- invisible to a no-op stub.
+_G.__dropdownOpen = false
+_G.__dropdownButtons = {}
+_G.__dropdownRefreshed = 0
+
+_G.CloseDropDownMenus = function() _G.__dropdownOpen = false end
+_G.ToggleDropDownMenu = function() _G.__dropdownOpen = true end
 _G.UIDropDownMenu_SetWidth = function() end
-_G.UIDropDownMenu_Initialize = function() end
+_G.UIDropDownMenu_Initialize = function(frame, initializer)
+    if frame then frame.__initializer = initializer end
+end
 _G.UIDropDownMenu_CreateInfo = function() return {} end
-_G.UIDropDownMenu_AddButton = function() end
+_G.UIDropDownMenu_AddButton = function(info) table.insert(_G.__dropdownButtons, info) end
 _G.UIDropDownMenu_SetText = function() end
+_G.UIDropDownMenu_Refresh = function() _G.__dropdownRefreshed = _G.__dropdownRefreshed + 1 end
+
+-- Runs a menu's initialiser, as opening it would, and hands back the items.
+_G.__buildDropdown = function(frame)
+    _G.__dropdownButtons = {}
+    if frame and frame.__initializer then frame.__initializer() end
+    return _G.__dropdownButtons
+end
 _G.StaticPopup_Show = function() end
 _G.StaticPopupDialogs = {}
 _G.PowerBarColor = {}
@@ -395,6 +420,12 @@ local SPELLS = {
     [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
     -- A self-buff with no cooldown: its aura is the only thing to show.
     [5171] = { name = "Slice and Dice", icon = "Interface\\Icons\\Ability_Rogue_SliceDice" },
+    -- Druid abilities for the form tags: one cat-only, one bear-only, one caster
+    -- spell that must stay untagged, and one that belongs in every form.
+    [1082] = { name = "Claw", icon = "Interface\\Icons\\Ability_Druid_Rake" },
+    [6807] = { name = "Maul", icon = "Interface\\Icons\\Ability_Druid_Maul" },
+    [5176] = { name = "Wrath", icon = "Interface\\Icons\\Spell_Nature_AbolishMagic" },
+    [1126] = { name = "Mark of the Wild", icon = "Interface\\Icons\\Spell_Nature_Regeneration" },
 }
 
 _G.C_Spell = {

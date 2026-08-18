@@ -344,6 +344,82 @@ for _, icon in ipairs(formGroup.icons) do nonDruidIDs[#nonDruidIDs + 1] = icon.s
 table.sort(nonDruidIDs)
 R.formNonDruid = table.concat(nonDruidIDs, ",")
 
+-- Default form tags (#43): a Druid's cat/bear abilities arrive tagged, so
+-- shapeshifting swaps them with no hand tagging. Driven through Core's event
+-- handler rather than a hand-called Layout -- the wiring is the part that only
+-- ran in the client until now.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+
+local dispatch
+for _, candidate in ipairs(_G.__frames) do
+    if candidate:GetScript("OnEvent") then dispatch = candidate:GetScript("OnEvent") end
+end
+R.eventHandlerFound = dispatch ~= nil
+
+-- Put back afterwards: the export/import check below runs on the tagged list
+-- this section replaces.
+local formTestSpells = ns.DB:GetGroup("essential").spells
+
+R.defaultTagCat = ns.Constants.DefaultFormsFor(1082) and ns.Constants.DefaultFormsFor(1082).cat or false
+R.defaultTagBear = ns.Constants.DefaultFormsFor(6807) and ns.Constants.DefaultFormsFor(6807).bear or false
+-- Caster spells are deliberately left alone (SoD runes cast in more than one form).
+R.defaultTagCaster = ns.Constants.DefaultFormsFor(5176) == nil
+-- Each entry gets its own table, or tagging one ability would tag every other.
+R.defaultTagCopies = ns.Constants.DefaultFormsFor(1082) ~= ns.Constants.DefaultFormsFor(1082)
+
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 1082, name = "Claw", forms = ns.Constants.DefaultFormsFor(1082) },
+    { spellID = 6807, name = "Maul", forms = ns.Constants.DefaultFormsFor(6807) },
+    { spellID = 1126, name = "Mark of the Wild" },
+}
+local shiftGroup = ns.Group.Create("essential")
+shiftGroup.unlocked = false
+shiftGroup:Layout()
+
+local function TrackedAfterShift(powerToken)
+    _G.UnitPowerType = function() return 0, powerToken end
+    ns.Auras:ClearCache()
+    dispatch(nil, "UPDATE_SHAPESHIFT_FORM")
+    local ids = {}
+    for _, icon in ipairs(shiftGroup.icons) do ids[#ids + 1] = icon.spellID end
+    table.sort(ids)
+    return table.concat(ids, ",")
+end
+
+R.shiftToCat = TrackedAfterShift("ENERGY")
+R.shiftToBear = TrackedAfterShift("RAGE")
+R.shiftToCaster = TrackedAfterShift("MANA")
+
+-- The backfill tags a layout built before the defaults existed, once, and never
+-- touches an ability someone tagged by hand.
+local legacy = {
+    groups = {
+        essential = { spells = {
+            { spellID = 1082, name = "Claw" },
+            { spellID = 6807, name = "Maul", forms = { cat = true, bear = true } },
+            { spellID = 1126, name = "Mark of the Wild" },
+        } },
+    },
+}
+R.backfillRan = ns.DB:BackfillFormTags(legacy)
+R.backfillTagged = legacy.groups.essential.spells[1].forms
+    and legacy.groups.essential.spells[1].forms.cat or false
+R.backfillKeptManual = legacy.groups.essential.spells[2].forms.cat
+    and legacy.groups.essential.spells[2].forms.bear or false
+R.backfillLeftUntagged = legacy.groups.essential.spells[3].forms == nil
+R.backfillOnlyOnce = ns.DB:BackfillFormTags(legacy)
+
+-- A non-Druid is untouched, and is not stamped as done -- a Druid alt sharing
+-- the profile still gets the pass later.
+_G.UnitClass = function() return "Rogue", "ROGUE", 4 end
+local rogueProfile = { groups = { essential = { spells = { { spellID = 1082, name = "Claw" } } } } }
+R.backfillSkipsNonDruid = ns.DB:BackfillFormTags(rogueProfile)
+R.backfillLeavesFlagClear = rogueProfile.formTagsApplied == nil
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+
+_G.UnitPowerType = function() return 0, "MANA" end
+ns.DB:GetGroup("essential").spells = formTestSpells
+
 -- Form tags round-trip through export/import.
 ns.DB:GetGroup("essential").spells[3].forms = { cat = true }
 local formExport = ns.Serialization:Export()
@@ -407,6 +483,59 @@ R.highlightCheckboxOn = ns.DB:AreHighlightsEnabled()
 hlCheck:SetChecked(false)
 hlCheck:GetScript("OnClick")(hlCheck)
 R.highlightCheckboxOff = ns.DB:AreHighlightsEnabled()
+
+-- The right-click menu on a tracked icon. It is a free-floating frame owned by
+-- nothing, so what it does on a click, and whether anything ever closes it, is
+-- worth pinning down.
+_G.UnitClass = function() return "Druid", "DRUID", 11 end
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 1082, name = "Claw", rankIndependent = true },
+}
+ns.SpellPicker:Show("cooldowns")
+
+local menuIcon
+for _, section in ipairs({ _G.CDMCSettingsFrame }) do
+    -- The tracked icon is the first button carrying a group key.
+    for _, candidate in ipairs(_G.__frames) do
+        if candidate.cdmcIsIcon and candidate.groupKey == "essential" and candidate.spellID == 1082 then
+            menuIcon = candidate
+        end
+    end
+end
+R.menuIconFound = menuIcon ~= nil
+
+menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
+R.menuOpens = _G.__dropdownOpen
+
+local items = _G.__buildDropdown(_G.CDMCFormMenu)
+local auraItem, catItem
+for _, item in ipairs(items) do
+    if item.text and item.text:find("Track its aura", 1, true) then auraItem = item end
+    if item.text == "Cat" then catItem = item end
+end
+R.menuHasAura = auraItem ~= nil
+R.menuHasForms = catItem ~= nil
+
+-- The aura toggle is a single decision: it applies and the menu closes.
+auraItem.func()
+R.menuAuraApplied = ns.DB:GetGroup("essential").spells[1].trackDebuff == true
+R.menuClosesAfterAura = _G.__dropdownOpen
+
+-- Form ticks are picked in combination, so that one stays open -- and repaints,
+-- since toggling one form changes what the others show.
+menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
+_G.__buildDropdown(_G.CDMCFormMenu)
+local before = _G.__dropdownRefreshed
+catItem.func()
+R.menuStaysOpenForForms = _G.__dropdownOpen
+R.menuRepaintsForms = _G.__dropdownRefreshed > before
+
+-- Nothing else closes it, so the picker has to: hiding the window must not
+-- leave a menu floating over the game world.
+ns.SpellPicker:Hide()
+R.menuClosedWithPicker = _G.__dropdownOpen
+ns.SpellPicker:Show("cooldowns")
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 
 -- Every tab must render. A panel tab builds its own widgets instead of spell
 -- sections, so a mistake there throws rather than looking merely empty.
@@ -954,6 +1083,21 @@ def run(with_art):
     check("druid form moonkin shows moonkin + untagged", results["formMoonkin"], "1126,5176")
     check("non-druid ignores form tags", results["formNonDruid"], "1082,1126,5176,6807")
     check("form tags round-trip", results["formRoundTrip"], True)
+    check("core event handler reachable", results["eventHandlerFound"], True)
+    check("cat ability tagged by default", results["defaultTagCat"], True)
+    check("bear ability tagged by default", results["defaultTagBear"], True)
+    check("caster spell left untagged", results["defaultTagCaster"], True)
+    check("each entry gets its own tag table", results["defaultTagCopies"], True)
+    check("shapeshift event shows cat set", results["shiftToCat"], "1082,1126")
+    check("shapeshift event shows bear set", results["shiftToBear"], "1126,6807")
+    check("shapeshift event shows caster set", results["shiftToCaster"], "1126")
+    check("backfill runs for a druid", results["backfillRan"], True)
+    check("backfill tags an untagged ability", results["backfillTagged"], True)
+    check("backfill keeps hand-set tags", results["backfillKeptManual"], True)
+    check("backfill leaves unlisted spells alone", results["backfillLeftUntagged"], True)
+    check("backfill runs only once", results["backfillOnlyOnce"], False)
+    check("backfill skips a non-druid", results["backfillSkipsNonDruid"], False)
+    check("backfill leaves a non-druid unflagged", results["backfillLeavesFlagClear"], True)
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)
@@ -968,6 +1112,15 @@ def run(with_art):
     check("edit panel opens", results["panelShown"], True)
     check("highlight checkbox enables", results["highlightCheckboxOn"], True)
     check("highlight checkbox disables", results["highlightCheckboxOff"], False)
+    check("tracked icon found for the menu", results["menuIconFound"], True)
+    check("right-click opens the entry menu", results["menuOpens"], True)
+    check("menu offers aura tracking", results["menuHasAura"], True)
+    check("menu offers form tags for a druid", results["menuHasForms"], True)
+    check("aura toggle applies", results["menuAuraApplied"], True)
+    check("menu closes after the aura toggle", results["menuClosesAfterAura"], False)
+    check("menu stays open for form ticks", results["menuStaysOpenForForms"], True)
+    check("form ticks repaint the menu", results["menuRepaintsForms"], True)
+    check("closing the picker closes the menu", results["menuClosedWithPicker"], False)
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")
