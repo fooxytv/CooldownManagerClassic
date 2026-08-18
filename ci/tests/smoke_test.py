@@ -537,6 +537,74 @@ R.menuClosedWithPicker = _G.__dropdownOpen
 ns.SpellPicker:Show("cooldowns")
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 
+-- Picker restyle (#40): sections roll up under their header, and the state has
+-- to survive a reload -- so it lives in the global table, not the profile.
+ns.SpellPicker:Show("cooldowns")
+local pickerFrame = _G.CDMCSettingsFrame
+
+local function SectionByLabel(label)
+    for _, candidate in ipairs(_G.__frames) do
+        if candidate.cdmcIsSection and candidate.label and candidate.label:GetText() == label
+            and candidate:IsShown()
+        then
+            return candidate
+        end
+    end
+end
+
+local essentialSection = SectionByLabel("Essential Cooldowns")
+R.sectionHasHeader = essentialSection ~= nil and essentialSection.header ~= nil
+R.sectionExpandedHeight = essentialSection:GetHeight() > 30
+
+essentialSection.toggle:GetScript("OnClick")(essentialSection.toggle)
+local collapsedSection = SectionByLabel("Essential Cooldowns")
+R.sectionCollapsedHeight = collapsedSection:GetHeight()
+R.collapseStored = ns.DB:GetGlobal().collapsedSections["cooldowns:essential"] == true
+-- Collapsed sections draw no icons at all, so a rolled-up Not Displayed is free.
+R.collapsedDrawsNoIcons = #collapsedSection.buttons
+
+-- Switching tab and back keeps it rolled up.
+ns.SpellPicker:Show("buffs")
+ns.SpellPicker:Show("cooldowns")
+R.collapseSurvivesTab = SectionByLabel("Essential Cooldowns"):GetHeight() == R.sectionCollapsedHeight
+
+collapsedSection = SectionByLabel("Essential Cooldowns")
+collapsedSection.header:GetScript("OnClick")(collapsedSection.header)
+R.headerClickExpands = ns.DB:GetGlobal().collapsedSections["cooldowns:essential"] == nil
+
+-- The bar section previews its entries as bars rather than as a grid of icons.
+local barSection = SectionByLabel("Cooldown Bars")
+R.barSectionFound = barSection ~= nil
+local barButton = barSection.buttons[1]
+R.barPreviewShown = barButton ~= nil and barButton.plate:IsShown() or false
+R.barPreviewName = barButton and barButton.plateText:GetText() or ""
+-- Essential is a grid section and has an entry by this point, so it is the
+-- comparison: same button pool, no plate.
+local iconSection = SectionByLabel("Essential Cooldowns")
+local iconButton = iconSection.buttons[1]
+R.gridSectionHasEntries = iconButton ~= nil
+R.gridHasNoPlate = iconButton ~= nil and not iconButton.plate:IsShown()
+
+-- The cog carries what the restyle displaced, and the ID box is hidden until
+-- asked for.
+R.addRowHiddenByDefault = pickerFrame.addRow:IsShown()
+ns.SpellPicker.ShowCogMenu(pickerFrame.cog)
+local cogItems = _G.__buildDropdown(_G.CDMCPickerCogMenu)
+local addItem, shareItem
+for _, item in ipairs(cogItems) do
+    if item.text == "Add spell by ID" then addItem = item end
+    if item.text == "Share profile" then shareItem = item end
+end
+R.cogHasAddID = addItem ~= nil
+R.cogHasShare = shareItem ~= nil
+addItem.func()
+R.addRowShownFromCog = pickerFrame.addRow:IsShown()
+addItem.func()
+R.addRowTogglesOff = pickerFrame.addRow:IsShown()
+
+-- The bottom strip names the profile everything on screen belongs to.
+R.profileDropdownBuilt = pickerFrame.profileDropdown ~= nil
+
 -- Every tab must render. A panel tab builds its own widgets instead of spell
 -- sections, so a mistake there throws rather than looking merely empty.
 ns.SpellPicker:Show("profiles")
@@ -1121,6 +1189,24 @@ def run(with_art):
     check("menu stays open for form ticks", results["menuStaysOpenForForms"], True)
     check("form ticks repaint the menu", results["menuRepaintsForms"], True)
     check("closing the picker closes the menu", results["menuClosedWithPicker"], False)
+    check("section has a header bar", results["sectionHasHeader"], True)
+    check("expanded section is full height", results["sectionExpandedHeight"], True)
+    check("collapsed section is header-only", results["sectionCollapsedHeight"], 24)
+    check("collapse state is stored globally", results["collapseStored"], True)
+    check("collapsed section draws no icons", results["collapsedDrawsNoIcons"], 0)
+    check("collapse survives a tab switch", results["collapseSurvivesTab"], True)
+    check("clicking the header expands again", results["headerClickExpands"], True)
+    check("bar section found", results["barSectionFound"], True)
+    check("bar section previews a bar", results["barPreviewShown"], True)
+    check("bar preview is named", results["barPreviewName"], "Maelstrom Weapon")
+    check("grid section has an entry to compare", results["gridSectionHasEntries"], True)
+    check("grid sections have no bar plate", results["gridHasNoPlate"], True)
+    check("ID entry hidden by default", results["addRowHiddenByDefault"], False)
+    check("cog offers add-by-ID", results["cogHasAddID"], True)
+    check("cog offers share profile", results["cogHasShare"], True)
+    check("cog reveals the ID entry", results["addRowShownFromCog"], True)
+    check("cog toggles the ID entry off", results["addRowTogglesOff"], False)
+    check("profile dropdown built", results["profileDropdownBuilt"], True)
     check("profiles tab renders", results["profilesTabShown"], True)
     check("media font fallback", results["mediaFontFallback"], "FALLBACK.ttf")
     check("media bar fallback", results["mediaBarFallback"], "FALLBACK.tga")

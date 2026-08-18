@@ -9,12 +9,21 @@ local Compat = ns.Compat
 local SpellPicker = {}
 ns.SpellPicker = SpellPicker
 
+-- Metrics follow Retail's Cooldown Settings frame (#40): fewer icons per row and
+-- more air between them than the ten-wide grid this started as.
 local ICON_SIZE = 36
-local ICON_GAP = 4
-local ICONS_PER_ROW = 10
-local SECTION_HEADER_HEIGHT = 20
-local SECTION_GAP = 10
+local ICON_GAP = 6
+local ICONS_PER_ROW = 7
+local SECTION_HEADER_HEIGHT = 24
+local SECTION_GAP = 8
 local CONTENT_WIDTH = ICONS_PER_ROW * (ICON_SIZE + ICON_GAP)
+
+-- Sections roll up under their header. Blizzard's own plus/minus art, which has
+-- been in the client since vanilla, so nothing here needs an atlas probe.
+local COLLAPSE_TEXTURES = {
+    expanded  = "Interface\\Buttons\\UI-MinusButton-Up",
+    collapsed = "Interface\\Buttons\\UI-PlusButton-Up",
+}
 
 -- The "Not Displayed" bucket has no group key: dropping into it removes the
 -- spell from whichever group it was in.
@@ -486,6 +495,21 @@ local function CreateIconButton(parent)
     button.formText:SetTextColor(0.4, 0.8, 1)
     button.formText:Hide()
 
+    -- Bar sections preview how the entry will actually draw -- an icon with a
+    -- named bar beside it -- instead of showing another square in a grid, which
+    -- said nothing about what that section does. Hidden everywhere else.
+    button.plate = button:CreateTexture(nil, "BACKGROUND")
+    button.plate:SetPoint("TOPLEFT", button, "TOPRIGHT", ICON_GAP, -2)
+    button.plate:SetHeight(ICON_SIZE - 4)
+    button.plate:SetColorTexture(0.85, 0.45, 0.15, 0.85)
+    button.plate:Hide()
+
+    button.plateText = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    button.plateText:SetPoint("LEFT", button.plate, "LEFT", 6, 0)
+    button.plateText:SetPoint("RIGHT", button.plate, "RIGHT", -6, 0)
+    button.plateText:SetJustifyH("LEFT")
+    button.plateText:Hide()
+
     -- Aura-tracking badge, opposite corner, shown when the entry is followed by
     -- the aura it leaves rather than its cooldown.
     button.dotText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -550,25 +574,90 @@ local function ReleaseButton(button)
     button.entry = nil
     if button.formText then button.formText:Hide() end
     if button.dotText then button.dotText:Hide() end
+    if button.plate then button.plate:Hide() end
+    if button.plateText then button.plateText:Hide() end
     buttonPool[#buttonPool + 1] = button
 end
 
 local sectionPool = {}
 local activeSections = {}
 
+-- Collapse state is per tab and section, and lives in the global table rather
+-- than the profile: it is how the window is arranged, not part of a layout, so
+-- switching profile should not throw every section back open.
+local function SectionKey(definition)
+    return currentTab .. ":" .. (definition.key or "notDisplayed")
+end
+
+local function IsSectionCollapsed(definition)
+    local global = ns.DB:GetGlobal()
+    local collapsed = global and global.collapsedSections
+    return collapsed ~= nil and collapsed[SectionKey(definition)] == true
+end
+
+local function SetSectionCollapsed(definition, collapsed)
+    local global = ns.DB:GetGlobal()
+    if not global then return end
+    global.collapsedSections = global.collapsedSections or {}
+    -- nil rather than false, so the table only ever holds what is rolled up.
+    global.collapsedSections[SectionKey(definition)] = collapsed or nil
+end
+
 local function CreateSection(parent)
     local section = CreateFrame("Frame", nil, parent)
     section:SetWidth(CONTENT_WIDTH)
     section:EnableMouse(true)
 
+    -- A raised header bar rather than the bare text label this had: the name on
+    -- the left, how many entries on the right, and a toggle that rolls the
+    -- section up. Built from plain colour textures, so there is no atlas to be
+    -- missing on Classic Era.
+    local header = CreateFrame("Button", nil, section)
+    header:SetPoint("TOPLEFT", 0, 0)
+    header:SetPoint("TOPRIGHT", 0, 0)
+    header:SetHeight(SECTION_HEADER_HEIGHT)
+    section.header = header
+
+    header.bg = header:CreateTexture(nil, "BACKGROUND")
+    header.bg:SetAllPoints()
+    header.bg:SetColorTexture(0.13, 0.13, 0.16, 0.95)
+
+    header.edge = header:CreateTexture(nil, "BORDER")
+    header.edge:SetPoint("BOTTOMLEFT", 0, 0)
+    header.edge:SetPoint("BOTTOMRIGHT", 0, 0)
+    header.edge:SetHeight(1)
+    header.edge:SetColorTexture(0, 0, 0, 0.9)
+
+    header:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+
+    section.label = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    section.label:SetPoint("LEFT", 8, 0)
+    section.label:SetTextColor(1, 0.82, 0)
+
+    section.count = header:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    section.count:SetPoint("RIGHT", -28, 0)
+
+    local toggle = CreateFrame("Button", nil, header)
+    toggle:SetSize(16, 16)
+    toggle:SetPoint("RIGHT", -6, 0)
+    toggle:SetNormalTexture(COLLAPSE_TEXTURES.expanded)
+    section.toggle = toggle
+
+    local function ToggleSection()
+        -- Mid-drag the header is a drop target, not a button: rolling the
+        -- section up under the cursor would drop the icon into nothing.
+        if drag or not section.definition then return end
+        SetSectionCollapsed(section.definition, not IsSectionCollapsed(section.definition))
+        SpellPicker:Refresh()
+    end
+
+    toggle:SetScript("OnClick", ToggleSection)
+    header:SetScript("OnClick", ToggleSection)
+
     section.bg = section:CreateTexture(nil, "BACKGROUND")
     section.bg:SetPoint("TOPLEFT", 0, -SECTION_HEADER_HEIGHT)
     section.bg:SetPoint("BOTTOMRIGHT", 0, 0)
     section.bg:SetColorTexture(0, 0, 0, 0.25)
-
-    section.label = section:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    section.label:SetPoint("TOPLEFT", 2, -4)
-    section.label:SetTextColor(1, 0.82, 0)
 
     -- Marked so ResolveDrop can find it by walking up from the cursor target;
     -- dropping on the section background appends to the end of that group.
@@ -601,13 +690,32 @@ local function BuildSection(parent, definition, entries, yOffset)
     local section = table.remove(sectionPool) or CreateSection(parent)
     section:SetParent(parent)
     section.groupKey = definition.key
+    section.definition = definition
     section.label:SetText(definition.label)
+    section.count:SetText(#entries > 0 and tostring(#entries) or "")
     section:ClearAllPoints()
     section:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -yOffset)
     section:Show()
     activeSections[#activeSections + 1] = section
 
-    local rows = math.max(1, math.ceil(#entries / ICONS_PER_ROW))
+    -- Rolled up: the header alone, and none of the icons are acquired, so a
+    -- collapsed Not Displayed costs nothing to draw.
+    local collapsed = IsSectionCollapsed(definition)
+    section.toggle:SetNormalTexture(collapsed and COLLAPSE_TEXTURES.collapsed
+        or COLLAPSE_TEXTURES.expanded)
+    section.bg:SetShown(not collapsed)
+
+    if collapsed then
+        section:SetHeight(SECTION_HEADER_HEIGHT)
+        return SECTION_HEADER_HEIGHT
+    end
+
+    -- A duration-bar group draws as bars in game, so it previews as one bar per
+    -- row here rather than as another grid of squares, which said nothing about
+    -- what that section is for.
+    local isBarSection = definition.key ~= nil and Const.DURATION_BAR_GROUPS[definition.key]
+    local rows = isBarSection and math.max(1, #entries)
+        or math.max(1, math.ceil(#entries / ICONS_PER_ROW))
     local height = SECTION_HEADER_HEIGHT + rows * (ICON_SIZE + ICON_GAP) + ICON_GAP
     section:SetHeight(height)
 
@@ -637,12 +745,25 @@ local function BuildSection(parent, definition, entries, yOffset)
 
         button.dotText:SetShown(definition.key ~= nil and entry.trackDebuff == true)
 
-        local column = (index - 1) % ICONS_PER_ROW
-        local row = math.floor((index - 1) / ICONS_PER_ROW)
+        -- Inset from the header and the section edge, so the grid sits inside
+        -- the panel rather than flush against it.
+        local column = isBarSection and 0 or (index - 1) % ICONS_PER_ROW
+        local row = isBarSection and (index - 1)
+            or math.floor((index - 1) / ICONS_PER_ROW)
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", section, "TOPLEFT",
-            column * (ICON_SIZE + ICON_GAP),
-            -(SECTION_HEADER_HEIGHT + row * (ICON_SIZE + ICON_GAP)))
+            ICON_GAP / 2 + column * (ICON_SIZE + ICON_GAP),
+            -(SECTION_HEADER_HEIGHT + ICON_GAP / 2 + row * (ICON_SIZE + ICON_GAP)))
+
+        if isBarSection then
+            button.plate:SetWidth(CONTENT_WIDTH - ICON_SIZE - ICON_GAP * 2)
+            button.plateText:SetText(name or "")
+            button.plate:Show()
+            button.plateText:Show()
+        else
+            button.plate:Hide()
+            button.plateText:Hide()
+        end
 
         -- Search dims rather than filters, so an icon never moves under the
         -- cursor while you are typing.
@@ -1114,6 +1235,49 @@ local function SetDialogPortrait(dialog, texture)
     end
 end
 
+-- The cog beside the search box. Holds what the restyle displaced: manual ID
+-- entry, which had a labelled box in the most prominent spot on the frame for
+-- something used once in a while, and profile sharing, which had a permanent
+-- button on the bottom bar.
+local cogMenu
+local function ShowCogMenu(anchor)
+    if not cogMenu then
+        cogMenu = CreateFrame("Frame", "CDMCPickerCogMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+
+    CloseEntryMenu()
+
+    UIDropDownMenu_Initialize(cogMenu, function()
+        local addRow = frame and frame.addRow
+
+        local add = UIDropDownMenu_CreateInfo()
+        add.text = "Add spell by ID"
+        add.isNotRadio = true
+        add.checked = addRow ~= nil and addRow:IsShown()
+        add.func = function()
+            if addRow then
+                local showing = not addRow:IsShown()
+                addRow:SetShown(showing)
+                if showing and frame.addBox then frame.addBox:SetFocus() end
+            end
+            CloseDropDownMenus()
+        end
+        UIDropDownMenu_AddButton(add)
+
+        local share = UIDropDownMenu_CreateInfo()
+        share.text = "Share profile"
+        share.notCheckable = true
+        share.func = function()
+            CloseDropDownMenus()
+            ns.ProfileShare:ShowExport()
+        end
+        UIDropDownMenu_AddButton(share)
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, cogMenu, anchor, 0, 0)
+end
+SpellPicker.ShowCogMenu = ShowCogMenu
+
 local function CreateFrameOnce()
     if frame then return frame end
 
@@ -1204,20 +1368,52 @@ local function CreateFrameOnce()
         previousTab = tab
     end
 
-    local search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    search:SetSize(180, 18)
+    -- SearchBoxTemplate carries the magnifier, the placeholder and a clear
+    -- button, which is what Retail's frame shows. It is not guaranteed on every
+    -- Classic build, so the plain input box stays as the fallback.
+    local search
+    local ok, built = pcall(CreateFrame, "EditBox", nil, frame, "SearchBoxTemplate")
+    if ok and built then
+        search = built
+        if search.Instructions then
+            search.Instructions:SetText("Enter search text")
+        end
+    else
+        search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    end
+
+    search:SetSize(CONTENT_WIDTH - 40, 20)
     -- Kept clear of the portrait, which overhangs the top-left corner.
-    search:SetPoint("TOPLEFT", 78, -36)
+    search:SetPoint("TOPLEFT", 72, -34)
     search:SetAutoFocus(false)
-    search:SetScript("OnTextChanged", function(self)
+    -- Hooked, not set: SearchBoxTemplate's own handlers drive the clear button
+    -- and the placeholder, and replacing them leaves both stuck.
+    search:HookScript("OnTextChanged", function(self)
         searchText = self:GetText() or ""
         SpellPicker:Refresh()
     end)
-    search:SetScript("OnEscapePressed", function(self)
+    search:HookScript("OnEscapePressed", function(self)
         self:SetText("")
         self:ClearFocus()
     end)
     frame.search = search
+
+    -- The cog beside the search, holding what used to sit on the frame itself:
+    -- manual ID entry and profile sharing. Both are occasional, and both were
+    -- taking prime space at the top and bottom of the window.
+    local cog = CreateFrame("Button", nil, frame)
+    cog:SetSize(20, 20)
+    cog:SetPoint("LEFT", search, "RIGHT", 6, 0)
+    cog:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+    cog:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    cog:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("More")
+        GameTooltip:Show()
+    end)
+    cog:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    cog:SetScript("OnClick", function(self) ShowCogMenu(self) end)
+    frame.cog = cog
 
     local anchor = frame.Inset or frame
     local scroll = CreateFrame("ScrollFrame", "CDMCSettingsScroll", frame, "UIPanelScrollFrameTemplate")
@@ -1230,21 +1426,32 @@ local function CreateFrameOnce()
     scroll:SetScrollChild(content)
     frame.content = content
 
-    -- The bottom strip ButtonFrameTemplate reserves is where Blizzard puts
-    -- Save, so the buttons go there rather than floating over the inset.
-    local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    save:SetSize(100, 22)
-    save:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 4)
-    save:SetText("Done")
-    save:SetScript("OnClick", function()
-        -- Edits already committed; this just closes the dialog.
-        SpellPicker:Hide()
+    -- Bottom strip: the profile in use on the left and Revert on the right, as
+    -- Retail's frame has it. Done is gone -- edits commit as they happen, so it
+    -- only ever closed the window, which the frame's own close button does.
+    local profileDropdown = CreateFrame("Frame", "CDMCPickerProfile", frame, "UIDropDownMenuTemplate")
+    profileDropdown:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", -4, 0)
+    UIDropDownMenu_SetWidth(profileDropdown, 120)
+    UIDropDownMenu_Initialize(profileDropdown, function()
+        for _, name in ipairs(ns.DB:ListProfiles()) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = name
+            info.checked = (name == ns.DB:GetCurrentProfileName())
+            info.func = function()
+                -- SetProfile drives Core:OnProfileChanged, so the groups and
+                -- bars follow; the picker only has to redraw itself.
+                ns.DB:SetProfile(name)
+                CloseDropDownMenus()
+                SpellPicker:Refresh()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
     end)
-    frame.saveButton = save
+    frame.profileDropdown = profileDropdown
 
     local revert = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     revert:SetSize(100, 22)
-    revert:SetPoint("RIGHT", save, "LEFT", -6, 0)
+    revert:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 4)
     revert:SetText("Revert")
     revert:SetScript("OnClick", function()
         RestoreOpenSnapshot()
@@ -1252,39 +1459,41 @@ local function CreateFrameOnce()
     end)
     frame.revertButton = revert
 
-    local share = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    share:SetSize(100, 22)
-    share:SetPoint("RIGHT", revert, "LEFT", -6, 0)
-    share:SetText("Share Profile")
-    share:SetScript("OnClick", function()
-        ns.ProfileShare:ShowExport()
-    end)
-    frame.shareButton = share
-
     -- Manual ID entry, for auras that appear nowhere the picker can find them.
-    local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    addLabel:SetPoint("TOPLEFT", search, "TOPRIGHT", 14, -2)
+    -- Hidden until asked for from the cog: it is a rare thing to need, and it
+    -- was taking the space beside the search box.
+    local addRow = CreateFrame("Frame", nil, frame)
+    addRow:SetSize(CONTENT_WIDTH, 20)
+    addRow:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -4)
+    addRow:Hide()
+    frame.addRow = addRow
+
+    local addLabel = addRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    addLabel:SetPoint("LEFT", 2, 0)
     addLabel:SetText("Add ID:")
 
-    local addBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    addBox:SetSize(70, 18)
-    addBox:SetPoint("LEFT", addLabel, "RIGHT", 10, 0)
+    local addBox = CreateFrame("EditBox", nil, addRow, "InputBoxTemplate")
+    addBox:SetSize(80, 18)
+    addBox:SetPoint("LEFT", addLabel, "RIGHT", 12, 0)
     addBox:SetAutoFocus(false)
     addBox:SetNumeric(true)
     addBox:SetScript("OnEnterPressed", function(self)
         SpellPicker:AddByID(tonumber(self:GetText()))
         self:SetText("")
         self:ClearFocus()
+        addRow:Hide()
     end)
     addBox:SetScript("OnEscapePressed", function(self)
         self:SetText("")
         self:ClearFocus()
+        addRow:Hide()
     end)
     frame.addBox = addBox
 
-    -- Kept short: the bottom strip also carries three buttons.
+    -- Centred between the profile dropdown and Revert, which is all the room
+    -- the strip has left.
     frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 10)
+    frame.hint:SetPoint("BOTTOM", frame, "BOTTOM", 0, 10)
     frame.hint:SetText("Drag icons to move.")
 
     return frame
@@ -1350,11 +1559,16 @@ function SpellPicker:Refresh()
 
     ReleaseSections()
 
-    -- Search and Save/Revert only mean anything on the spell tabs.
+    -- Search, the cog and Revert only mean anything on the spell tabs. The
+    -- profile dropdown is shown throughout: it says which profile everything on
+    -- screen belongs to, which matters most on the Profiles tab.
     local isPanel = PANEL_TABS[currentTab] or false
     frame.search:SetShown(not isPanel)
-    frame.saveButton:SetShown(not isPanel)
+    frame.cog:SetShown(not isPanel)
     frame.revertButton:SetShown(not isPanel)
+    if isPanel then frame.addRow:Hide() end
+
+    UIDropDownMenu_SetText(frame.profileDropdown, ns.DB:GetCurrentProfileName() or "Default")
 
     if currentTab == "profiles" then
         HideOptions()

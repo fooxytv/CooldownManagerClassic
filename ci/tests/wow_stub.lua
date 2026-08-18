@@ -74,6 +74,8 @@ local backdropMethods = {
 -- would have left nil.
 local FIELD_KEYS = {
     Selection = true,
+    -- SearchBoxTemplate's placeholder font string.
+    Instructions = true,
 }
 
 setmetatable(Widget, {
