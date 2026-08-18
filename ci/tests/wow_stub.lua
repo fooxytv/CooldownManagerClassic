@@ -53,9 +53,31 @@ end
 -- implement, and anything else stays nil -- which is what an absent child
 -- widget looks like in the real client, and what the addon's `if frame.overlay
 -- then` guards are testing for.
+-- Backdrops are conditional, unlike everything else the metatable makes up: the
+-- addon tests for SetBackdrop's presence, because a plain frame on a modern
+-- client has none. __setBackdropPresent(false) takes the methods away so the
+-- solid-border fallback is exercised too.
+_G.__backdropAvailable = true
+_G.__setBackdropPresent = function(present)
+    _G.__backdropAvailable = present and true or false
+end
+
+local backdropMethods = {
+    SetBackdrop = function(self, backdrop) self.__backdrop = backdrop end,
+    SetBackdropColor = function(self, r, g, b, a) self.__backdropColor = { r, g, b, a } end,
+    SetBackdropBorderColor = function(self, r, g, b, a) self.__backdropBorder = { r, g, b, a } end,
+}
+
 setmetatable(Widget, {
     __index = function(_, key)
         if type(key) ~= "string" then return nil end
+
+        local backdrop = backdropMethods[key]
+        if backdrop then
+            if not _G.__backdropAvailable then return nil end
+            return backdrop
+        end
+
         local first = key:sub(1, 1)
         if first ~= first:upper() or first == "_" then return nil end
         return function(...)
@@ -121,9 +143,14 @@ end
 -- FontString
 function Widget:SetText(text) self.__text = text end
 function Widget:GetText() return self.__text end
-function Widget:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "" end
-function Widget:SetFont(file, size, flags) self.__fontSize = size end
-function Widget:SetFontObject(object) self.__font = object end
+function Widget:GetFont() return self.__fontFile or "Fonts\\FRIZQT__.TTF", self.__fontSize or 12, self.__fontFlags or "" end
+function Widget:SetFont(file, size, flags) self.__fontFile, self.__fontSize, self.__fontFlags = file, size, flags end
+-- Clears what SetFont put there, as the real API does: the object supplies the
+-- file, size and flags again until something overrides them.
+function Widget:SetFontObject(object)
+    self.__font = object
+    self.__fontFile, self.__fontSize, self.__fontFlags = nil, nil, nil
+end
 
 -- StatusBar
 function Widget:SetMinMaxValues(min, max) self.__min, self.__max = min, max end
@@ -177,6 +204,29 @@ _G.CreateFrame = function(kind, name, parent, template)
     return frame
 end
 
+-- The colour picker in its modern shape (SetupColorPickerAndShow). Real methods
+-- rather than the metatable's no-ops, so a test can open it, move the colour and
+-- fire the callback the addon handed it.
+local colorPicker = newWidget("Frame", "ColorPickerFrame")
+colorPicker.__color = { 1, 1, 1, 1 }
+colorPicker.SetColorRGB = function(self, r, g, b)
+    self.__color[1], self.__color[2], self.__color[3] = r, g, b
+end
+colorPicker.GetColorRGB = function(self)
+    return self.__color[1], self.__color[2], self.__color[3]
+end
+colorPicker.GetColorAlpha = function(self) return self.__color[4] end
+colorPicker.SetupColorPickerAndShow = function(self, info)
+    self.__info = info
+    self.__color = { info.r, info.g, info.b, info.opacity or 1 }
+    self.__shown = true
+end
+_G.ColorPickerFrame = colorPicker
+
+-- Frames only inherit BackdropTemplate where the mixin exists; Compat reads this
+-- to decide whether to pass the template to CreateFrame at all.
+_G.BackdropTemplateMixin = {}
+
 _G.UIParent = newWidget("Frame", "UIParent")
 _G.GameTooltip = newWidget("GameTooltip", "GameTooltip")
 _G.DEFAULT_CHAT_FRAME = newWidget("Frame", "DEFAULT_CHAT_FRAME")
@@ -186,7 +236,7 @@ _G.DEFAULT_CHAT_FRAME = newWidget("Frame", "DEFAULT_CHAT_FRAME")
 --------------------------------------------------------------------------------
 
 for _, font in ipairs({
-    "GameFontNormal", "GameFontNormalSmall", "GameFontHighlight",
+    "GameFontNormal", "GameFontNormalSmall", "GameFontHighlight", "GameFontHighlightSmall",
     "GameFontHighlightOutline", "GameFontHighlightHugeOutline",
     "NumberFontNormal", "NumberFontNormalSmall", "NumberFontNormalHuge",
 }) do

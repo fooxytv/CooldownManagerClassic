@@ -96,6 +96,15 @@ Const.DEFAULT_BAR_APPEARANCE = {
     -- API and nothing Retail-only is required.
     borderSize = 1,
     borderColor = "0,0,0,1",
+    -- LibSharedMedia border name, "" meaning the solid edges above. Edge art
+    -- needs the backdrop API, so a client without it falls back to solid.
+    borderTexture = "",
+    -- Overrides the fill colour the resource picks for itself. "" leaves it be.
+    fillColor = "",
+    -- Value text: a LibSharedMedia font name ("" = the built-in face) and the
+    -- SetFont outline flags ("" = none); see FONT_OUTLINE_OPTIONS.
+    fontFace = "",
+    fontOutline = "",
     -- Class-resource ("combo") bar only: "pips" (discrete blocks) or "ticks" (a
     -- continuous fill divided by tick marks).
     segmentStyle = "pips",
@@ -119,6 +128,22 @@ function Const.UnpackColor(str, dr, dg, db, da)
     end
     return dr, dg, db, da
 end
+
+-- The inverse of UnpackColor, for the colour pickers. Fixed precision so the
+-- same colour always writes the same string -- export strings stay stable -- and
+-- so the result always matches UnpackColor's pattern.
+function Const.PackColor(r, g, b, a)
+    return ("%.3f,%.3f,%.3f,%.3f"):format(r or 0, g or 0, b or 0, a == nil and 1 or a)
+end
+
+-- SetFont's flag string. Passed through verbatim, so "" really is "no outline"
+-- rather than "leave the font object's flags alone".
+Const.FONT_OUTLINE_OPTIONS = {
+    { value = "",                    label = "None" },
+    { value = "OUTLINE",             label = "Outline" },
+    { value = "THICKOUTLINE",        label = "Thick Outline" },
+    { value = "OUTLINE, MONOCHROME", label = "Outline (Sharp)" },
+}
 
 -- Render style for the class-resource bar's segmented sources.
 Const.BAR_SEGMENT_OPTIONS = {

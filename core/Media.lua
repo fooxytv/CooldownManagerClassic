@@ -4,6 +4,10 @@ local addonName, ns = ...
 -- or bar texture by name and get a usable path, with a graceful fallback when
 -- the library is absent (the headless test does not load libs) or the name is
 -- not registered.
+--
+-- Media types used here: "font", "statusbar" and "border". A border is an edge
+-- file, which only the backdrop API can draw -- see Compat.SetBorderTexture for
+-- the client without one.
 
 local Media = {}
 ns.Media = Media

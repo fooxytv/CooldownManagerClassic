@@ -523,15 +523,121 @@ ns.DB:GetBar("combo").appearance.segmentStyle = "pips"
 _G.GetComboPoints = function() return 0 end
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 
+-- Border art (#38): a LibSharedMedia border draws through the backdrop API when
+-- the client has one, and falls back to the solid edges when it does not. The
+-- library is absent under the stub, so the fetch is stood in for -- what is under
+-- test is the rendering path, not LSM itself.
+local realFetch = ns.Media.Fetch
+ns.Media.Fetch = function(mediatype, key, fallback)
+    if mediatype == "border" and key == "Chunky" then
+        return "Interface/Test/ChunkyBorder"
+    end
+    return realFetch(mediatype, key, fallback)
+end
+
+ns.DB:GetBar("power").appearance.borderSize = 2
+ns.DB:GetBar("power").appearance.borderTexture = "Chunky"
+styleBar:Layout()
+R.borderEdgeFile = styleBar.borderFrame.__backdrop and styleBar.borderFrame.__backdrop.edgeFile
+R.borderFrameShown = styleBar.borderFrame:IsShown()
+R.borderSolidHiddenWithArt = styleBar.borders.top:IsShown()
+
+-- An unknown border name is not art: the solid edges come back rather than the
+-- bar losing its border altogether.
+ns.DB:GetBar("power").appearance.borderTexture = "Not Registered"
+styleBar:Layout()
+R.borderUnknownFallsBack = styleBar.borders.top:IsShown()
+
+-- No backdrop API (Classic Era may ship without it): same fallback, no error.
+ns.DB:GetBar("power").appearance.borderTexture = "Chunky"
+_G.__setBackdropPresent(false)
+styleBar:Layout()
+R.borderNoBackdropFallsBack = styleBar.borders.top:IsShown()
+R.borderFrameHiddenNoBackdrop = styleBar.borderFrame:IsShown()
+_G.__setBackdropPresent(true)
+
+ns.Media.Fetch = realFetch
+ns.DB:GetBar("power").appearance.borderTexture = ""
+
+-- Fill colour override: pinned, the bar draws it instead of the power colour.
+ns.DB:GetBar("power").appearance.fillColor = "1,0,0,1"
+styleBar:Update()
+R.fillOverride = ("%.2f/%.2f/%.2f"):format(styleBar.statusBar.__barColor[1],
+    styleBar.statusBar.__barColor[2], styleBar.statusBar.__barColor[3])
+ns.DB:GetBar("power").appearance.fillColor = ""
+styleBar:Update()
+R.fillAuto = ("%.2f/%.2f/%.2f"):format(styleBar.statusBar.__barColor[1],
+    styleBar.statusBar.__barColor[2], styleBar.statusBar.__barColor[3])
+
+-- Font outline: the flags reach SetFont, and "" really means none.
+ns.DB:GetBar("power").appearance.fontOutline = "THICKOUTLINE"
+styleBar:Layout()
+R.fontOutline = styleBar.text.__fontFlags
+ns.DB:GetBar("power").appearance.fontOutline = ""
+styleBar:Layout()
+R.fontOutlineNone = styleBar.text.__fontFlags
+
+-- A chosen face, then back to Default: the built-in font has to return, which it
+-- only does because the font object is re-applied before the face is read.
+local realFontFetch = ns.Media.Fetch
+ns.Media.Fetch = function(mediatype, key, fallback)
+    if mediatype == "font" and key == "Blocky" then return "Interface/Test/Blocky.ttf" end
+    return realFontFetch(mediatype, key, fallback)
+end
+ns.DB:GetBar("power").appearance.fontFace = "Blocky"
+styleBar:Layout()
+R.fontFaceApplied = styleBar.text.__fontFile
+ns.DB:GetBar("power").appearance.fontFace = ""
+styleBar:Layout()
+R.fontFaceDefault = styleBar.text.__fontFile
+ns.Media.Fetch = realFontFetch
+
+-- The colour swatches drive Blizzard's picker and write a packed string back;
+-- right-click puts the default back.
+ns.BarPanel:Show("power")
+local bgSwatch = _G.CDMCBarPanel.bgColor
+bgSwatch:GetScript("OnClick")(bgSwatch, "LeftButton")
+_G.ColorPickerFrame:SetColorRGB(0.2, 0.4, 0.6)
+_G.ColorPickerFrame.__color[4] = 0.8
+_G.ColorPickerFrame.__info.swatchFunc()
+R.swatchWrites = ns.DB:GetBar("power").appearance.bgColor
+
+bgSwatch:GetScript("OnClick")(bgSwatch, "RightButton")
+R.swatchResets = ns.DB:GetBar("power").appearance.bgColor
+
+-- Cancelling restores what was stored, which for the unset fill override is ""
+-- and not the colour the picker was seeded with.
+local fillSwatch = _G.CDMCBarPanel.fillColor
+fillSwatch:GetScript("OnClick")(fillSwatch, "LeftButton")
+_G.ColorPickerFrame:SetColorRGB(1, 1, 0)
+_G.ColorPickerFrame.__info.swatchFunc()
+R.fillSwatchWrites = ns.DB:GetBar("power").appearance.fillColor ~= ""
+_G.ColorPickerFrame.__info.cancelFunc()
+R.fillSwatchCancels = ns.DB:GetBar("power").appearance.fillColor
+ns.BarPanel:Hide()
+
 -- New styling fields round-trip through export/import.
 ns.DB:GetBar("power").appearance.borderSize = 3
 ns.DB:GetBar("power").appearance.bgColor = "0.1,0.2,0.3,0.4"
+ns.DB:GetBar("power").appearance.borderTexture = "Chunky"
+ns.DB:GetBar("power").appearance.fillColor = "0.500,0.250,0.125,1.000"
+ns.DB:GetBar("power").appearance.fontOutline = "OUTLINE"
 ns.DB:GetBar("combo").appearance.segmentStyle = "ticks"
 local styleImport = ns.Serialization:Import(ns.Serialization:Export())
 R.rtBorderSize = styleImport.bars.power.appearance.borderSize
 R.rtBgColor = styleImport.bars.power.appearance.bgColor
 R.rtSegment = styleImport.bars.combo.appearance.segmentStyle
+R.rtBorderTexture = styleImport.bars.power.appearance.borderTexture
+R.rtFillColor = styleImport.bars.power.appearance.fillColor
+R.rtFontOutline = styleImport.bars.power.appearance.fontOutline
 ns.DB:GetBar("combo").appearance.segmentStyle = "pips"
+ns.DB:GetBar("power").appearance.borderTexture = ""
+ns.DB:GetBar("power").appearance.fillColor = ""
+ns.DB:GetBar("power").appearance.fontOutline = ""
+
+-- PackColor is UnpackColor's inverse: what a swatch writes reads back the same.
+R.packRoundTrip = ("%.2f/%.2f/%.2f/%.2f"):format(
+    ns.Constants.UnpackColor(ns.Constants.PackColor(0.25, 0.5, 0.75, 0.6), 0, 0, 0, 0))
 
 R.artMask = ns.Icon.art.mask and true or false
 return R
@@ -715,9 +821,29 @@ def run(with_art):
     check("tick divider count", results["tickCount"], 4)
     check("tick style fills the bar", results["tickFill"], 3)
     check("tick style hides pips", results["tickPipsHidden"], True)
+    check("border art uses the edge file", results["borderEdgeFile"], "Interface/Test/ChunkyBorder")
+    check("border art frame shown", results["borderFrameShown"], True)
+    check("border art replaces the solid edges", results["borderSolidHiddenWithArt"], False)
+    check("unknown border falls back to solid", results["borderUnknownFallsBack"], True)
+    check("no backdrop falls back to solid", results["borderNoBackdropFallsBack"], True)
+    check("no backdrop hides the border frame", results["borderFrameHiddenNoBackdrop"], False)
+    check("fill colour override applies", results["fillOverride"], "1.00/0.00/0.00")
+    check("fill colour returns to the resource's own", results["fillAuto"], "0.00/0.55/1.00")
+    check("font outline applies", results["fontOutline"], "THICKOUTLINE")
+    check("empty outline means none", results["fontOutlineNone"], "")
+    check("font face applies", results["fontFaceApplied"], "Interface/Test/Blocky.ttf")
+    check("font face returns to the built-in", results["fontFaceDefault"], "Fonts\\FRIZQT__.TTF")
+    check("swatch writes a packed colour", results["swatchWrites"], "0.200,0.400,0.600,0.800")
+    check("right-click resets a swatch", results["swatchResets"], "0,0,0,0.5")
+    check("fill swatch pins a colour", results["fillSwatchWrites"], True)
+    check("cancel restores the unset fill", results["fillSwatchCancels"], "")
     check("border size round-trips", results["rtBorderSize"], 3)
     check("bg colour round-trips", results["rtBgColor"], "0.1,0.2,0.3,0.4")
     check("segment style round-trips", results["rtSegment"], "ticks")
+    check("border texture round-trips", results["rtBorderTexture"], "Chunky")
+    check("fill colour round-trips", results["rtFillColor"], "0.500,0.250,0.125,1.000")
+    check("font outline round-trips", results["rtFontOutline"], "OUTLINE")
+    check("packed colour round-trips", results["packRoundTrip"], "0.25/0.50/0.75/0.60")
     check("atlas probe", results["artMask"], with_art)
 
 

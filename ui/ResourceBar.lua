@@ -10,6 +10,9 @@ ns.bars = {}
 
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
+-- The value text's built-in look, and what a font of "Default" goes back to.
+local VALUE_FONT_OBJECT = "GameFontHighlightSmall"
+
 local function GetPowerColor(token)
     local blizzard = _G.PowerBarColor and PowerBarColor[token]
     if blizzard and blizzard.r then
@@ -190,6 +193,16 @@ function Bar.Create(key)
         right  = frame:CreateTexture(nil, "BORDER"),
     }
 
+    -- Carries a LibSharedMedia border texture when one is chosen, which needs a
+    -- backdrop. Created with the template Compat resolved (nil where the client
+    -- has no backdrop API, in which case it simply stays hidden and the solid
+    -- edges above do the work). Kept above the fill so the art is not covered.
+    local borderFrame = CreateFrame("Frame", nil, frame, ns.Compat.backdropTemplate)
+    borderFrame:SetAllPoints()
+    borderFrame:SetFrameLevel((frame:GetFrameLevel() or 1) + 4)
+    borderFrame:Hide()
+    self.borderFrame = borderFrame
+
     -- Created for every bar, but hidden for combo points, which draw as pips.
     local statusBar = CreateFrame("StatusBar", nil, frame)
     statusBar:SetAllPoints()
@@ -210,7 +223,7 @@ function Bar.Create(key)
     -- Tick-mark dividers for the "ticks" segment style, pooled like the pips.
     self.ticks = {}
 
-    local text = statusBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = statusBar:CreateFontString(nil, "OVERLAY", VALUE_FONT_OBJECT)
     text:SetPoint("CENTER")
     self.text = text
 
@@ -251,7 +264,15 @@ function Bar:SavePosition()
     settings.position.y = math.floor(y + 0.5)
 end
 
--- Background colour and the solid edge border, from the packed colour strings.
+-- Edge art below this reads as a scratch rather than a border, so the border
+-- size doubles as a floor for it: the default size of 1 is a hairline for the
+-- solid border and a visible frame for a texture.
+local MIN_EDGE_SIZE = 6
+
+-- Background colour and the border, from the packed colour strings. The border
+-- is a LibSharedMedia edge texture when one is chosen and the client can draw it,
+-- and the four solid edges otherwise -- which is also the fallback when the
+-- texture is unknown or the backdrop API is missing.
 function Bar:ApplyChrome(appearance)
     local br, bg, bb, ba = Const.UnpackColor(appearance.bgColor, 0, 0, 0, 0.5)
     self.frame.background:SetColorTexture(br, bg, bb, ba)
@@ -260,10 +281,22 @@ function Bar:ApplyChrome(appearance)
     local edges = self.borders
     if not size or size <= 0 then
         for _, tex in pairs(edges) do tex:Hide() end
+        ns.Compat.ClearBorderTexture(self.borderFrame)
         return
     end
 
     local r, g, b, a = Const.UnpackColor(appearance.borderColor, 0, 0, 0, 1)
+
+    local edgeFile = ns.Media.Fetch("border", appearance.borderTexture, nil)
+    if edgeFile and ns.Compat.SetBorderTexture(self.borderFrame, edgeFile,
+        math.max(size, MIN_EDGE_SIZE), r, g, b, a)
+    then
+        for _, tex in pairs(edges) do tex:Hide() end
+        return
+    end
+
+    ns.Compat.ClearBorderTexture(self.borderFrame)
+
     for _, tex in pairs(edges) do
         tex:SetColorTexture(r, g, b, a)
         tex:Show()
@@ -304,6 +337,46 @@ function Bar:ApplyTextAlign(appearance)
         text:SetPoint("CENTER", self.statusBar, "CENTER", 0, 0)
     end
     if text.SetJustifyH then text:SetJustifyH(align) end
+end
+
+-- Value text font: the LibSharedMedia face when one is chosen, plus the outline
+-- flags. SetFont wants path, size and flags together, so the font object the
+-- string was created with supplies whatever the profile does not pin.
+--
+-- The object is re-applied first, rather than reading the font that is on the
+-- string: once SetFont has put an LSM path there, GetFont reports that path, and
+-- choosing "Default" again would fetch its own previous choice as the fallback.
+function Bar:ApplyFont(appearance)
+    local text = self.text
+    if _G[VALUE_FONT_OBJECT] then
+        text:SetFontObject(_G[VALUE_FONT_OBJECT])
+    end
+
+    local file, size, flags = text:GetFont()
+
+    file = ns.Media.Fetch("font", appearance.fontFace, file)
+
+    -- "" is a real choice (no outline), so only a missing field defers to the
+    -- font object's own flags.
+    if appearance.fontOutline ~= nil then flags = appearance.fontOutline end
+
+    if file and size then
+        text:SetFont(file, size, flags)
+    end
+end
+
+-- The colour a fill draws with: the resource's own, unless the profile pins an
+-- override. Applies to the status bar and to filled pips alike, so a recoloured
+-- bar stays recoloured whichever way its resource renders.
+function Bar:FillColor(appearance, r, g, b)
+    local override = appearance.fillColor
+    if type(override) == "string" and override ~= "" then
+        -- Three returns, not UnpackColor's four: the alpha rides on the bar's
+        -- own opacity setting, and passing a fourth here would fight it.
+        local orr, og, ob = Const.UnpackColor(override, r, g, b, 1)
+        return orr, og, ob
+    end
+    return r, g, b
 end
 
 -- Moves the spark to the fill's leading edge, or hides it.
@@ -373,6 +446,7 @@ function Bar:Layout()
     self.statusBar:SetStatusBarTexture(ns.Media.Fetch("statusbar", appearance.barTexture, BAR_TEXTURE))
     self:ApplyChrome(appearance)
     self:ApplyTextAlign(appearance)
+    self:ApplyFont(appearance)
 
     if self.key == "combo" then
         -- Resolve which resource this character's class-resource bar shows, and
@@ -490,7 +564,7 @@ function Bar:Update()
 
     local current, max, r, g, b = ReadResource(self.key)
 
-    self.statusBar:SetStatusBarColor(r, g, b)
+    self.statusBar:SetStatusBarColor(self:FillColor(appearance, r, g, b))
     self:SetFill(current, max, appearance)
 
     if appearance.showText ~= false and max > 0 then
@@ -527,11 +601,12 @@ function Bar:UpdateClassResource(appearance)
     if info.mode == "pips" then
         local current, max = ReadPipSource(source)
         local fill = PipFillColor(source, current, max)
+        local fr, fg, fb = self:FillColor(appearance, fill[1], fill[2], fill[3])
 
         -- Tick style: one continuous fill, coloured like the pips, with the
         -- divider ticks laid out in LayoutTicks.
         if appearance.segmentStyle == "ticks" then
-            self.statusBar:SetStatusBarColor(fill[1], fill[2], fill[3])
+            self.statusBar:SetStatusBarColor(fr, fg, fb)
             self:SetFill(current, max, appearance)
             self.text:Hide()
             return
@@ -540,7 +615,7 @@ function Bar:UpdateClassResource(appearance)
         local empty = Const.COMBO_COLORS.empty
         for index, pip in ipairs(self.pips) do
             if index <= current then
-                pip:SetColorTexture(fill[1], fill[2], fill[3], 1)
+                pip:SetColorTexture(fr, fg, fb, 1)
             else
                 pip:SetColorTexture(empty[1], empty[2], empty[3], empty[4])
             end
@@ -553,7 +628,7 @@ function Bar:UpdateClassResource(appearance)
     local count = ns.Compat.GetItemCount(Const.SOUL_SHARD_ITEM_ID)
     local color, within, size = SoulShardDisplay(count)
 
-    self.statusBar:SetStatusBarColor(color[1], color[2], color[3])
+    self.statusBar:SetStatusBarColor(self:FillColor(appearance, color[1], color[2], color[3]))
     self:SetFill(within, size, appearance)
 
     if appearance.showText ~= false then
