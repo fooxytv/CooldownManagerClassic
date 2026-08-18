@@ -124,6 +124,10 @@ local DEFAULT_GLOBAL = {
     -- On by default: the only practical way to find the ID of a buff that is
     -- not in the spellbook.
     showTooltipIDs = true,
+    -- Which picker sections are rolled up, keyed "tab:section". A display
+    -- preference rather than part of a layout, so it lives here and not in the
+    -- profile -- switching profile should not re-open everything.
+    collapsedSections = {},
 }
 
 -- Migrations, for changes ApplyDefaults cannot make: it never overwrites a
