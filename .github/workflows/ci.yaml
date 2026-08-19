@@ -26,8 +26,10 @@ jobs:
     # These gates take about a minute. Anything approaching this is stuck, not
     # slow: an apt mirror once hung mid-`update` and the run sat there for 48
     # minutes until it was cancelled by hand, which is a runner burning time and
-    # a PR whose checks never resolve.
-    timeout-minutes: 10
+    # a PR whose checks never resolve. Sized to clear the step budgets below
+    # (3 + 3 + 4 + 5) so this only ever fires as a backstop for something they
+    # miss -- each step names itself when it trips, this one cannot.
+    timeout-minutes: 16
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,14 +37,38 @@ jobs:
       - name: Set up scripts
         run: chmod +x ./ci/scripts/lint.sh
 
+      # Lua and LuaRocks come from these actions rather than apt. `apt-get
+      # update` hung silently on every run for half an hour on 2026-08-19 --
+      # not failing, so no retry could beat it -- and the lint gate went with
+      # it. Nothing here needs a system package, so nothing here uses apt.
+      - name: Set up Lua
+        timeout-minutes: 3
+        uses: leafo/gh-actions-lua@v13
+        with:
+          # 5.4 because that is what Ubuntu's luarocks pulled in before, so the
+          # lint gate keeps reporting exactly what it reported then. The addon
+          # itself is 5.1; luacheck parses to its own rules either way.
+          luaVersion: "5.4"
+
+      - name: Set up LuaRocks
+        timeout-minutes: 3
+        uses: leafo/gh-actions-luarocks@v6
+
       - name: Lint
-        timeout-minutes: 6
+        timeout-minutes: 4
         run: |
-          # Retried once: a mirror that stalls or 503s on the first fetch is the
-          # single most common way this job fails for reasons that are not ours.
-          sudo apt-get update -qq || (sleep 5 && sudo apt-get update -qq)
-          sudo apt-get install -y --no-install-recommends luarocks
-          sudo luarocks install luacheck
+          # luarocks.org is still a network fetch, so it keeps the bounded
+          # retry: a stalled host hangs rather than failing, and a bare `||`
+          # would wait on it until the step budget ran out.
+          retry() {
+            for attempt in 1 2; do
+              timeout 60 "$@" && return 0
+              echo "attempt $attempt failed: $*"
+              sleep 5
+            done
+            return 1
+          }
+          retry luarocks install luacheck
           ./ci/scripts/lint.sh
 
       # Catches what a parse cannot: load-order mistakes, nil child widgets, and
