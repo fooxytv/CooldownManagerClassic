@@ -26,8 +26,9 @@ jobs:
     # These gates take about a minute. Anything approaching this is stuck, not
     # slow: an apt mirror once hung mid-`update` and the run sat there for 48
     # minutes until it was cancelled by hand, which is a runner burning time and
-    # a PR whose checks never resolve.
-    timeout-minutes: 10
+    # a PR whose checks never resolve. Sized to clear the step budgets below
+    # (8 + 5) so this only ever fires as a backstop for something they miss.
+    timeout-minutes: 14
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,13 +37,26 @@ jobs:
         run: chmod +x ./ci/scripts/lint.sh
 
       - name: Lint
-        timeout-minutes: 6
+        timeout-minutes: 8
         run: |
           # Retried once: a mirror that stalls or 503s on the first fetch is the
           # single most common way this job fails for reasons that are not ours.
-          sudo apt-get update -qq || (sleep 5 && sudo apt-get update -qq)
-          sudo apt-get install -y --no-install-recommends luarocks
-          sudo luarocks install luacheck
+          # Each attempt is bounded because a stalled mirror hangs rather than
+          # failing, and a bare `||` waits on it forever -- two runs burned the
+          # whole step budget inside one silent `apt-get update` that way.
+          # Worst case is 3 commands x 2 x (60s + 5s) = 6m30s, inside the step
+          # timeout below.
+          retry() {
+            for attempt in 1 2; do
+              timeout 60 "$@" && return 0
+              echo "attempt $attempt failed: $*"
+              sleep 5
+            done
+            return 1
+          }
+          retry sudo apt-get update -qq
+          retry sudo apt-get install -y --no-install-recommends luarocks
+          retry sudo luarocks install luacheck
           ./ci/scripts/lint.sh
 
       # Catches what a parse cannot: load-order mistakes, nil child widgets, and
