@@ -2,9 +2,6 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Our own frame alongside Blizzard's Edit Mode dialog rather than inside it:
--- there is no supported way to register a third-party Edit Mode system.
-
 local Panel = {}
 ns.EditModePanel = Panel
 
@@ -62,8 +59,6 @@ local function CreateSlider(parent, label, option, minValue, maxValue, step)
         if self.labelText then
             self.labelText:SetText(("%s: %d"):format(self.labelPrefix, value))
         end
-        -- Guarded so pushing the stored value into the widget does not write
-        -- straight back and fight the user's drag.
         if not self.settingValue then
             SetOption(self.option, value)
         end
@@ -107,9 +102,6 @@ local function CreateDropdown(parent, label, option, getChoices, onSelect)
     return container
 end
 
--- `handlers` (optional) with .get/.set drives a checkbox that is not a group
--- appearance option -- e.g. the profile-level reactive-highlight toggle. Without
--- it, the checkbox reads and writes appearance[option] as usual.
 local function CreateCheckbox(parent, label, option, handlers)
     widgetIndex = widgetIndex + 1
     local name = "CDMCPanelCheck" .. widgetIndex
@@ -142,8 +134,6 @@ local function SimpleChoices(values)
     end
 end
 
--- LibSharedMedia names for a picker, led by a "Default" entry (value "") for the
--- built-in look. Empty of media without the library, which still leaves Default.
 local function MediaChoices(mediatype)
     return function()
         local choices = { { value = "", label = "Default" } }
@@ -223,8 +213,6 @@ local function BuildPanel()
     panel.showKeybind:SetPoint("TOPLEFT", 20, y)
     y = y - 26
 
-    -- Reactive proc highlighting is a profile-level switch (not a per-group
-    -- appearance option), so it uses custom get/set rather than SetOption.
     panel.showHighlights = CreateCheckbox(panel, "Reactive Highlights", nil, {
         get = function() return ns.DB:AreHighlightsEnabled() end,
         set = function(value)
@@ -235,19 +223,14 @@ local function BuildPanel()
     panel.showHighlights:SetPoint("TOPLEFT", 20, y)
     y = y - 34
 
-    -- Common to every group: the font face applies to the timer / count / bar
-    -- text alike.
     panel.fontFace = CreateDropdown(panel, "Font", "fontFace", MediaChoices("font"))
     panel.fontFace:SetPoint("TOPLEFT", 16, y)
     y = y - 46
 
-    -- Buff-only rows. Hidden for the cooldown groups, with the buttons below
-    -- sliding up rather than leaving a hole mid-panel.
     panel.buffTop = y
 
     panel.display = CreateDropdown(panel, "Display", "display",
         SimpleChoices(Const.BUFF_DISPLAYS), function(value)
-            -- Flipped with the display: bars are wide and stack downwards.
             if value == "Bars" then
                 SetOption("orientation", "Vertical")
                 SetOption("iconDirection", "Right")
@@ -345,9 +328,6 @@ function Panel:Refresh()
     local titleText = (panel.TitleContainer and panel.TitleContainer.TitleText) or panel.TitleText
     if titleText then titleText:SetText(label) end
 
-    -- Three different predicates, not one: bar sizing applies to any bar-capable
-    -- group, the Icons/Bars toggle only to the group that has both, and the
-    -- Effect/Cooldown mode only to a duration-bar group.
     local isBarGroup = Const.BAR_CAPABLE_GROUPS[currentGroup] and true or false
     local hasDisplayToggle = Const.DISPLAY_TOGGLE_GROUPS[currentGroup] and true or false
     local hasBarMode = Const.DURATION_BAR_GROUPS[currentGroup] and true or false
@@ -367,7 +347,6 @@ function Panel:Refresh()
         dropdowns[#dropdowns + 1] = panel.barMode
     end
 
-    -- Only the rows this group has, top-down, so a hidden row leaves no gap.
     local BAR_ROW = 46
     local rowY = panel.buffTop
 
@@ -450,7 +429,6 @@ function Panel:Show(groupKey)
 
     local settings = Settings()
     if settings then
-        -- Captured so Revert Changes can put everything back.
         snapshot = {
             appearance = ns.DeepCopy(settings.appearance),
             position = ns.DeepCopy(settings.position),

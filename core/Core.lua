@@ -72,7 +72,6 @@ end
 function Core:UpdateAll()
     if not self.initialized then return end
 
-    -- Once per pass, before any group renders, so every icon shares one timer.
     ns.Cooldowns:RefreshGlobalCooldown(CollectGCDCandidates())
 
     local animating = false
@@ -83,12 +82,8 @@ function Core:UpdateAll()
         end
     end
 
-    -- Reactive highlights re-evaluate here so they ride the same refresh as the
-    -- icons -- crucially UNIT_AURA, which is what a proc arrives on.
     ns.Highlights:Apply()
 
-    -- The idle rate is not redundant: aura changes otherwise reach us only via
-    -- UNIT_AURA, and one missed event leaves a tracked buff invisible forever.
     if animating then
         self:StartTicker(Const.UPDATE_INTERVAL)
     elseif self:HasTrackedAuras() then
@@ -153,14 +148,9 @@ end
 
 local eventFrame = CreateFrame("Frame")
 
--- Some of these do not exist on every client (RUNE_UPDATED is SoD only), so
--- each registration is checked and attempted individually -- see
--- RegisterIfValid, because pcall alone is not enough.
 local EVENTS = {
     "PLAYER_ENTERING_WORLD",
     "SPELLS_CHANGED",
-    -- 1.15 renamed LEARNED_SPELL_IN_TAB to LEARNED_SPELL_IN_SKILL_LINE. Both
-    -- are listed; only the one this client knows about is registered.
     "LEARNED_SPELL_IN_SKILL_LINE",
     "LEARNED_SPELL_IN_TAB",
     "SPELL_UPDATE_COOLDOWN",
@@ -172,23 +162,14 @@ local EVENTS = {
     "PLAYER_REGEN_ENABLED",
     "PLAYER_REGEN_DISABLED",
     "PLAYER_TARGET_CHANGED",
-    -- A Druid shapeshift changes which form-tagged abilities are tracked, so the
-    -- icon groups re-Layout to swap the set (see the handler in OnEvent).
     "UPDATE_SHAPESHIFT_FORM",
     "RUNE_UPDATED",
     "ENGRAVING_SUCCESS",
-    -- Soul shards are bag items, so the class-resource bar tracks them through
-    -- bag changes rather than a power event.
     "BAG_UPDATE_DELAYED",
-    -- Keybind text is read from the action bars, so it is rebuilt when a slot's
-    -- contents or the player's bindings change.
     "ACTIONBAR_SLOT_CHANGED",
     "UPDATE_BINDINGS",
 }
 
--- Registered for the player alone. Unfiltered, UNIT_POWER_FREQUENT alone means
--- forty raid members several times a second; RegisterUnitEvent filters in the
--- client, before Lua runs.
 local UNIT_EVENTS = {
     "UNIT_HEALTH",
     "UNIT_MAXHEALTH",
@@ -196,13 +177,9 @@ local UNIT_EVENTS = {
     "UNIT_POWER_FREQUENT",
     "UNIT_MAXPOWER",
     "UNIT_DISPLAYPOWER",
-    -- Weapon swaps change which enchant is on which hand, and the enchant icon
-    -- is the weapon's own.
     "UNIT_INVENTORY_CHANGED",
 }
 
--- These stop at the bars rather than falling through to UpdateAll: re-reading
--- every cooldown because the player's energy ticked is an unbounded refresh loop.
 local RESOURCE_ONLY_EVENTS = {
     UNIT_HEALTH = true,
     UNIT_MAXHEALTH = true,
@@ -210,12 +187,9 @@ local RESOURCE_ONLY_EVENTS = {
     UNIT_POWER_FREQUENT = true,
     UNIT_MAXPOWER = true,
     UNIT_DISPLAYPOWER = true,
-    -- Bag changes only move the soul-shard class-resource bar; they must not
-    -- trigger a full cooldown re-scan and icon re-render.
     BAG_UPDATE_DELAYED = true,
 }
 
--- Events that mean "the set of castable spells may have changed".
 local RESCAN_EVENTS = {
     SPELLS_CHANGED = true,
     LEARNED_SPELL_IN_SKILL_LINE = true,
@@ -227,15 +201,11 @@ local RESCAN_EVENTS = {
     ENGRAVING_SUCCESS = true,
 }
 
--- Events that only affect the keybind text drawn on cooldown icons.
 local KEYBIND_EVENTS = {
     ACTIONBAR_SLOT_CHANGED = true,
     UPDATE_BINDINGS = true,
 }
 
--- The IsEventValid check is not redundant with the pcall: registering an unknown
--- event is not a catchable Lua error -- the client hands it to the error handler
--- itself, so it reaches BugSack anyway. The pcall covers clients with neither.
 local function RegisterIfValid(event)
     if C_EventUtils and C_EventUtils.IsEventValid then
         if not C_EventUtils.IsEventValid(event) then return false end
@@ -243,10 +213,6 @@ local function RegisterIfValid(event)
     return pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
 
--- As above, filtered to the given unit(s). RegisterUnitEvent replaces the whole
--- unit filter each call, so every unit an event needs is passed in one call.
--- Falls back to an unfiltered registration where RegisterUnitEvent is missing,
--- so OnEvent still has to check the unit itself.
 local function RegisterUnitIfValid(event, ...)
     if C_EventUtils and C_EventUtils.IsEventValid then
         if not C_EventUtils.IsEventValid(event) then return false end
@@ -258,10 +224,6 @@ local function RegisterUnitIfValid(event, ...)
     return pcall(eventFrame.RegisterEvent, eventFrame, event)
 end
 
--- Rescans are debounced because SPELLS_CHANGED fires in bursts during login
--- and on every talent change.
--- Keybind rebuilds are debounced too: ACTIONBAR_SLOT_CHANGED fires in bursts as
--- the bars populate on login.
 local keybindPending = false
 local function QueueKeybindRefresh()
     if keybindPending then return end
@@ -299,9 +261,6 @@ local function OnEvent(_, event, arg1)
 
     if not Core.initialized then return end
 
-    -- Backstop for the unfiltered fallback in RegisterUnitIfValid. UNIT_AURA is
-    -- the one unit event also wanted for the target (DoT tracking), so it is let
-    -- through; everything else stays player-only.
     if arg1 ~= nil and event:sub(1, 5) == "UNIT_" and arg1 ~= "player"
         and not (event == "UNIT_AURA" and arg1 == "target")
     then
@@ -317,15 +276,10 @@ local function OnEvent(_, event, arg1)
         end
     end
 
-    -- A new target has its own debuffs; the DoT index must not carry the old
-    -- target's over. The refresh at the bottom of this handler then re-reads them.
     if event == "PLAYER_TARGET_CHANGED" then
         ns.Auras:MarkTargetDirty()
     end
 
-    -- A shapeshift changes which form-tagged abilities belong on screen, so the
-    -- groups need a full re-Layout (Update alone keeps the old icon set). Bars are
-    -- handled by UNIT_DISPLAYPOWER; this covers the icon groups.
     if event == "UPDATE_SHAPESHIFT_FORM" then
         for _, group in pairs(ns.groups) do
             group:Layout()
@@ -333,10 +287,6 @@ local function OnEvent(_, event, arg1)
     end
 
     if RESOURCE_ONLY_EVENTS[event] then
-        -- A shapeshift changes which power the power bar shows and, for a Druid,
-        -- whether the class-resource bar has any combo points at all (cat form
-        -- only). Both cache their resolved source in Layout, so both need a full
-        -- rebuild rather than an update to re-resolve and re-render.
         if event == "UNIT_DISPLAYPOWER" then
             for _, key in ipairs({ "power", "combo" }) do
                 local bar = ns.bars[key]
@@ -377,20 +327,14 @@ end
 
 eventFrame:SetScript("OnEvent", OnEvent)
 
--- Not in the EVENTS loop: that only runs once PLAYER_LOGIN has already fired.
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 
 function Core:Initialize()
     if self.initialized then return end
 
-    -- ADDON_LOADED normally beat us here, but a stale SavedVariables file can
-    -- leave the DB uninitialised.
     if not ns.DB.root then ns.DB:Initialize() end
 
-    -- Only now: UnitClass("player") is not reliable at ADDON_LOADED, and
-    -- binding a character to a profile from a nil class is what made several of
-    -- them share one.
     ns.DB:SelectProfileForCharacter()
 
     ns.Spellbook:Scan()
@@ -413,7 +357,6 @@ function Core:Initialize()
 
     ns.EditMode:Register()
 
-    -- A profile left unlocked when the player logged out should stay unlocked.
     if ns.DB:GetGlobal().locked == false then
         ns.EditMode:SetManualUnlock(true)
     end
@@ -428,9 +371,6 @@ function Core:Initialize()
         RegisterUnitIfValid(event, "player")
     end
 
-    -- Recorded for /cdmc status: a silent failure here makes every tracked buff
-    -- invisible, with nothing on screen to say why. The target is watched too, so
-    -- a cooldown bar can count down a DoT the player put on it.
     self.auraEventRegistered = RegisterUnitIfValid("UNIT_AURA", "player", "target")
 
     ns.Print(("loaded (%s). Type /cdmc to choose your spells."):format(ns.Compat.GetProfileFlavor()))
@@ -451,7 +391,6 @@ function Core:Initialize()
 end
 
 function Core:ImportString(text)
-    -- On failure the second return is the error message rather than a class.
     local profile, class, flavor = ns.Serialization:Import(text)
     if not profile then
         ns.Print("|cffff5555" .. tostring(class) .. "|r")
@@ -466,8 +405,6 @@ function Core:ImportString(text)
         ns.Print(("|cffffcc00Warning:|r that profile was exported on %s."):format(flavor))
     end
 
-    -- Into a new profile, never over the active one: a bad string must not be
-    -- destructive.
     local baseName = ("Imported %s"):format(class or "profile")
     local name, suffix = baseName, 1
     while ns.DB.root.profiles[name] do
@@ -485,19 +422,10 @@ function Core:ImportString(text)
     ns.Print(("Imported into profile %q and switched to it."):format(name))
 end
 
--- Which UI pieces this client actually has.
---
--- The settings dialog LibEQOL draws is built from modern templates
--- (SettingsDropdownWithButtonsTemplate, WowStyle1DropdownTemplate and the menu
--- API behind them). A Classic build without them does not raise an error -- the
--- row simply comes up with no control on it -- so a missing dropdown looks
--- exactly like a bug in our settings table. This tells the two apart, and says
--- which surface a given client should be using.
 function Core:PrintUIProbe()
     local out = function(line) DEFAULT_CHAT_FRAME:AddMessage("  " .. line) end
     local function yes(value) return value and "|cff00ff00yes|r" or "|cffff5555no|r" end
 
-    -- pcall: an unknown template is an error, not a nil return.
     local function hasTemplate(frameType, template)
         local ok = pcall(CreateFrame, frameType, nil, UIParent, template)
         return ok
@@ -525,7 +453,6 @@ function Core:PrintUIProbe()
         out("|cffff5555LibEQOL registration failed:|r " .. tostring(ns.EditMode.registrationError))
     end
 
-    -- The templates LibEQOL's dialog needs, then the old ones our own panels use.
     out(("dialog templates: dropdown-row %s  dropdown-button %s  checkbox-row %s")
         :format(yes(hasTemplate("Frame", "SettingsDropdownWithButtonsTemplate")),
                 yes(hasTemplate("DropdownButton", "WowStyle1DropdownTemplate")),
@@ -557,9 +484,6 @@ function Core:PrintUIProbe()
     out("|cff888888dropdowns -- use /cdme and click a bar, or the Bar Style Settings button.|r")
 end
 
--- A spell can go missing at four stages -- spellbook scan, rank resolution,
--- layout, or the frame being hidden -- and none of them raise a Lua error, so
--- each is reported separately.
 function Core:PrintStatus()
     local Compat = ns.Compat
     local out = function(line) DEFAULT_CHAT_FRAME:AddMessage("  " .. line) end
@@ -673,8 +597,6 @@ function Core:PrintStatus()
                     out(("    |cffff5555--|r stored=%s name=%q live=%s -> unresolved")
                         :format(tostring(entry.spellID), tostring(entry.name), tostring(liveName)))
                 else
-                    -- duration 0 means the client reports no cooldown at all --
-                    -- the usual reason a rune ability shows no swipe.
                     local start, duration, enabled = Compat.GetSpellCooldown(id)
                     local usable, noPower = Compat.IsSpellUsable(id)
                     local isGCD = duration > 0 and duration <= Const.GCD_THRESHOLD
@@ -689,9 +611,6 @@ function Core:PrintStatus()
     end
 end
 
--- Polls rather than listening for SPELL_UPDATE_COOLDOWN, which also fires when a
--- cooldown *ends* and fires constantly in combat -- catching the ~1s GCD by
--- chance almost never works. Keeping the maximum removes the timing problem.
 function Core:ArmCooldownProbe()
     if self.probeTicker then
         self.probeTicker:Cancel()
@@ -753,8 +672,6 @@ function Core:ReportCooldownProbe(samples)
     end
 end
 
--- Settles whether an ability applies a trackable aura at all: no gain logged
--- here means nothing can track it as a buff, however good the aura matching.
 local function SnapshotAuras()
     local snapshot = {}
     for _, aura in ipairs(ns.Compat.GetPlayerAuras(true)) do
@@ -856,8 +773,6 @@ local function HandleProfileCommand(action, name)
     end
 
     if ok then
-        -- Spelled out per action: appending "d" to the verb gave "newd" and
-        -- "copyd".
         local PAST_TENSE = {
             use = "is now in use",
             new = "created",
@@ -874,8 +789,6 @@ SLASH_CDMC1 = "/cdmc"
 SLASH_CDMC2 = "/cooldownmanager"
 SLASH_CDMC3 = "/cdm"
 
--- Deliberately not "/em": that is a stock alias for /emote on every client, and
--- either the command never fires or the addon breaks emotes for the player.
 SLASH_CDMCEDIT1 = "/cdme"
 SLASH_CDMCEDIT2 = "/cdmedit"
 SlashCmdList["CDMCEDIT"] = function()
@@ -904,8 +817,6 @@ SlashCmdList["CDMC"] = function(input)
         ns.Print("groups locked.")
 
     elseif command == "preset" then
-        -- Bare: the class default, as before. Named: any layout offered to this
-        -- character, built-in or saved. "list" enumerates them.
         if rest == "" then
             ns.Presets:ApplyDefaultForPlayer(true)
         elseif rest:lower() == "list" then

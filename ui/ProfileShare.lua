@@ -2,9 +2,6 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- A real window rather than a StaticPopup: a format-2 string runs to a few
--- thousand characters, which a one-line edit box can neither show nor let you
--- check before pasting. One box serves both directions.
 local ProfileShare = {}
 ns.ProfileShare = ProfileShare
 
@@ -29,7 +26,6 @@ local function Build()
     frame = CreateFrame("Frame", "CDMCProfileShare", UIParent, "ButtonFrameTemplate")
     frame:SetSize(500, 340)
     frame:SetPoint("CENTER")
-    -- Above the settings windows, since it is opened from them.
     frame:SetFrameStrata("FULLSCREEN_DIALOG")
     frame:SetMovable(true)
     frame:EnableMouse(true)
@@ -38,7 +34,6 @@ local function Build()
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:Hide()
 
-    -- Escape closes it, the same as every other dialog.
     if _G.UISpecialFrames then
         tinsert(UISpecialFrames, "CDMCProfileShare")
     end
@@ -70,8 +65,6 @@ local function Build()
     scroll:SetScrollChild(edit)
     frame.edit = edit
 
-    -- The edit box is only as tall as its text, so the scroll frame catches
-    -- clicks in the empty area below it.
     scroll:SetScript("OnMouseDown", function() edit:SetFocus() end)
 
     frame.action = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")

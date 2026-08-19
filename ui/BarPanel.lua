@@ -2,12 +2,6 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Settings panel for a resource bar, opened by clicking a bar in Edit Mode --
--- the counterpart to EditModePanel for the icon groups. Kept separate rather
--- than folded into that panel: a bar's options (enable, size, texture,
--- visibility) barely overlap a group's, and the group panel's mixed layout is
--- fiddly enough already.
-
 local Panel = {}
 ns.BarPanel = Panel
 
@@ -31,8 +25,6 @@ local function Get(option)
     return value
 end
 
--- Layout re-applies size, texture, position, visibility and redraws, so a single
--- call refreshes the bar for any option.
 local function Apply()
     local bar = currentBar and ns.bars[currentBar]
     if bar then bar:Layout() end
@@ -113,8 +105,6 @@ local function CreateDropdown(parent, label, option, getChoices)
     return container
 end
 
--- `handlers` (get/set) drives a checkbox that is not an appearance option -- the
--- bar's top-level `enabled` flag.
 local function CreateCheckbox(parent, label, option, handlers)
     widgetIndex = widgetIndex + 1
     local name = "CDMCBarPanelCheck" .. widgetIndex
@@ -137,9 +127,6 @@ local function CreateCheckbox(parent, label, option, handlers)
     return check
 end
 
--- The colour a swatch opens on. An unset option -- the fill override, whose
--- default is "" -- seeds from what the bar is drawing right now, so the picker
--- starts at the resource's own colour rather than an arbitrary one.
 local function SwatchColor(option)
     local packed = Get(option)
     if type(packed) == "string" and packed ~= "" then
@@ -156,10 +143,6 @@ local function SwatchColor(option)
     return 1, 1, 1, 1
 end
 
--- A colour swatch: a bordered square that opens Blizzard's colour picker and
--- writes the result back as a packed string. Right-click restores the default,
--- which is the only way to clear the fill override ("" = the resource's own
--- colour) once one is set.
 local function CreateSwatch(parent, label, option)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(22, 22)
@@ -185,8 +168,6 @@ local function CreateSwatch(parent, label, option)
             return
         end
 
-        -- Captured before the picker opens: cancelling has to put back what was
-        -- stored, which for an unset override is "" and not the seed colour.
         local previous = Get(option)
         local r, g, b, a = SwatchColor(option)
 
@@ -208,14 +189,6 @@ local function MediaChoices(mediatype)
     end
 end
 
--- Vertical order of the panel's widgets: each one's field on `panel`, its left
--- inset, the gap to the next, and which column it sits in. A `barKey` restricts
--- a row to a single bar -- the Resource Source dropdown only makes sense for the
--- adaptive class-resource ("combo") bar. LayoutWidgets re-runs on every Show so a
--- skipped row leaves no gap and the panel height tracks what is actually visible.
---
--- Two columns rather than one long strip: the styling options outgrew a single
--- column, and a panel taller than the screen cannot be reached at all.
 local WIDGET_LAYOUT = {
     { field = "enabled",        x = 20, gap = 34 },
     { field = "width",          x = 24, gap = 46 },
@@ -223,7 +196,6 @@ local WIDGET_LAYOUT = {
     { field = "opacity",        x = 24, gap = 40 },
     { field = "border",         x = 24, gap = 46 },
     { field = "borderTexture",  x = 16, gap = 46 },
-    -- Taller than a dropdown row: the swatches carry captions underneath.
     { field = "colors",         x = 24, gap = 56 },
     { field = "barTexture",     x = 16, gap = 46 },
     { field = "visibility",     x = 16, gap = 46 },
@@ -294,15 +266,10 @@ local function BuildPanel()
     panel.width = CreateSlider(panel, "Width", "width", 60, 400, 5)
     panel.height = CreateSlider(panel, "Height", "height", 6, 48, 1)
     panel.opacity = CreateSlider(panel, "Opacity", "opacity", 10, 100, 5)
-    -- Pixels for the solid border; a texture border reads it as its edge size,
-    -- with a floor (see ResourceBar's MIN_EDGE_SIZE) so edge art is never a
-    -- hairline.
     panel.border = CreateSlider(panel, "Border", "borderSize", 0, 12, 1)
     panel.borderTexture = CreateDropdown(panel, "Border Texture", "borderTexture",
         MediaChoices("border"))
 
-    -- The three colours share a row: full-width rows for one swatch each would
-    -- cost as much height as a dropdown and say less.
     panel.colors = CreateFrame("Frame", nil, panel)
     panel.colors:SetSize(200, 52)
     panel.colors.label = panel.colors:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -335,14 +302,10 @@ local function BuildPanel()
         return Const.BAR_VISIBILITY_OPTIONS
     end)
 
-    -- Combo bar only (see WIDGET_LAYOUT): draw the segmented resource as discrete
-    -- pips or as a continuous fill with tick-mark dividers.
     panel.segmentStyle = CreateDropdown(panel, "Segments", "segmentStyle", function()
         return Const.BAR_SEGMENT_OPTIONS
     end)
 
-    -- Shown only for the adaptive class-resource bar (see WIDGET_LAYOUT): it
-    -- pins which resource that bar shows, overriding the by-class auto-detection.
     panel.resourceSource = CreateDropdown(panel, "Resource Source", "resourceSource", function()
         return Const.RESOURCE_SOURCE_OPTIONS
     end)
@@ -438,7 +401,6 @@ end
 function Panel:Show(barKey)
     BuildPanel()
 
-    -- One settings panel at a time.
     if ns.EditModePanel then ns.EditModePanel:Hide() end
 
     currentBar = barKey or Const.BAR_ORDER[1]
@@ -452,8 +414,6 @@ function Panel:Show(barKey)
         }
     end
 
-    -- The Resource Source row is bar-specific, so re-lay-out for this bar before
-    -- showing: it appears for the class-resource bar and is skipped otherwise.
     LayoutWidgets()
 
     panel:Show()

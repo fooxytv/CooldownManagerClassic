@@ -10,7 +10,6 @@ ns.bars = {}
 
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 
--- The value text's built-in look, and what a font of "Default" goes back to.
 local VALUE_FONT_OBJECT = "GameFontHighlightSmall"
 
 local function GetPowerColor(token)
@@ -27,12 +26,6 @@ local function GetPowerColor(token)
     return 0.6, 0.6, 0.6
 end
 
--- Classic keeps combo points on the target rather than as a player power, so
--- the GetComboPoints API is tried before the modern power type.
---
--- Deliberately not named GetComboPoints: `local function f` binds f before the
--- body compiles, so a bare call to the API inside would resolve to this
--- function and recurse until the stack blew.
 local function ReadComboPoints()
     if _G.GetComboPoints then
         local points = _G.GetComboPoints("player", "target")
@@ -54,9 +47,6 @@ local function ReadMaxComboPoints()
     return _G.MAX_COMBO_POINTS or 5
 end
 
--- The "combo" bar is adaptive: which resource it shows is chosen by class, or
--- pinned by a profile override. Returns a source key from CLASS_RESOURCE_INFO,
--- or nil when this character has no class resource to show (the bar then hides).
 local function ResolveClassResource(override)
     local _, classToken = UnitClass("player")
 
@@ -69,20 +59,10 @@ local function ResolveClassResource(override)
         source = Const.CLASS_RESOURCE_SOURCE[classToken or ""]
     end
 
-    -- Maelstrom Weapon only exists in Season of Discovery. Gate it whether the
-    -- source was auto-detected or pinned by a profile, so a non-SoD character
-    -- never shows an always-empty Maelstrom bar.
     if source == "maelstrom" and not ns.Compat.isSoD then
         return nil
     end
 
-    -- Combo points only exist in cat form for a Druid, where the power is
-    -- Energy. Bear (Rage) and moonkin/caster (Mana) have no combo points, so the
-    -- bar would sit there as an empty pip row -- the power bar covers those forms
-    -- instead. A Rogue always has Energy, so the same rule leaves it untouched.
-    -- UnitPowerType is used rather than GetShapeshiftFormID: form IDs vary by
-    -- client and flavour, while the power token is reliable and already drives
-    -- the power bar. Applies whether the source was auto-detected or pinned.
     if source == "combo" and classToken == "DRUID" then
         local _, powerToken = UnitPowerType("player")
         if powerToken ~= "ENERGY" then return nil end
@@ -91,7 +71,6 @@ local function ResolveClassResource(override)
     return source
 end
 
---- Current and maximum value for a pip source (combo points or Maelstrom).
 local function ReadPipSource(source)
     if source == "maelstrom" then
         return ns.Auras:StacksByName(Const.MAELSTROM_WEAPON_AURA), Const.MAELSTROM_MAX_STACKS
@@ -99,9 +78,6 @@ local function ReadPipSource(source)
     return ReadComboPoints(), ReadMaxComboPoints()
 end
 
---- Splits a soul-shard total into its tier colour and how far it fills the
---- current tier. count 1..5 fills tier 1, 6..10 tier 2, and so on; the colour
---- steps each full tier and clamps at the brightest once the palette runs out.
 local function SoulShardDisplay(count)
     local size = Const.SOUL_SHARD_TIER_SIZE
     local colors = Const.SOUL_SHARD_COLORS
@@ -110,9 +86,6 @@ local function SoulShardDisplay(count)
         return colors[1], 0, size
     end
 
-    -- Colour steps with each completed tier -- "how many fives" -- so an exact
-    -- multiple reads as that tier's colour with a full bar rather than the
-    -- previous tier's.
     local tier = math.floor(count / size)
     local within = count % size
     if within == 0 then within = size end
@@ -129,8 +102,6 @@ local function ReadResource(key)
     end
 
     if key == "power" then
-        -- UnitPowerType follows druid shapeshifts, so form changes need no
-        -- class-specific handling.
         local powerType, powerToken = UnitPowerType("player")
         local current = UnitPower("player", powerType) or 0
         local max = UnitPowerMax("player", powerType) or 0
@@ -138,14 +109,9 @@ local function ReadResource(key)
         return current, max, r, g, b
     end
 
-    -- The "combo" bar is the adaptive class-resource bar and is read in Update
-    -- rather than here, because it may render as pips or as a counted bar.
-
     return 0, 0, 0.6, 0.6, 0.6
 end
 
--- Value text: a percentage when asked and the resource has a maximum, otherwise
--- the "current / max" reading.
 local function FormatValue(current, max, appearance)
     if appearance.showPercent and max and max > 0 then
         return ("%d%%"):format(math.floor((current / max) * 100 + 0.5))
@@ -153,8 +119,6 @@ local function FormatValue(current, max, appearance)
     return ("%d / %d"):format(current, max)
 end
 
--- The fill colour for a segmented source. Combo warms up towards the finisher;
--- every other pip source takes its own flat colour.
 local function PipFillColor(source, current, max)
     if source == "combo" then
         local colors = Const.COMBO_COLORS
@@ -184,8 +148,6 @@ function Bar.Create(key)
     frame.background:SetAllPoints()
     frame.background:SetColorTexture(0, 0, 0, 0.5)
 
-    -- Four plain-texture edges make the border. Positioned/coloured in Layout,
-    -- hidden when the border size is 0. No backdrop API, so nothing Retail-only.
     self.borders = {
         top    = frame:CreateTexture(nil, "BORDER"),
         bottom = frame:CreateTexture(nil, "BORDER"),
@@ -193,17 +155,12 @@ function Bar.Create(key)
         right  = frame:CreateTexture(nil, "BORDER"),
     }
 
-    -- Carries a LibSharedMedia border texture when one is chosen, which needs a
-    -- backdrop. Created with the template Compat resolved (nil where the client
-    -- has no backdrop API, in which case it simply stays hidden and the solid
-    -- edges above do the work). Kept above the fill so the art is not covered.
     local borderFrame = CreateFrame("Frame", nil, frame, ns.Compat.backdropTemplate)
     borderFrame:SetAllPoints()
     borderFrame:SetFrameLevel((frame:GetFrameLevel() or 1) + 4)
     borderFrame:Hide()
     self.borderFrame = borderFrame
 
-    -- Created for every bar, but hidden for combo points, which draw as pips.
     local statusBar = CreateFrame("StatusBar", nil, frame)
     statusBar:SetAllPoints()
     statusBar:SetStatusBarTexture(BAR_TEXTURE)
@@ -211,8 +168,6 @@ function Bar.Create(key)
     statusBar:SetValue(1)
     self.statusBar = statusBar
 
-    -- A bright leading-edge spark on the fill; shown only when enabled and the
-    -- bar is partway full. Additive so it reads as a glow over the fill.
     local spark = statusBar:CreateTexture(nil, "OVERLAY")
     spark:SetColorTexture(1, 1, 1, 0.85)
     spark:SetWidth(16)
@@ -220,7 +175,6 @@ function Bar.Create(key)
     spark:Hide()
     self.spark = spark
 
-    -- Tick-mark dividers for the "ticks" segment style, pooled like the pips.
     self.ticks = {}
 
     local text = statusBar:CreateFontString(nil, "OVERLAY", VALUE_FONT_OBJECT)
@@ -264,15 +218,8 @@ function Bar:SavePosition()
     settings.position.y = math.floor(y + 0.5)
 end
 
--- Edge art below this reads as a scratch rather than a border, so the border
--- size doubles as a floor for it: the default size of 1 is a hairline for the
--- solid border and a visible frame for a texture.
 local MIN_EDGE_SIZE = 6
 
--- Background colour and the border, from the packed colour strings. The border
--- is a LibSharedMedia edge texture when one is chosen and the client can draw it,
--- and the four solid edges otherwise -- which is also the fallback when the
--- texture is unknown or the backdrop API is missing.
 function Bar:ApplyChrome(appearance)
     local br, bg, bb, ba = Const.UnpackColor(appearance.bgColor, 0, 0, 0, 0.5)
     self.frame.background:SetColorTexture(br, bg, bb, ba)
@@ -324,7 +271,6 @@ function Bar:ApplyChrome(appearance)
     edges.right:SetWidth(size)
 end
 
--- Value text alignment. LEFT/RIGHT inset from the edge; CENTER centred.
 function Bar:ApplyTextAlign(appearance)
     local align = appearance.textAlign or "CENTER"
     local text = self.text
@@ -339,13 +285,6 @@ function Bar:ApplyTextAlign(appearance)
     if text.SetJustifyH then text:SetJustifyH(align) end
 end
 
--- Value text font: the LibSharedMedia face when one is chosen, plus the outline
--- flags. SetFont wants path, size and flags together, so the font object the
--- string was created with supplies whatever the profile does not pin.
---
--- The object is re-applied first, rather than reading the font that is on the
--- string: once SetFont has put an LSM path there, GetFont reports that path, and
--- choosing "Default" again would fetch its own previous choice as the fallback.
 function Bar:ApplyFont(appearance)
     local text = self.text
     if _G[VALUE_FONT_OBJECT] then
@@ -356,8 +295,6 @@ function Bar:ApplyFont(appearance)
 
     file = ns.Media.Fetch("font", appearance.fontFace, file)
 
-    -- "" is a real choice (no outline), so only a missing field defers to the
-    -- font object's own flags.
     if appearance.fontOutline ~= nil then flags = appearance.fontOutline end
 
     if file and size then
@@ -365,21 +302,15 @@ function Bar:ApplyFont(appearance)
     end
 end
 
--- The colour a fill draws with: the resource's own, unless the profile pins an
--- override. Applies to the status bar and to filled pips alike, so a recoloured
--- bar stays recoloured whichever way its resource renders.
 function Bar:FillColor(appearance, r, g, b)
     local override = appearance.fillColor
     if type(override) == "string" and override ~= "" then
-        -- Three returns, not UnpackColor's four: the alpha rides on the bar's
-        -- own opacity setting, and passing a fourth here would fight it.
         local orr, og, ob = Const.UnpackColor(override, r, g, b, 1)
         return orr, og, ob
     end
     return r, g, b
 end
 
--- Moves the spark to the fill's leading edge, or hides it.
 function Bar:ApplySpark(current, max, appearance)
     local spark = self.spark
     if not (appearance.spark and current and max and max > 0 and current > 0 and current < max) then
@@ -395,9 +326,6 @@ function Bar:ApplySpark(current, max, appearance)
     spark:Show()
 end
 
--- Sets the fill, easing toward the value when animation is on and snapping
--- otherwise. The eased path rides an OnUpdate on the status bar; it stops itself
--- once it arrives, so an idle bar carries no ticker.
 function Bar:SetFill(current, max, appearance)
     max = math.max(max or 1, 1)
     current = math.max(0, math.min(current or 0, max))
@@ -449,9 +377,6 @@ function Bar:Layout()
     self:ApplyFont(appearance)
 
     if self.key == "combo" then
-        -- Resolve which resource this character's class-resource bar shows, and
-        -- render as pips (combo points, Maelstrom) or a counted bar (soul
-        -- shards) accordingly.
         local source = ResolveClassResource(appearance.resourceSource)
         self.source = source
 
@@ -515,8 +440,6 @@ function Bar:LayoutPips(width, height, appearance, maxPoints)
     end
 end
 
--- The tick-mark style: one continuous status bar with (maxPoints-1) divider
--- lines, instead of discrete pips. The fill and value are set in Update.
 function Bar:LayoutTicks(width, height, appearance, maxPoints)
     self.statusBar:Show()
     self:HidePips()
@@ -546,15 +469,10 @@ function Bar:Update()
     local settings = self:GetSettings()
     if not settings then return end
 
-    -- A disabled bar still renders while unlocked. It is forced visible so it
-    -- can be positioned and switched on, and an empty box gives no clue which
-    -- resource it is or whether the setting took effect.
     if settings.enabled == false and not self.unlocked then return end
 
     local appearance = settings.appearance
 
-    -- Re-evaluated every refresh so the dynamic rules (hide-when-full,
-    -- with-target) track the resource and target changing, not just combat.
     self:UpdateVisibility()
 
     if self.key == "combo" then
@@ -575,12 +493,7 @@ function Bar:Update()
     end
 end
 
---- Refreshes the adaptive class-resource bar. Combo points and Maelstrom render
---- as pips (combo keeps the warm-up gradient); soul shards fill the status bar
---- within the current tier and print the running total.
 function Bar:UpdateClassResource(appearance)
-    -- Layout records the resolved source; fall back to resolving here in case
-    -- Update runs first (e.g. a driving event before the first Layout).
     local source = self.source
     if source == nil then
         source = ResolveClassResource(appearance.resourceSource)
@@ -588,9 +501,6 @@ function Bar:UpdateClassResource(appearance)
 
     local info = source and Const.CLASS_RESOURCE_INFO[source]
     if not info then
-        -- No class resource (a mage, or resourceSource "none"). Clear any stale
-        -- fill so an unlocked bar in Edit Mode does not show leftover pips or a
-        -- half-filled bar from a previous character/profile.
         self.statusBar:SetValue(0)
         self:HidePips()
         self:HideTicks()
@@ -603,8 +513,6 @@ function Bar:UpdateClassResource(appearance)
         local fill = PipFillColor(source, current, max)
         local fr, fg, fb = self:FillColor(appearance, fill[1], fill[2], fill[3])
 
-        -- Tick style: one continuous fill, coloured like the pips, with the
-        -- divider ticks laid out in LayoutTicks.
         if appearance.segmentStyle == "ticks" then
             self.statusBar:SetStatusBarColor(fr, fg, fb)
             self:SetFill(current, max, appearance)
@@ -624,7 +532,6 @@ function Bar:UpdateClassResource(appearance)
         return
     end
 
-    -- Counted bar: soul shards.
     local count = ns.Compat.GetItemCount(Const.SOUL_SHARD_ITEM_ID)
     local color, within, size = SoulShardDisplay(count)
 
@@ -643,8 +550,6 @@ local function InCombat()
     return InCombatLockdown() or UnitAffectingCombat("player")
 end
 
--- Current and maximum value, for the "hide when full" rule. Soul shards have no
--- fixed maximum, so they report nil and are never treated as full.
 function Bar:GetFill()
     if self.key == "combo" then
         local settings = self:GetSettings()
@@ -693,8 +598,6 @@ function Bar:UpdateVisibility()
         visible = not (current and max and max > 0 and current >= max)
     end
 
-    -- The adaptive class-resource bar hides itself for a character with no class
-    -- resource at all (a mage, say), rather than sitting there empty.
     if visible and self.key == "combo"
         and not ResolveClassResource(appearance.resourceSource)
     then
@@ -716,8 +619,6 @@ local function OnDragStop(frame)
     end
 end
 
--- Clicking a bar while unlocked opens its settings panel, mirroring how the
--- icon groups open EditModePanel.
 local function OnMouseUp(frame)
     if frame.cdmcBar and frame.cdmcBar.unlocked and ns.BarPanel then
         ns.BarPanel:Show(frame.cdmcBar.key)
@@ -741,7 +642,5 @@ function Bar:SetUnlocked(unlocked)
     self.label:SetShown(unlocked)
     self:UpdateVisibility()
 
-    -- Contents too, not just visibility: a disabled bar renders nothing, so
-    -- unlocking one would otherwise reveal an empty box.
     self:Update()
 end

@@ -2,13 +2,6 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Starter layouts. One rank of each spell is enough: entries are stored
--- rank-independent, so Resolve() looks the ID up by name and swaps in whichever
--- rank the character knows -- which also carries a preset across clients where
--- the ID differs but the name does not.
---
--- Listed generously. An entry the character has not learned simply does not
--- resolve, so a level 20 rogue sees only what they can cast.
 local Presets = {}
 ns.Presets = Presets
 
@@ -50,9 +43,6 @@ Presets.byClass = {
         },
     },
 
-    -- Base Era abilities only. Rune IDs are deliberately absent: they resolve
-    -- through C_Engraving already, and hard-coding them adds entries that break
-    -- whenever a slot is re-engraved.
     SHAMAN = {
         {
             key = "shaman",
@@ -82,11 +72,6 @@ Presets.byClass = {
         },
     },
 
-    -- Three, because one Druid layout cannot serve all three: a caster pack
-    -- leaves a feral player with nothing they can use in cat or bear, which is
-    -- also why form-aware tracking read as broken (#43). The cat and bear
-    -- abilities carry their form tags automatically -- see Const.DefaultFormsFor
-    -- in Apply -- so shifting swaps the set with no setup.
     DRUID = {
         {
             key = "druid-balance",
@@ -179,9 +164,6 @@ Presets.byClass = {
     },
 }
 
--- The built-in layouts for a class, newest-first order as written above. A class
--- may have several -- see DRUID -- so this is a list, and the first entry is
--- what an unattended first login gets.
 function Presets:GetForClass(class)
     return self.byClass[class] or {}
 end
@@ -190,9 +172,6 @@ function Presets:GetDefaultForClass(class)
     return self:GetForClass(class)[1]
 end
 
--- Layouts the player saved themselves, kept per account rather than per profile
--- so one can seed a new character. Stored as full entries, not bare IDs, so the
--- aura and form flags on them survive the round trip.
 function Presets:GetCustom()
     local global = ns.DB:GetGlobal()
     if not global then return {} end
@@ -200,9 +179,6 @@ function Presets:GetCustom()
     return global.customPresets
 end
 
--- Built-in layouts for this class first, then everything saved by hand. Custom
--- ones are offered to every class: a layout saved on one character is exactly
--- what someone wants on another.
 function Presets:ListForPlayer()
     local _, class = UnitClass("player")
     local list = {}
@@ -234,8 +210,6 @@ function Presets:GetForPlayer()
     return self:GetDefaultForClass(class), class
 end
 
--- Without `overwrite` an existing group is left alone, so the automatic
--- first-login application cannot clobber a configured profile.
 function Presets:Apply(preset, overwrite)
     if not preset then return false end
 
@@ -248,20 +222,12 @@ function Presets:Apply(preset, overwrite)
                 wipe(group.spells)
                 for _, item in ipairs(ids) do
                     if type(item) == "table" then
-                        -- A saved layout carries whole entries, flags and all,
-                        -- and is copied rather than shared: applying it twice
-                        -- must not hand two profiles the same tables.
                         group.spells[#group.spells + 1] = ns.DeepCopy(item)
                     else
                         group.spells[#group.spells + 1] = {
                             spellID = item,
                             rankIndependent = true,
-                            -- A class pack tracks the abilities whose value is
-                            -- their aura (Moonfire, Flame Shock, Slice and Dice,
-                            -- …) by that aura, out of the box.
                             trackDebuff = Const.IsAuraSpell(item) or nil,
-                            -- A Druid's cat/bear abilities arrive tagged, so the
-                            -- preset is form-aware without any hand tagging.
                             forms = Const.DefaultFormsFor(item),
                         }
                     end
@@ -290,7 +256,6 @@ function Presets:ApplyDefaultForPlayer(overwrite)
     return applied
 end
 
--- Applies a layout by key or name, from either list.
 function Presets:ApplyByKey(key, overwrite)
     local preset = self:GetByKey(key)
     if not preset then
@@ -301,8 +266,6 @@ function Presets:ApplyByKey(key, overwrite)
     return true, preset.name
 end
 
--- Saves what this profile currently tracks as a layout of its own. Whole
--- entries, so the aura and form flags come back with it.
 function Presets:SaveCurrentAs(name)
     if not name or name == "" then
         return false, "Give the layout a name first."

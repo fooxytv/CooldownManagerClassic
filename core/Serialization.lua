@@ -9,22 +9,6 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Not a general Lua serialiser: addons cannot loadstring, so a generic format
--- would need a generic parser. This grammar is fixed, which keeps the reader
--- short and makes a malformed string a parse error rather than a surprise.
---
---   CDMC<formatVersion>:<CLASS>:<flavor>:<base64 payload>
---
--- Payload lines, v2. Everything after a G= or B= applies to it until the next:
---   v=<formatVersion>
---   G=<groupKey>                 Ge=<enabled>
---   B=<barKey>                   Be=<enabled>
---   Gp=/Bp=<point>|<relativePoint>|<x>|<y>
---   Ga=/Ba=<key>=<taggedScalar>  see EncodeScalar
---   S=<spellID>|<rankIndependent>|<name>
---
--- v1 is read but never written; see ParseV1.
-
 local Serialization = {}
 ns.Serialization = Serialization
 
@@ -82,9 +66,6 @@ local function Base64Decode(input)
     return table.concat(out)
 end
 
--- A one-character type tag per value rather than a fixed field order, which
--- would silently drop anything added later. A profile from a build that knows
--- more settings than this one still imports; the unknown keys ride along.
 local function EncodeScalar(value)
     local kind = type(value)
     if kind == "boolean" then
@@ -122,7 +103,6 @@ local function WritePosition(lines, prefix, position)
     )
 end
 
--- Sorted so the same profile always produces the same string.
 local function WriteAppearance(lines, prefix, appearance)
     if type(appearance) ~= "table" then return end
 
@@ -140,9 +120,6 @@ local function WriteAppearance(lines, prefix, appearance)
     end
 end
 
--- A spell entry's Druid form tags as a "+"-joined key list (cat+moonkin), in the
--- fixed DRUID_FORMS order so the string is stable. nil for an untagged entry (the
--- common case), which writes no Sf= line at all.
 local function EncodeForms(forms)
     if type(forms) ~= "table" then return nil end
 
@@ -182,22 +159,17 @@ function Serialization:Export(profile)
             WriteAppearance(lines, "Ga", group.appearance)
 
             for _, entry in ipairs(group.spells) do
-                -- The name is carried so a rank-independent entry resolves on a
-                -- character that knows a different rank, or none yet.
                 lines[#lines + 1] = ("S=%d|%d|%s"):format(
                     entry.spellID,
                     entry.rankIndependent and 1 or 0,
                     entry.name or ""
                 )
 
-                -- Druid form tags ride on their own line after the spell, absent
-                -- for the untagged majority.
                 local forms = EncodeForms(entry.forms)
                 if forms then
                     lines[#lines + 1] = "Sf=" .. forms
                 end
 
-                -- DoT-tracking flag, likewise its own line, only when set.
                 if entry.trackDebuff then
                     lines[#lines + 1] = "Sd=1"
                 end
@@ -224,8 +196,6 @@ function Serialization:Export(profile)
     )
 end
 
--- Seeded with this build's defaults, so a field the incoming string does not
--- mention lands on something sane rather than nil.
 local function NewGroupShell(key)
     local appearance = ns.DeepCopy(Const.DEFAULT_APPEARANCE)
     for option, value in pairs(Const.GROUP_APPEARANCE[key] or {}) do
@@ -289,8 +259,6 @@ local function ParseV2(blob)
             end
 
         elseif current and currentIsGroup and tag == "S" then
-            -- Negative IDs are the weapon-enchant pseudo-spells, so the sign is
-            -- part of the pattern. The name is whatever remains on the line.
             local spellID, rankIndependent, name = body:match("^(%-?%d+)|([01])|(.*)$")
             spellID = tonumber(spellID)
             if spellID then
@@ -302,8 +270,6 @@ local function ParseV2(blob)
             end
 
         elseif current and currentIsGroup and tag == "Sf" then
-            -- Applies to the spell just read. A string from an older format has
-            -- no Sf= lines, so those entries stay untagged (all forms).
             local last = current.spells[#current.spells]
             if last then last.forms = DecodeForms(body) end
 
@@ -316,8 +282,6 @@ local function ParseV2(blob)
     return profile
 end
 
--- Kept so strings shared before v2 still import. One packed G= line, no bars,
--- no appearance beyond icon size, spacing and growth.
 local function ParseV1(blob)
     local profile = { version = 1, groups = {} }
     local currentGroup
@@ -356,14 +320,11 @@ local function ParseV1(blob)
     return profile
 end
 
--- Returns profile, class, flavor -- or nil and an error message.
 function Serialization:Import(text)
     if type(text) ~= "string" or text == "" then
         return nil, "Nothing to import."
     end
 
-    -- Stripped wholesale: the export is one line, but pasting it through chat
-    -- or a wrapped edit box folds newlines into it.
     text = text:gsub("%s+", "")
 
     local version, class, flavor, payload = text:match("^CDMC(%d+):([^:]+):([^:]+):(.+)$")

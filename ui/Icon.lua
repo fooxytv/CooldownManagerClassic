@@ -9,12 +9,8 @@ ns.Icon = Icon
 local iconPool = {}
 local iconCount = 0
 
--- The proc / spell-activation glow (the Blizzard "Action Button Glow"). Bundled,
--- so present in-game; guarded because the headless smoke test does not load libs.
 local LCG = _G.LibStub and LibStub("LibCustomGlow-1.0", true)
 
--- Probed once. A missing atlas renders an invisible texture, so the icon falls
--- back to a plain trimmed square instead -- see Compat.AtlasExists.
 local AtlasExists = Compat.AtlasExists
 
 Icon.art = {
@@ -24,9 +20,6 @@ Icon.art = {
 }
 Icon.art.available = Icon.art.mask or Icon.art.iconOverlay
 
--- Ceil, not round: the displayed time must never be less than what remains.
--- Rounding read "1m" at 89 seconds left, and under-promising protection is the
--- worse error. It also counts through the last minute instead of skipping it.
 local function FormatTime(seconds)
     if seconds >= 3600 then
         return ("%dh"):format(math.ceil(seconds / 3600))
@@ -39,10 +32,6 @@ local function FormatTime(seconds)
 end
 ns.FormatTime = FormatTime
 
--- As Blizzard's CooldownViewerItemMixin:SetTooltipsShown -- motion only, never
--- clicks, so a widget under the cursor cannot swallow a click meant for the
--- world. Frames are created with mouse input off, so without this no tooltip
--- script ever fires.
 function ns.SetTooltipsShown(frame, shown)
     if frame.SetMouseClickEnabled then
         frame:SetMouseClickEnabled(false)
@@ -88,7 +77,6 @@ local function CreateIcon(parent)
     end
 
     if not frame.mask then
-        -- Trim the stock icon border instead, so a row still reads as clean.
         frame.texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     end
 
@@ -96,15 +84,12 @@ local function CreateIcon(parent)
     frame.cooldown:SetAllPoints()
     frame.cooldown:SetDrawBling(false)
     if frame.cooldown.SetHideCountdownNumbers then
-        -- We draw our own, so the display does not follow the player's
-        -- countdownForCooldowns setting.
         frame.cooldown:SetHideCountdownNumbers(true)
     end
     if Icon.art.available then
         if frame.cooldown.SetSwipeTexture then
             frame.cooldown:SetSwipeTexture(Const.ART.swipe)
         end
-        -- Needed even though real cooldowns draw no edge: the GCD uses it.
         if frame.cooldown.SetEdgeTexture then
             frame.cooldown:SetEdgeTexture(Const.ART.edge)
         end
@@ -115,7 +100,6 @@ local function CreateIcon(parent)
         frame.overlay:SetAtlas(Const.ART.iconOverlay)
     end
 
-    -- The whole border treatment when the Blizzard atlases are absent.
     frame.border = frame:CreateTexture(nil, "OVERLAY")
     frame.border:SetPoint("TOPLEFT", -2, 2)
     frame.border:SetPoint("BOTTOMRIGHT", 2, -2)
@@ -129,8 +113,6 @@ local function CreateIcon(parent)
     frame.countText = frame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
     frame.countText:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
 
-    -- Action-bar hotkey, top corner, opposite the count. Shown only when the
-    -- group opts in and the ability is on a bar.
     frame.keybindText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
     frame.keybindText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -2, -2)
     frame.keybindText:SetJustifyH("RIGHT")
@@ -142,7 +124,6 @@ local function CreateIcon(parent)
     return frame
 end
 
--- Pooled: the spell picker can rebuild a group on every keystroke.
 function Icon:Acquire(parent, groupKey)
     local frame = table.remove(iconPool)
     if not frame then
@@ -163,30 +144,22 @@ function Icon:Release(frame)
     frame.spellID = nil
     frame.entry = nil
     frame.groupKey = nil
-    -- Stop any glow before the frame returns to the pool, or it would still be
-    -- glowing when reused for an unrelated spell.
     self:SetGlow(frame, false)
     frame.cooldown:Clear()
     iconPool[#iconPool + 1] = frame
 end
 
--- Starts or stops the proc / activation glow on an icon. No-ops when the state
--- is unchanged, so a glow already running is not restarted every refresh tick
--- (which would visibly reset its animation).
 function Icon:SetGlow(frame, shown)
     shown = shown and true or false
     if frame.glowing == shown then return end
     frame.glowing = shown
 
-    -- Observable without the glow library, which the headless test does not load.
     frame.glowRequested = shown
 
     if shown then
         if LCG and LCG.ButtonGlow_Start then
             LCG.ButtonGlow_Start(frame, nil, 0.25)
         else
-            -- Fallback when the library is somehow absent: the plain border. Not
-            -- the Blizzard proc art, but better than no cue at all.
             frame.border:SetColorTexture(1, 0.82, 0.10, 1)
             frame.border:Show()
         end
@@ -203,9 +176,6 @@ local function ApplyFont(fontString, fontObject, fallbackSize, fontFace)
         fontString:SetFontObject(_G[fontObject])
     end
 
-    -- Font objects are fixed-size, so rescale to the icon once applied. A
-    -- LibSharedMedia face, when chosen, overrides the object's file but keeps its
-    -- outline flags.
     local file, _, flags = fontString:GetFont()
     file = ns.Media.Fetch("font", fontFace, file)
     if file and fallbackSize then
@@ -218,16 +188,12 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
     frame.spellID = spellID
     frame.groupKey = groupKey or frame.groupKey
 
-    -- Via Spellbook, not GetSpellInfo: rune abilities need their engraving art
-    -- and weapon enchants borrow the weapon's icon.
     local texture = ns.Spellbook:GetIcon(spellID)
     frame.texture:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
 
     local size = appearance.iconSize or Const.DEFAULT_APPEARANCE.iconSize
     frame:SetSize(size, size)
 
-    -- Scaled against the template's native size, so a resized icon keeps the
-    -- bevel in proportion.
     if frame.overlay then
         local base = Const.GROUP_APPEARANCE[frame.groupKey]
         local scale = (base and base.iconSize and base.iconSize > 0) and (size / base.iconSize) or 1
@@ -239,9 +205,6 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
         frame.overlay:SetPoint("BOTTOMRIGHT", insetX, -insetY)
     end
 
-    -- Reversed so a buff (or a tracked DoT) winds down rather than filling up
-    -- like a cooldown. The swipe *colour* is not set here -- Update owns it,
-    -- because one icon alternates between cooldown, aura and GCD colouring.
     local isAura = Const.AURA_GROUPS[frame.groupKey]
     local windsDown = isAura or (entry and entry.trackDebuff)
     if frame.cooldown.SetReverse then
@@ -252,8 +215,6 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
     ApplyFont(frame.countText, appearance.countFont, math.max(8, size * 0.30), appearance.fontFace)
     ApplyFont(frame.keybindText, "GameFontHighlightSmallOutline", math.max(8, size * 0.34), appearance.fontFace)
 
-    -- Keybind text for cooldown icons only: an aura icon is not something pressed
-    -- off a bound key. Hidden when the ability is not on any action bar.
     if appearance.showKeybind and not Const.AURA_GROUPS[frame.groupKey] then
         local key = ns.Keybinds:Get(spellID)
         frame.keybindText:SetText(key or "")
@@ -265,15 +226,11 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
     ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
 end
 
--- Both widget modules answer this: Group lays out on a grid and does not care
--- which kind it is holding.
 function Icon:GetItemSize(appearance)
     local size = appearance.iconSize or Const.DEFAULT_APPEARANCE.iconSize
     return size, size
 end
 
--- Takes a state table from either Cooldowns or Auras. Returns true while the
--- icon is animating and needs periodic text updates.
 function Icon:Update(frame, state, appearance)
     if not state then return false end
 
@@ -291,9 +248,6 @@ function Icon:Update(frame, state, appearance)
             frame.cooldown:SetSwipeColor(color[1], color[2], color[3], color[4] * scale)
         end
 
-        -- Always a filled sweep, never the edge spark: Blizzard draws the GCD
-        -- edge-only, which reads as a spinning needle rather than something
-        -- subtle.
         if frame.cooldown.SetDrawSwipe then
             frame.cooldown:SetDrawSwipe(true)
         end
@@ -306,9 +260,6 @@ function Icon:Update(frame, state, appearance)
         frame.cooldown:Clear()
     end
 
-    -- Tracked buffs are never greyed or tinted: RefreshIconColor and
-    -- RefreshIconDesaturation live on CooldownViewerCooldownItemMixin, which
-    -- Blizzard's buff templates do not inherit.
     if Const.AURA_GROUPS[frame.groupKey] then
         if frame.texture.SetDesaturated then
             frame.texture:SetDesaturated(false)
@@ -320,7 +271,6 @@ function Icon:Update(frame, state, appearance)
             frame.texture:SetDesaturated(desaturate)
         end
 
-        -- Follows Blizzard's RefreshIconColor.
         local colors = Const.ITEM_COLORS
         local tint
         if appearance.colorByUsability == false then
@@ -335,19 +285,12 @@ function Icon:Update(frame, state, appearance)
         frame.texture:SetVertexColor(tint[1], tint[2], tint[3])
     end
 
-    -- No active-aura highlight: a tracked buff is only on screen while it is up
-    -- (see hideWhenInactive), so a border adds nothing the swipe has not said.
-    -- Left alone while a reactive glow owns the border as its fallback, so the
-    -- glow is not hidden on every tick.
     if not frame.glowing then
         frame.border:Hide()
     end
 
     local showText = appearance.showCountdownText ~= false and not state.suppressText
     if showText and state.remaining and state.remaining > 0 then
-        -- Only set when the string actually changes: SetText on every icon on
-        -- every tick is the largest source of garbage in this addon, and most
-        -- ticks render the same string as the last.
         local text = FormatTime(state.remaining)
         if frame.lastTimeText ~= text then
             frame.timeText:SetText(text)
@@ -365,7 +308,6 @@ function Icon:Update(frame, state, appearance)
         frame.timeText:Hide()
     end
 
-    -- Charges and aura stacks share the corner slot; neither appears at 1.
     local count = state.charges
     if count and count > 1 then
         frame.countText:SetText(count)
