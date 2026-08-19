@@ -30,6 +30,9 @@ echo "Running Lua lint checks on directory: $(pwd)"
 # 212 - unused argument
 # 432 - shadowing upvalue argument
 # 631 - line is too long
+# .lua and .luarocks are the toolchain the CI actions unpack into the workspace,
+# so linting $ADDON_DIR walks straight into luarocks' own source -- 83 warnings
+# from files nobody here wrote. apt used to put it in /usr, out of reach.
 luacheck "$ADDON_DIR" \
     --std max \
     --codes \
@@ -37,4 +40,6 @@ luacheck "$ADDON_DIR" \
     --ignore 212 \
     --ignore 432 \
     --ignore 631 \
-    --exclude-files "ci/**"
+    --exclude-files "ci/**" \
+    --exclude-files ".lua/**" \
+    --exclude-files ".luarocks/**"
