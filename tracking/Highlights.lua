@@ -47,6 +47,16 @@ local activeRules
 -- Reused between passes so a refresh allocates nothing.
 local glowNames = {}
 
+-- Spell IDs the game itself has flagged as procced, via the Blizzard activation
+-- overlay (SPELL_ACTIVATION_OVERLAY_GLOW_SHOW/_HIDE). Kept as a set of live IDs
+-- and folded into glowNames each pass by resolving each to its spell name, so it
+-- matches tracked entries the same by-name way the rule table does -- covering
+-- every rank of the spell the game glowed. Any is set means the overlay is
+-- contributing this pass. This source is additive: Era's overlay coverage is
+-- patchy, so it layers on top of the curated rules rather than replacing them.
+local overlaySpells = {}
+local overlayAny = false
+
 -- Picks the rules that apply to the current character, dropping SoD-only rules
 -- off Season of Discovery.
 function Highlights:ResolveRules()
@@ -76,6 +86,21 @@ function Highlights:RuleActive(rule)
     return true
 end
 
+-- The game fired an activation-overlay glow for a spell. Record it; the next
+-- Apply lights the matching tracked icon or bar. Called from the event handler.
+function Highlights:OnOverlayShow(spellID)
+    if not spellID then return end
+    overlaySpells[spellID] = true
+    overlayAny = true
+end
+
+-- The overlay glow for a spell ended.
+function Highlights:OnOverlayHide(spellID)
+    if not spellID then return end
+    overlaySpells[spellID] = nil
+    overlayAny = next(overlaySpells) ~= nil
+end
+
 -- Recomputes which tracked icons should glow and applies it. Called from the
 -- refresh pass, so it rides UNIT_AURA and every other update without its own
 -- event registration. Highlighting is opt-in; when it is off, every icon is
@@ -94,19 +119,30 @@ function Highlights:Apply()
                 end
             end
         end
+
+        -- Fold the game's own activation-overlay procs into the same by-name set.
+        -- Resolving each live spell ID to its name means a proc on any rank lights
+        -- the tracked entry, and the match is spelling-for-spelling with the rules.
+        if overlayAny then
+            for spellID in pairs(overlaySpells) do
+                local name = ns.Spellbook:GetName(spellID)
+                if name then glowNames[name] = true end
+            end
+        end
     end
 
-    -- Only cooldown icon groups. Aura groups are skipped (a buff icon is only on
-    -- screen while its own aura is up, so a proc glow there is meaningless), and
-    -- so are bar-rendered groups: the cooldown-bars group draws BuffBar widgets,
-    -- which are not icons and have no border to glow.
+    -- Cooldown groups, whether drawn as icons or as bars. Aura groups are skipped:
+    -- a buff icon or bar is only on screen while its own aura is up, so a proc glow
+    -- there is meaningless. Each group glows through its own widget -- ButtonGlow
+    -- for square icons, PixelGlow's animated border for rectangular bars.
     for _, key in ipairs(Const.GROUP_ORDER) do
         if not Const.AURA_GROUPS[key] then
             local group = ns.groups[key]
-            if group and group.widget ~= ns.BuffBar then
-                for _, icon in ipairs(group.icons) do
-                    local name = icon.entry and icon.entry.name
-                    ns.Icon:SetGlow(icon, name ~= nil and glowNames[name] == true)
+            if group then
+                local widget = group.widget == ns.BuffBar and ns.BuffBar or ns.Icon
+                for _, item in ipairs(group.icons) do
+                    local name = item.entry and item.entry.name
+                    widget:SetGlow(item, name ~= nil and glowNames[name] == true)
                 end
             end
         end

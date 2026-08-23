@@ -184,6 +184,18 @@ local EVENTS = {
     -- contents or the player's bindings change.
     "ACTIONBAR_SLOT_CHANGED",
     "UPDATE_BINDINGS",
+    -- The game's own proc glow. Mirrored onto the matching tracked icon or bar as
+    -- an additive highlight source (see Highlights). Coverage is patchy in Era, so
+    -- a client that never fires these simply gets the curated rules alone.
+    "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW",
+    "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE",
+}
+
+-- Handled on their own: they only move the highlight glow, so they re-apply it
+-- directly rather than triggering a full cooldown re-scan and icon re-render.
+local OVERLAY_GLOW_EVENTS = {
+    SPELL_ACTIVATION_OVERLAY_GLOW_SHOW = true,
+    SPELL_ACTIVATION_OVERLAY_GLOW_HIDE = true,
 }
 
 -- Registered for the player alone. Unfiltered, UNIT_POWER_FREQUENT alone means
@@ -330,6 +342,16 @@ local function OnEvent(_, event, arg1)
         for _, group in pairs(ns.groups) do
             group:Layout()
         end
+    end
+
+    if OVERLAY_GLOW_EVENTS[event] then
+        if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
+            ns.Highlights:OnOverlayShow(arg1)
+        else
+            ns.Highlights:OnOverlayHide(arg1)
+        end
+        ns.Highlights:Apply()
+        return
     end
 
     if RESOURCE_ONLY_EVENTS[event] then

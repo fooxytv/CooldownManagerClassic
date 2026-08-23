@@ -3,6 +3,9 @@ local addonName, ns = ...
 local Const = ns.Constants
 local Compat = ns.Compat
 
+-- Optional: absent in the headless test, which never loads the library.
+local LCG = _G.LibStub and LibStub("LibCustomGlow-1.0", true)
+
 -- Mirrors Retail's CooldownViewerBuffBarItemTemplate: a 220x30 frame holding a
 -- 30x30 masked icon and a 19px StatusBar, name left, time right, a pip on the
 -- fill edge and the stack count in the icon corner. The bar *drains* -- its
@@ -137,6 +140,9 @@ function BuffBar:Acquire(parent, groupKey)
 end
 
 function BuffBar:Release(frame)
+    -- Stop any proc glow first, or the bar returns to the pool still glowing and
+    -- reappears lit when reused for an unrelated spell.
+    self:SetGlow(frame, false)
     frame:Hide()
     frame:ClearAllPoints()
     frame:SetParent(UIParent)
@@ -145,6 +151,27 @@ function BuffBar:Release(frame)
     frame.groupKey = nil
     frame.lastTimeText = nil
     barPool[#barPool + 1] = frame
+end
+
+-- Starts or stops the proc / activation glow on a bar. A bar is a rectangle, so
+-- ButtonGlow (built for square action buttons) does not fit -- PixelGlow traces
+-- an animated border around the whole frame instead. No-ops when the state is
+-- unchanged so a running glow is not restarted every refresh tick.
+function BuffBar:SetGlow(frame, shown)
+    shown = shown and true or false
+    if frame.glowing == shown then return end
+    frame.glowing = shown
+
+    -- Observable without the glow library, which the headless test does not load.
+    frame.glowRequested = shown
+
+    if not (LCG and LCG.PixelGlow_Start) then return end
+
+    if shown then
+        LCG.PixelGlow_Start(frame, nil, nil, nil, nil, nil, nil, nil, false, "cdmc")
+    else
+        LCG.PixelGlow_Stop(frame, "cdmc")
+    end
 end
 
 function BuffBar:GetItemSize(appearance)
