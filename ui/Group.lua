@@ -376,14 +376,9 @@ local function OnDragStop(frame)
     end
 end
 
--- Opens that group's settings panel, as Blizzard's Edit Mode selects a system.
-local function OnMouseUp(frame)
-    if frame.cdmcGroup and frame.cdmcGroup.unlocked then
-        if ns.BarPanel then ns.BarPanel:Hide() end
-        ns.EditModePanel:Show(frame.cdmcGroup.key)
-    end
-end
-
+-- Basic drag handles for the fallback where Blizzard Edit Mode exists but
+-- LibEQOL could not register. When LibEQOL is present it owns selection and
+-- dragging, and this path is not used.
 function Group:SetUnlocked(unlocked)
     self.unlocked = unlocked
 
@@ -396,7 +391,6 @@ function Group:SetUnlocked(unlocked)
     end
     frame:SetScript("OnDragStart", unlocked and OnDragStart or nil)
     frame:SetScript("OnDragStop", unlocked and OnDragStop or nil)
-    frame:SetScript("OnMouseUp", unlocked and OnMouseUp or nil)
 
     if unlocked then
         if not self.dragBackdrop then

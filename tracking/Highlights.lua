@@ -164,9 +164,23 @@ function Highlights:OnCombatLogEvent()
     if not (ns.DB and ns.DB:AreHighlightsEnabled()) then return end
 
     -- SWING_MISSED carries missType at position 12; the spell/range variants push
-    -- it to 15 (three extra spell fields). Everything else is not an avoid.
+    -- it to 15 (three extra spell fields). SPELL_CAST_SUCCESS carries the spell
+    -- name at 13. Everything else is neither an avoid nor a cast we care about.
     local _, subevent, _, sourceGUID, _, _, _, destGUID,
-          _, _, _, arg12, _, _, arg15 = CombatLogGetCurrentEventInfo()
+          _, _, _, arg12, arg13, _, arg15 = CombatLogGetCurrentEventInfo()
+
+    local playerGUID = UnitGUID("player")
+
+    -- Using a reactive ability clears its glow immediately, matching the action
+    -- bar; otherwise the window would keep it lit for its remaining seconds.
+    if subevent == "SPELL_CAST_SUCCESS" then
+        if sourceGUID == playerGUID and arg13 and reactiveUntil[arg13] then
+            reactiveUntil[arg13] = nil
+            reactiveAny = next(reactiveUntil) ~= nil
+            self:Apply()
+        end
+        return
+    end
 
     local miss
     if subevent == "SWING_MISSED" then
@@ -178,7 +192,6 @@ function Highlights:OnCombatLogEvent()
     end
     if not miss then return end
 
-    local playerGUID = UnitGUID("player")
     local byPlayer = sourceGUID == playerGUID
     local onPlayer = destGUID == playerGUID
     if not (byPlayer or onPlayer) then return end

@@ -43,8 +43,6 @@ ui\BuffBar.lua
 ui\Group.lua
 ui\ResourceBar.lua
 ui\EditMode.lua
-ui\EditModePanel.lua
-ui\BarPanel.lua
 ui\SpellPicker.lua
 ui\ProfileShare.lua
 

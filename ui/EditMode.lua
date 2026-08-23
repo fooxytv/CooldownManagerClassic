@@ -2,15 +2,15 @@ local addonName, ns = ...
 
 local Const = ns.Constants
 
--- Two tiers. With LibEQOL the groups become genuine Edit Mode systems -- real
--- selection frames, grid snapping, settings inside Blizzard's own dialog.
--- Without it, our own drag handles and panel, which is also what runs on a
--- client with no Edit Mode at all.
+-- All settings live in Blizzard's Edit Mode via LibEQOL: the groups and bars
+-- become genuine Edit Mode systems with real selection frames, grid snapping and
+-- settings inside Blizzard's own dialog. On a client where LibEQOL cannot
+-- register but Blizzard Edit Mode is present, plain drag handles stand in for
+-- positioning (there is no settings UI in that fallback).
 local EditMode = {}
 ns.EditMode = EditMode
 
 EditMode.active = false
-EditMode.manualUnlock = false
 
 local lem = _G.LibStub and LibStub("LibEQOLEditMode-1.0", true)
 EditMode.usingLibEQOL = lem ~= nil
@@ -96,8 +96,11 @@ function EditMode:Enter()
         end
     end)
 
-    if not lem then
-        ns.EditModePanel:Show(Const.GROUP_ORDER[1])
+    -- A disabled bar renders nothing, so under LibEQOL it would be an empty box
+    -- in Edit Mode; render its contents so it can be seen and positioned. The
+    -- non-LibEQOL SetUnlocked path already does this for itself.
+    if lem then
+        for _, bar in pairs(ns.bars) do bar:Update() end
     end
 end
 
@@ -105,18 +108,14 @@ function EditMode:Exit()
     if not self.active then return end
     self.active = false
 
-    if not self.manualUnlock then
-        ForEachWidget(function(widget)
-            if lem then
-                widget.unlocked = false
-                widget:UpdateVisibility()
-            else
-                widget:SetUnlocked(false)
-            end
-        end)
-        ns.EditModePanel:Hide()
-        if ns.BarPanel then ns.BarPanel:Hide() end
-    end
+    ForEachWidget(function(widget)
+        if lem then
+            widget.unlocked = false
+            widget:UpdateVisibility()
+        else
+            widget:SetUnlocked(false)
+        end
+    end)
 
     positionSnapshot = nil
 end
@@ -128,24 +127,6 @@ end
 
 function EditMode:RevertChanges()
     RestoreSnapshot(positionSnapshot)
-end
-
-function EditMode:SetManualUnlock(unlocked)
-    self.manualUnlock = unlocked
-    ns.DB:GetGlobal().locked = not unlocked
-
-    ForEachWidget(function(widget) widget:SetUnlocked(unlocked) end)
-
-    if unlocked then
-        ns.EditModePanel:Show(Const.GROUP_ORDER[1])
-    else
-        ns.EditModePanel:Hide()
-    end
-end
-
-function EditMode:ToggleManualUnlock()
-    self:SetManualUnlock(not self.manualUnlock)
-    return self.manualUnlock
 end
 
 local function Appearance(groupKey)
@@ -178,6 +159,23 @@ local function DropdownValues(labels)
     return values
 end
 
+-- LibEQOL dropdowns speak in display strings, so "" -- our "use the built-in"
+-- media -- shows and reads back as this.
+local MEDIA_DEFAULT = "Default"
+
+-- The dialog builds a dropdown's menu from the `values` table the setting was
+-- registered with, and ignores `optionfunc`. A LibSharedMedia list grows as
+-- other addons load, so the table is refilled in place from `get`, which the
+-- dialog calls whenever it builds or refreshes the row -- the one hook there is.
+local function FillMediaValues(values, mediatype)
+    wipe(values)
+    values[1] = { text = MEDIA_DEFAULT }
+    for _, name in ipairs(ns.Media.List(mediatype)) do
+        values[#values + 1] = { text = name }
+    end
+    return values
+end
+
 -- Refills `values` in place with the directions the group's current orientation
 -- allows. In place because the dropdown's menu closes over the table it was
 -- registered with: rebuilding it as a new table would leave the menu showing the
@@ -198,6 +196,9 @@ local function BuildSettings(groupKey)
     -- Icon Direction's choices depend on the orientation, so its list is owned
     -- here and refilled whenever that changes.
     local directionValues = FillDirectionValues(groupKey, {})
+
+    -- Font list, refilled from its get (media grows as other addons load).
+    local fontValues = FillMediaValues({}, "font")
 
     local settings = {
         {
@@ -348,6 +349,37 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "showGCD", false) and true or false end,
             set = function(_, value) SetOption(groupKey, "showGCD", value and true or false) end,
         },
+        {
+            order = 10.1,
+            name = "Show Keybind",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "showKeybind", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "showKeybind", value and true or false) end,
+        },
+        {
+            order = 10.2,
+            name = "Reactive Highlights",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "highlightsEnabled", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "highlightsEnabled", value and true or false) end,
+        },
+        {
+            order = 10.3,
+            name = "Font",
+            kind = lem.SettingType.Dropdown,
+            default = MEDIA_DEFAULT,
+            values = fontValues,
+            get = function()
+                FillMediaValues(fontValues, "font")
+                local current = GetOption(groupKey, "fontFace", "")
+                return (current ~= "" and current) or MEDIA_DEFAULT
+            end,
+            set = function(_, value)
+                SetOption(groupKey, "fontFace", value ~= MEDIA_DEFAULT and value or "")
+            end,
+        },
     }
 
     if Const.AURA_GROUPS[groupKey] then
@@ -455,23 +487,6 @@ local function SetBarOption(key, option, value)
     appearance[option] = value
     local bar = ns.bars[key]
     if bar then bar:Layout() end
-end
-
--- LibEQOL dropdowns speak in display strings, so "" -- our "use the built-in"
--- media -- shows and reads back as this.
-local MEDIA_DEFAULT = "Default"
-
--- The dialog builds a dropdown's menu from the `values` table the setting was
--- registered with, and ignores `optionfunc`. A LibSharedMedia list grows as
--- other addons load, so the table is refilled in place from `get`, which the
--- dialog calls whenever it builds or refreshes the row -- the one hook there is.
-local function FillMediaValues(values, mediatype)
-    wipe(values)
-    values[1] = { text = MEDIA_DEFAULT }
-    for _, name in ipairs(ns.Media.List(mediatype)) do
-        values[#values + 1] = { text = name }
-    end
-    return values
 end
 
 local function MediaSetting(order, name, key, option, mediatype)
@@ -910,7 +925,7 @@ function EditMode:Register()
     end
 
     if not self:IsAvailable() then
-        ns.Debug("Edit Mode not present on this client; use /cdmc unlock.")
+        ns.Debug("Blizzard Edit Mode not present on this client; frames cannot be moved.")
         return false
     end
 
