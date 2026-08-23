@@ -716,14 +716,8 @@ local function OnDragStop(frame)
     end
 end
 
--- Clicking a bar while unlocked opens its settings panel, mirroring how the
--- icon groups open EditModePanel.
-local function OnMouseUp(frame)
-    if frame.cdmcBar and frame.cdmcBar.unlocked and ns.BarPanel then
-        ns.BarPanel:Show(frame.cdmcBar.key)
-    end
-end
-
+-- Basic drag handles for the fallback where Blizzard Edit Mode exists but
+-- LibEQOL could not register; LibEQOL otherwise owns selection and dragging.
 function Bar:SetUnlocked(unlocked)
     self.unlocked = unlocked
 
@@ -736,7 +730,6 @@ function Bar:SetUnlocked(unlocked)
     end
     frame:SetScript("OnDragStart", unlocked and OnDragStart or nil)
     frame:SetScript("OnDragStop", unlocked and OnDragStop or nil)
-    frame:SetScript("OnMouseUp", unlocked and OnMouseUp or nil)
 
     self.label:SetShown(unlocked)
     self:UpdateVisibility()
