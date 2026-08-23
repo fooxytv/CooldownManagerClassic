@@ -794,6 +794,50 @@ ns.DB:SetHighlightsEnabled(false)
 ns.Highlights:Apply()
 R.glowDisabled = sbIcon.glowRequested and true or false
 
+-- Overlay source: the game's own activation glow lights the matching tracked
+-- icon by resolving the fired spell ID to its name. The aura is cleared and no
+-- rule is active here, so only the overlay can be lighting sbIcon.
+_G.__aura = { spellId = 0, name = "None", applications = 0, duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+ns.DB:SetHighlightsEnabled(true)
+ns.Highlights:OnOverlayShow(686)   -- 686 = Shadow Bolt in the stub
+ns.Highlights:Apply()
+R.overlayGlowOn = sbIcon.glowRequested and true or false
+
+ns.Highlights:OnOverlayHide(686)
+ns.Highlights:Apply()
+R.overlayGlowOff = sbIcon.glowRequested and true or false
+
+-- With highlighting off, an overlay proc must not glow either.
+ns.DB:SetHighlightsEnabled(false)
+ns.Highlights:OnOverlayShow(686)
+ns.Highlights:Apply()
+R.overlayGlowDisabled = sbIcon.glowRequested and true or false
+ns.Highlights:OnOverlayHide(686)
+ns.DB:SetHighlightsEnabled(true)
+
+-- Overlay glow reaches bar-rendered groups too, through BuffBar's own SetGlow.
+-- The real cooldownbars group is borrowed and restored so later passes, which
+-- iterate ns.groups and call group:Update, still see a genuine group.
+local barGroup = ns.groups["cooldownbars"] or ns.Group.Create("cooldownbars")
+local savedIcons, savedWidget = barGroup.icons, barGroup.widget
+local barFrame = ns.BuffBar:Acquire(barGroup.frame, "cooldownbars")
+barFrame.entry = { name = "Shadow Bolt" }
+barFrame.spellID = 686
+barGroup.widget = ns.BuffBar
+barGroup.icons = { barFrame }
+
+ns.Highlights:OnOverlayShow(686)
+ns.Highlights:Apply()
+R.overlayBarGlowOn = barFrame.glowRequested and true or false
+
+ns.Highlights:OnOverlayHide(686)
+ns.Highlights:Apply()
+R.overlayBarGlowOff = barFrame.glowRequested and true or false
+
+ns.BuffBar:Release(barFrame)
+barGroup.icons, barGroup.widget = savedIcons, savedWidget
+
 -- Resource-bar settings panel: it opens, and its Enabled checkbox flips the flag.
 ns.BarPanel:Show("power")
 R.barPanelShown = _G.CDMCBarPanel:IsShown()
@@ -1275,6 +1319,11 @@ def run(with_art):
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)
+    check("overlay glow on icon", results["overlayGlowOn"], True)
+    check("overlay glow clears on icon", results["overlayGlowOff"], False)
+    check("overlay glow off when disabled", results["overlayGlowDisabled"], False)
+    check("overlay glow on bar", results["overlayBarGlowOn"], True)
+    check("overlay glow clears on bar", results["overlayBarGlowOff"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
