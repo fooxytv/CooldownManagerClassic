@@ -41,8 +41,41 @@ local RULES = {
     },
 }
 
+-- Reactive abilities that light up from combat events rather than an aura or the
+-- activation overlay. In Classic these become castable off a dodge / parry /
+-- block and, unlike Retail, do not reliably fire the activation overlay, so they
+-- are read straight from the combat log.
+--   spell    tracked entry name to glow
+--   window   seconds the ability stays castable after the trigger
+--   trigger  which combat outcome arms it (see TRIGGERS)
+local COMBAT_RULES = {
+    WARRIOR = {
+        -- Overpower: castable for a few seconds after the target dodges you.
+        { spell = "Overpower", window = 5, trigger = "target_dodged" },
+        -- Revenge: castable after you dodge, parry or fully block an attack.
+        { spell = "Revenge", window = 5, trigger = "player_avoided" },
+    },
+    ROGUE = {
+        -- Riposte: castable after you parry an attack.
+        { spell = "Riposte", window = 5, trigger = "player_parried" },
+    },
+}
+
+-- Maps a combat rule's trigger to the miss it arms on.
+--   miss       the missType string ("DODGE" / "PARRY" / "BLOCK")
+--   byPlayer   the player dealt the attack that was avoided (source)
+--   onPlayer   the player avoided an incoming attack (dest)
+local TRIGGERS = {
+    target_dodged  = function(miss, byPlayer) return byPlayer and miss == "DODGE" end,
+    player_avoided = function(miss, _, onPlayer)
+        return onPlayer and (miss == "DODGE" or miss == "PARRY" or miss == "BLOCK")
+    end,
+    player_parried = function(miss, _, onPlayer) return onPlayer and miss == "PARRY" end,
+}
+
 -- Resolved once per class; class does not change within a session.
 local activeRules
+local activeCombatRules
 
 -- Reused between passes so a refresh allocates nothing.
 local glowNames = {}
@@ -57,20 +90,42 @@ local glowNames = {}
 local overlaySpells = {}
 local overlayAny = false
 
+-- Reactive combat abilities inside their post-dodge/parry window: spell name ->
+-- GetTime() expiry. Folded into glowNames by name like the other sources.
+local reactiveUntil = {}
+local reactiveAny = false
+
 -- Picks the rules that apply to the current character, dropping SoD-only rules
--- off Season of Discovery.
+-- off Season of Discovery. Combat rules are resolved here too, so a class with
+-- only reactive abilities (Warrior) and no aura rules is still covered.
 function Highlights:ResolveRules()
     activeRules = {}
+    activeCombatRules = {}
 
     local _, classToken = UnitClass("player")
-    local classRules = RULES[classToken or ""]
-    if not classRules then return end
 
-    for _, rule in ipairs(classRules) do
-        if not rule.sod or ns.Compat.isSoD then
-            activeRules[#activeRules + 1] = rule
+    local classRules = RULES[classToken or ""]
+    if classRules then
+        for _, rule in ipairs(classRules) do
+            if not rule.sod or ns.Compat.isSoD then
+                activeRules[#activeRules + 1] = rule
+            end
         end
     end
+
+    local combatRules = COMBAT_RULES[classToken or ""]
+    if combatRules then
+        for _, rule in ipairs(combatRules) do
+            activeCombatRules[#activeCombatRules + 1] = rule
+        end
+    end
+end
+
+-- Whether this character has any reactive combat abilities. Core uses it to
+-- decide whether to register the (high-traffic) combat-log event at all.
+function Highlights:HasCombatRules()
+    if not activeCombatRules then self:ResolveRules() end
+    return #activeCombatRules > 0
 end
 
 -- Whether a rule's aura condition is currently met.
@@ -101,6 +156,53 @@ function Highlights:OnOverlayHide(spellID)
     overlayAny = next(overlaySpells) ~= nil
 end
 
+-- Reads one combat-log event and arms any reactive rule it satisfies. This fires
+-- on every swing in combat, so it exits fast when highlighting is off or the
+-- event is not an avoided attack, and captures the payload without allocating.
+function Highlights:OnCombatLogEvent()
+    if not activeCombatRules or #activeCombatRules == 0 then return end
+    if not (ns.DB and ns.DB:AreHighlightsEnabled()) then return end
+
+    -- SWING_MISSED carries missType at position 12; the spell/range variants push
+    -- it to 15 (three extra spell fields). Everything else is not an avoid.
+    local _, subevent, _, sourceGUID, _, _, _, destGUID,
+          _, _, _, arg12, _, _, arg15 = CombatLogGetCurrentEventInfo()
+
+    local miss
+    if subevent == "SWING_MISSED" then
+        miss = arg12
+    elseif subevent == "SPELL_MISSED" or subevent == "RANGE_MISSED" then
+        miss = arg15
+    else
+        return
+    end
+    if not miss then return end
+
+    local playerGUID = UnitGUID("player")
+    local byPlayer = sourceGUID == playerGUID
+    local onPlayer = destGUID == playerGUID
+    if not (byPlayer or onPlayer) then return end
+
+    local now = GetTime()
+    local armed, longest = false, 0
+    for _, rule in ipairs(activeCombatRules) do
+        local predicate = TRIGGERS[rule.trigger]
+        if predicate and predicate(miss, byPlayer, onPlayer) then
+            reactiveUntil[rule.spell] = now + rule.window
+            reactiveAny = true
+            armed = true
+            if rule.window > longest then longest = rule.window end
+        end
+    end
+
+    if armed then
+        self:Apply()
+        -- Combat events alone would not fire again if the player stops taking
+        -- swings, so schedule the clear when the window lapses.
+        C_Timer.After(longest + 0.1, function() ns.Highlights:Apply() end)
+    end
+end
+
 -- Recomputes which tracked icons should glow and applies it. Called from the
 -- refresh pass, so it rides UNIT_AURA and every other update without its own
 -- event registration. Highlighting is opt-in; when it is off, every icon is
@@ -110,8 +212,11 @@ function Highlights:Apply()
 
     wipe(glowNames)
 
-    local enabled = ns.DB and ns.DB:AreHighlightsEnabled()
-    if enabled then
+    -- Building the candidate set does aura lookups and spell-name resolves, so it
+    -- is skipped entirely when no group opts in; the per-group loop below still
+    -- runs and clears any lingering glow.
+    local anyEnabled = ns.DB and ns.DB:AreHighlightsEnabled()
+    if anyEnabled then
         for _, rule in ipairs(activeRules) do
             if self:RuleActive(rule) then
                 for _, name in ipairs(rule.glow) do
@@ -129,28 +234,47 @@ function Highlights:Apply()
                 if name then glowNames[name] = true end
             end
         end
+
+        -- Reactive combat abilities still inside their post-dodge/parry window.
+        -- Expired entries are pruned here, so a lapsed window stops contributing.
+        if reactiveAny then
+            local now = GetTime()
+            local stillAny = false
+            for name, expiry in pairs(reactiveUntil) do
+                if expiry > now then
+                    glowNames[name] = true
+                    stillAny = true
+                else
+                    reactiveUntil[name] = nil
+                end
+            end
+            reactiveAny = stillAny
+        end
     end
 
     -- Cooldown groups, whether drawn as icons or as bars. Aura groups are skipped:
     -- a buff icon or bar is only on screen while its own aura is up, so a proc glow
-    -- there is meaningless. Each group glows through its own widget -- ButtonGlow
-    -- for square icons, PixelGlow's animated border for rectangular bars.
+    -- there is meaningless. Highlighting is per group, so each group is gated on
+    -- its own toggle. Each glows through its own widget -- ButtonGlow for square
+    -- icons, PixelGlow's animated border for rectangular bars.
     for _, key in ipairs(Const.GROUP_ORDER) do
         if not Const.AURA_GROUPS[key] then
             local group = ns.groups[key]
             if group then
+                local on = anyEnabled and ns.DB:IsGroupHighlightEnabled(key)
                 local widget = group.widget == ns.BuffBar and ns.BuffBar or ns.Icon
                 for _, item in ipairs(group.icons) do
                     local name = item.entry and item.entry.name
-                    widget:SetGlow(item, name ~= nil and glowNames[name] == true)
+                    widget:SetGlow(item, on and name ~= nil and glowNames[name] == true)
                 end
             end
         end
     end
 end
 
--- The active rule set depends only on class, but a profile switch may change the
--- enable state; re-resolving is cheap insurance.
+-- The active rule sets depend only on class, but a profile switch may change the
+-- enable state; dropping both caches is cheap insurance and re-resolves them.
 function Highlights:OnProfileChanged()
     activeRules = nil
+    activeCombatRules = nil
 end

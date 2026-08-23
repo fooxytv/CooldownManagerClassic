@@ -37,6 +37,8 @@ globals = {
     "GetRealmName",
     "UnitName",
     "UnitClass",
+    "UnitGUID",
+    "CombatLogGetCurrentEventInfo",
     "UnitAura",
     "UnitHealth",
     "UnitHealthMax",

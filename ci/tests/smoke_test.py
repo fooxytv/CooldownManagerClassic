@@ -474,15 +474,17 @@ R.shareShown = _G.CDMCProfileShare:IsShown()
 ns.EditModePanel:Show("essential")
 R.panelShown = _G.CDMCEditModePanel:IsShown()
 
--- The reactive-highlights checkbox toggles the profile flag (it is not a group
--- appearance option, so it uses the custom get/set path).
+-- The reactive-highlights checkbox is now a per-group appearance option: ticking
+-- it on the group being edited (essential) enables that group alone and leaves
+-- the others untouched.
 local hlCheck = _G.CDMCEditModePanel.showHighlights
 hlCheck:SetChecked(true)
 hlCheck:GetScript("OnClick")(hlCheck)
-R.highlightCheckboxOn = ns.DB:AreHighlightsEnabled()
+R.highlightCheckboxOn = ns.DB:IsGroupHighlightEnabled("essential")
+R.highlightUtilityStaysOff = ns.DB:IsGroupHighlightEnabled("utility")
 hlCheck:SetChecked(false)
 hlCheck:GetScript("OnClick")(hlCheck)
-R.highlightCheckboxOff = ns.DB:AreHighlightsEnabled()
+R.highlightCheckboxOff = ns.DB:IsGroupHighlightEnabled("essential")
 
 -- The right-click menu on a tracked icon. It is a free-floating frame owned by
 -- nothing, so what it does on a click, and whether anything ever closes it, is
@@ -837,6 +839,41 @@ R.overlayBarGlowOff = barFrame.glowRequested and true or false
 
 ns.BuffBar:Release(barFrame)
 barGroup.icons, barGroup.widget = savedIcons, savedWidget
+
+-- Reactive combat abilities: a Warrior's Overpower has no aura and no overlay
+-- event in Classic, so it lights up from a combat-log dodge and clears when the
+-- 5s window lapses. This also exercises the per-group gate (essential on).
+_G.UnitClass = function() return "Warrior", "WARRIOR", 1 end
+ns.Highlights:OnProfileChanged()   -- drop cached rules so WARRIOR rules resolve
+ns.DB:SetHighlightsEnabled(true)
+R.warriorHasCombatRules = ns.Highlights:HasCombatRules()
+
+local wGroup = ns.Group.Create("essential")
+local opIcon = ns.Icon:Acquire(wGroup.frame, "essential")
+opIcon.entry = { name = "Overpower" }
+opIcon.spellID = 7384
+wGroup.icons = { opIcon }
+ns.groups["essential"] = wGroup
+
+-- The target dodged the player's swing -> Overpower armed. SWING_MISSED carries
+-- missType at position 12 (source #4, dest #8).
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.overpowerGlowOn = opIcon.glowRequested and true or false
+
+-- Window lapses -> the next pass prunes it and clears the glow.
+_G.__advance(6)
+ns.Highlights:Apply()
+R.overpowerGlowOff = opIcon.glowRequested and true or false
+
+-- With that group's highlighting off, a fresh dodge must not glow it.
+ns.DB:SetGroupHighlightEnabled("essential", false)
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.overpowerGroupOff = opIcon.glowRequested and true or false
+ns.DB:SetGroupHighlightEnabled("essential", true)
 
 -- Resource-bar settings panel: it opens, and its Enabled checkbox flips the flag.
 ns.BarPanel:Show("power")
@@ -1324,6 +1361,10 @@ def run(with_art):
     check("overlay glow off when disabled", results["overlayGlowDisabled"], False)
     check("overlay glow on bar", results["overlayBarGlowOn"], True)
     check("overlay glow clears on bar", results["overlayBarGlowOff"], False)
+    check("warrior has combat rules", results["warriorHasCombatRules"], True)
+    check("overpower glows on dodge", results["overpowerGlowOn"], True)
+    check("overpower clears after window", results["overpowerGlowOff"], False)
+    check("overpower respects group toggle", results["overpowerGroupOff"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
@@ -1334,6 +1375,7 @@ def run(with_art):
     check("share window opens", results["shareShown"], True)
     check("edit panel opens", results["panelShown"], True)
     check("highlight checkbox enables", results["highlightCheckboxOn"], True)
+    check("highlight checkbox is per-group", results["highlightUtilityStaysOff"], False)
     check("highlight checkbox disables", results["highlightCheckboxOff"], False)
     check("tracked icon found for the menu", results["menuIconFound"], True)
     check("right-click opens the entry menu", results["menuOpens"], True)

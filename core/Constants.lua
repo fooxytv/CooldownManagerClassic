@@ -438,6 +438,11 @@ Const.DEFAULT_APPEARANCE = {
 
     -- Draw the ability's action-bar hotkey on cooldown icons. Off by default.
     showKeybind = false,
+
+    -- Reactive proc / activation highlighting for this group. Per group so it can
+    -- be turned on for, say, Essential Cooldowns but not Utility. Opt-in: a
+    -- deliberate rotation cue, not something to switch on for everyone.
+    highlightsEnabled = false,
 }
 
 Const.ORIENTATIONS = { "Horizontal", "Vertical" }

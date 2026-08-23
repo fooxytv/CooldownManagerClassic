@@ -104,9 +104,6 @@ local function DefaultProfile()
         version = Const.PROFILE_FORMAT_VERSION,
         groups = {},
         bars = {},
-        -- Reactive proc/activation highlighting. Opt-in: it is a deliberate
-        -- rotation cue, not something to switch on for everyone by default.
-        highlightsEnabled = false,
     }
     for _, key in ipairs(Const.GROUP_ORDER) do
         profile.groups[key] = DefaultGroup(key)
@@ -360,13 +357,41 @@ function DB:GetGlobal()
     return self.root.global
 end
 
-function DB:AreHighlightsEnabled()
-    return self.profile and self.profile.highlightsEnabled == true
+-- Reactive highlighting is per group: each cooldown group opts in on its own, so
+-- it can be on for Essential Cooldowns but off for Utility. Aura (tracked-buff)
+-- groups never highlight and are skipped by the all-groups helpers below.
+function DB:IsGroupHighlightEnabled(key)
+    local group = self:GetGroup(key)
+    local value = group and group.appearance and group.appearance.highlightsEnabled
+    if value == nil then value = Const.DEFAULT_APPEARANCE.highlightsEnabled end
+    return value == true
 end
 
+function DB:SetGroupHighlightEnabled(key, enabled)
+    local group = self:GetGroup(key)
+    if group and group.appearance then
+        group.appearance.highlightsEnabled = enabled and true or false
+    end
+end
+
+-- True when any highlight-capable group has it on. Backs the slash command's
+-- toggle and the engine's cheap "is anything on?" short-circuit.
+function DB:AreHighlightsEnabled()
+    for _, key in ipairs(Const.GROUP_ORDER) do
+        if not Const.AURA_GROUPS[key] and self:IsGroupHighlightEnabled(key) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Sets every highlight-capable group at once -- the /cdmc highlight command,
+-- which stays a single on/off switch over all groups.
 function DB:SetHighlightsEnabled(enabled)
-    if self.profile then
-        self.profile.highlightsEnabled = enabled and true or false
+    for _, key in ipairs(Const.GROUP_ORDER) do
+        if not Const.AURA_GROUPS[key] then
+            self:SetGroupHighlightEnabled(key, enabled)
+        end
     end
 end
 

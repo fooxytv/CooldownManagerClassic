@@ -223,15 +223,10 @@ local function BuildPanel()
     panel.showKeybind:SetPoint("TOPLEFT", 20, y)
     y = y - 26
 
-    -- Reactive proc highlighting is a profile-level switch (not a per-group
-    -- appearance option), so it uses custom get/set rather than SetOption.
-    panel.showHighlights = CreateCheckbox(panel, "Reactive Highlights", nil, {
-        get = function() return ns.DB:AreHighlightsEnabled() end,
-        set = function(value)
-            ns.DB:SetHighlightsEnabled(value)
-            ns.Core:RefreshAll()
-        end,
-    })
+    -- Reactive proc highlighting, per group: this ticks the group being edited,
+    -- so highlights can be on for Essential Cooldowns but off for Utility. A
+    -- plain appearance option, so SetOption/GetOption handle it.
+    panel.showHighlights = CreateCheckbox(panel, "Reactive Highlights", "highlightsEnabled")
     panel.showHighlights:SetPoint("TOPLEFT", 20, y)
     y = y - 34
 
@@ -438,9 +433,7 @@ function Panel:Refresh()
     panel.showTimer:SetChecked(GetOption("showCountdownText") and true or false)
     panel.showTooltips:SetChecked(GetOption("showTooltips") and true or false)
     panel.showKeybind:SetChecked(GetOption("showKeybind") and true or false)
-    if panel.showHighlights.getState then
-        panel.showHighlights:SetChecked(panel.showHighlights.getState() and true or false)
-    end
+    panel.showHighlights:SetChecked(GetOption("highlightsEnabled") and true or false)
 end
 
 function Panel:Show(groupKey)

@@ -354,6 +354,14 @@ local function OnEvent(_, event, arg1)
         return
     end
 
+    -- Reactive combat abilities (Overpower and the like) are armed from the combat
+    -- log, which the highlight engine reads directly. Registered only for classes
+    -- that have such abilities, so most characters never take this path.
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        ns.Highlights:OnCombatLogEvent()
+        return
+    end
+
     if RESOURCE_ONLY_EVENTS[event] then
         -- A shapeshift changes which power the power bar shows and, for a Druid,
         -- whether the class-resource bar has any combo points at all (cat form
@@ -448,6 +456,12 @@ function Core:Initialize()
 
     for _, event in ipairs(UNIT_EVENTS) do
         RegisterUnitIfValid(event, "player")
+    end
+
+    -- Only classes with reactive combat abilities (Warrior, Rogue) pay for the
+    -- combat log, which is high-traffic; everyone else never registers it.
+    if ns.Highlights:HasCombatRules() then
+        RegisterIfValid("COMBAT_LOG_EVENT_UNFILTERED")
     end
 
     -- Recorded for /cdmc status: a silent failure here makes every tracked buff
