@@ -322,6 +322,13 @@ _G.GetBuildInfo = function() return "1.15.9", "60000", "Jul 2026", 11509 end
 _G.GetRealmName = function() return "Test" end
 _G.UnitName = function() return "Tester" end
 _G.UnitClass = function() return "SHAMAN", "SHAMAN", 7 end
+_G.UnitGUID = function(unit) return unit == "player" and "Player-Test" or "Target-Test" end
+-- Drivable combat-log payload: set _G.__clog to an array of return values.
+_G.CombatLogGetCurrentEventInfo = function()
+    local e = _G.__clog
+    if not e then return end
+    return unpack(e)
+end
 _G.UnitAffectingCombat = function() return false end
 _G.UnitExists = function(unit) return _G.__hasTarget and true or false end
 _G.InCombatLockdown = function() return false end
