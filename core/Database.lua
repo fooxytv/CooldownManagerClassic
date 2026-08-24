@@ -91,7 +91,6 @@ local function DefaultProfile()
         version = Const.PROFILE_FORMAT_VERSION,
         groups = {},
         bars = {},
-        highlightsEnabled = false,
     }
     for _, key in ipairs(Const.GROUP_ORDER) do
         profile.groups[key] = DefaultGroup(key)
@@ -301,13 +300,34 @@ function DB:GetGlobal()
     return self.root.global
 end
 
+function DB:IsGroupHighlightEnabled(key)
+    local group = self:GetGroup(key)
+    local value = group and group.appearance and group.appearance.highlightsEnabled
+    if value == nil then value = Const.DEFAULT_APPEARANCE.highlightsEnabled end
+    return value == true
+end
+
+function DB:SetGroupHighlightEnabled(key, enabled)
+    local group = self:GetGroup(key)
+    if group and group.appearance then
+        group.appearance.highlightsEnabled = enabled and true or false
+    end
+end
+
 function DB:AreHighlightsEnabled()
-    return self.profile and self.profile.highlightsEnabled == true
+    for _, key in ipairs(Const.GROUP_ORDER) do
+        if not Const.AURA_GROUPS[key] and self:IsGroupHighlightEnabled(key) then
+            return true
+        end
+    end
+    return false
 end
 
 function DB:SetHighlightsEnabled(enabled)
-    if self.profile then
-        self.profile.highlightsEnabled = enabled and true or false
+    for _, key in ipairs(Const.GROUP_ORDER) do
+        if not Const.AURA_GROUPS[key] then
+            self:SetGroupHighlightEnabled(key, enabled)
+        end
     end
 end
 

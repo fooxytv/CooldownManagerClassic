@@ -3,6 +3,7 @@ local addonName, ns = ...
 local Const = ns.Constants
 local Compat = ns.Compat
 
+local LCG = _G.LibStub and LibStub("LibCustomGlow-1.0", true)
 local BuffBar = {}
 ns.BuffBar = BuffBar
 
@@ -125,6 +126,9 @@ function BuffBar:Acquire(parent, groupKey)
 end
 
 function BuffBar:Release(frame)
+    -- Stop any proc glow first, or the bar returns to the pool still glowing and
+    -- reappears lit when reused for an unrelated spell.
+    self:SetGlow(frame, false)
     frame:Hide()
     frame:ClearAllPoints()
     frame:SetParent(UIParent)
@@ -133,6 +137,21 @@ function BuffBar:Release(frame)
     frame.groupKey = nil
     frame.lastTimeText = nil
     barPool[#barPool + 1] = frame
+end
+
+function BuffBar:SetGlow(frame, shown)
+    shown = shown and true or false
+    if frame.glowing == shown then return end
+    frame.glowing = shown
+    frame.glowRequested = shown
+
+    if not (LCG and LCG.PixelGlow_Start) then return end
+
+    if shown then
+        LCG.PixelGlow_Start(frame, nil, nil, nil, nil, nil, nil, nil, false, "cdmc")
+    else
+        LCG.PixelGlow_Stop(frame, "cdmc")
+    end
 end
 
 function BuffBar:GetItemSize(appearance)

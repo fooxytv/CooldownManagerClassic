@@ -118,7 +118,7 @@ end
 local health, combo = ns.bars.health, ns.bars.combo
 R.barHiddenWhenDisabled = health.frame:IsShown()
 
-ns.EditMode:SetManualUnlock(true)
+ns.EditMode:Enter()
 R.barShownWhenUnlocked = health.frame:IsShown()
 R.barDraggable = health.unlocked and true or false
 R.barRendersWhenUnlocked = health.text:GetText()
@@ -192,14 +192,6 @@ R.druidForcedSource = druid.source
 ns.DB:GetBar("combo").appearance.resourceSource = ""
 
 _G.UnitPowerType = function() return 0, "MANA" end
-
--- The bar panel surfaces the Resource Source dropdown for the class-resource bar
--- only. Opening it for "combo" shows the row; for "power" it is hidden.
-ns.BarPanel:Show("combo")
-R.resourceSourceShownForCombo = _G.CDMCBarPanel.resourceSource:IsShown()
-ns.BarPanel:Show("power")
-R.resourceSourceHiddenForPower = _G.CDMCBarPanel.resourceSource:IsShown()
-ns.BarPanel:Hide()
 
 -- DoT tracking: a spell flagged trackDebuff is followed by the debuff the player
 -- put on the target, in every section. Only the player's own debuff counts.
@@ -443,7 +435,7 @@ ns.Auras:ClearCache()
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 _G.GetItemCount = function() return 0 end
 
-ns.EditMode:SetManualUnlock(false)
+ns.EditMode:Exit()
 R.barHiddenAgain = health.frame:IsShown()
 
 ns.DB:GetBar("health").enabled = true
@@ -471,18 +463,14 @@ ns.SpellPicker:Show("cooldowns")
 R.pickerShown = _G.CDMCSettingsFrame:IsShown()
 ns.ProfileShare:ShowExport()
 R.shareShown = _G.CDMCProfileShare:IsShown()
-ns.EditModePanel:Show("essential")
-R.panelShown = _G.CDMCEditModePanel:IsShown()
 
--- The reactive-highlights checkbox toggles the profile flag (it is not a group
--- appearance option, so it uses the custom get/set path).
-local hlCheck = _G.CDMCEditModePanel.showHighlights
-hlCheck:SetChecked(true)
-hlCheck:GetScript("OnClick")(hlCheck)
-R.highlightCheckboxOn = ns.DB:AreHighlightsEnabled()
-hlCheck:SetChecked(false)
-hlCheck:GetScript("OnClick")(hlCheck)
-R.highlightCheckboxOff = ns.DB:AreHighlightsEnabled()
+-- Reactive highlighting is a per-group appearance flag (surfaced as a checkbox in
+-- Blizzard's Edit Mode via LibEQOL). Enabling one group leaves the others off.
+ns.DB:SetGroupHighlightEnabled("essential", true)
+R.highlightGroupOn = ns.DB:IsGroupHighlightEnabled("essential")
+R.highlightUtilityStaysOff = ns.DB:IsGroupHighlightEnabled("utility")
+ns.DB:SetGroupHighlightEnabled("essential", false)
+R.highlightGroupOff = ns.DB:IsGroupHighlightEnabled("essential")
 
 -- The right-click menu on a tracked icon. It is a free-floating frame owned by
 -- nothing, so what it does on a click, and whether anything ever closes it, is
@@ -794,13 +782,94 @@ ns.DB:SetHighlightsEnabled(false)
 ns.Highlights:Apply()
 R.glowDisabled = sbIcon.glowRequested and true or false
 
--- Resource-bar settings panel: it opens, and its Enabled checkbox flips the flag.
-ns.BarPanel:Show("power")
-R.barPanelShown = _G.CDMCBarPanel:IsShown()
-local barEnable = _G.CDMCBarPanel.enabled
-barEnable:SetChecked(true)
-barEnable:GetScript("OnClick")(barEnable)
-R.barPanelEnables = ns.DB:GetBar("power").enabled
+-- Overlay source: the game's own activation glow lights the matching tracked
+-- icon by resolving the fired spell ID to its name. The aura is cleared and no
+-- rule is active here, so only the overlay can be lighting sbIcon.
+_G.__aura = { spellId = 0, name = "None", applications = 0, duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+ns.DB:SetHighlightsEnabled(true)
+ns.Highlights:OnOverlayShow(686)   -- 686 = Shadow Bolt in the stub
+ns.Highlights:Apply()
+R.overlayGlowOn = sbIcon.glowRequested and true or false
+
+ns.Highlights:OnOverlayHide(686)
+ns.Highlights:Apply()
+R.overlayGlowOff = sbIcon.glowRequested and true or false
+
+-- With highlighting off, an overlay proc must not glow either.
+ns.DB:SetHighlightsEnabled(false)
+ns.Highlights:OnOverlayShow(686)
+ns.Highlights:Apply()
+R.overlayGlowDisabled = sbIcon.glowRequested and true or false
+ns.Highlights:OnOverlayHide(686)
+ns.DB:SetHighlightsEnabled(true)
+
+-- Overlay glow reaches bar-rendered groups too, through BuffBar's own SetGlow.
+-- The real cooldownbars group is borrowed and restored so later passes, which
+-- iterate ns.groups and call group:Update, still see a genuine group.
+local barGroup = ns.groups["cooldownbars"] or ns.Group.Create("cooldownbars")
+local savedIcons, savedWidget = barGroup.icons, barGroup.widget
+local barFrame = ns.BuffBar:Acquire(barGroup.frame, "cooldownbars")
+barFrame.entry = { name = "Shadow Bolt" }
+barFrame.spellID = 686
+barGroup.widget = ns.BuffBar
+barGroup.icons = { barFrame }
+
+ns.Highlights:OnOverlayShow(686)
+ns.Highlights:Apply()
+R.overlayBarGlowOn = barFrame.glowRequested and true or false
+
+ns.Highlights:OnOverlayHide(686)
+ns.Highlights:Apply()
+R.overlayBarGlowOff = barFrame.glowRequested and true or false
+
+ns.BuffBar:Release(barFrame)
+barGroup.icons, barGroup.widget = savedIcons, savedWidget
+
+-- Reactive combat abilities: a Warrior's Overpower has no aura and no overlay
+-- event in Classic, so it lights up from a combat-log dodge and clears when the
+-- 5s window lapses. This also exercises the per-group gate (essential on).
+_G.UnitClass = function() return "Warrior", "WARRIOR", 1 end
+ns.Highlights:OnProfileChanged()   -- drop cached rules so WARRIOR rules resolve
+ns.DB:SetHighlightsEnabled(true)
+R.warriorHasCombatRules = ns.Highlights:HasCombatRules()
+
+local wGroup = ns.Group.Create("essential")
+local opIcon = ns.Icon:Acquire(wGroup.frame, "essential")
+opIcon.entry = { name = "Overpower" }
+opIcon.spellID = 7384
+wGroup.icons = { opIcon }
+ns.groups["essential"] = wGroup
+
+-- The target dodged the player's swing -> Overpower armed. SWING_MISSED carries
+-- missType at position 12 (source #4, dest #8).
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.overpowerGlowOn = opIcon.glowRequested and true or false
+
+-- Casting the ability clears the glow at once, before the window lapses --
+-- matching the action bar (SPELL_CAST_SUCCESS #13 is the spell name).
+_G.__clog = { 0, "SPELL_CAST_SUCCESS", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, 7384, "Overpower", 1 }
+ns.Highlights:OnCombatLogEvent()
+R.overpowerGlowClearedOnCast = opIcon.glowRequested and true or false
+
+-- Re-arm, then let the window lapse -> the next pass prunes it and clears.
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+_G.__advance(6)
+ns.Highlights:Apply()
+R.overpowerGlowOff = opIcon.glowRequested and true or false
+
+-- With that group's highlighting off, a fresh dodge must not glow it.
+ns.DB:SetGroupHighlightEnabled("essential", false)
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.overpowerGroupOff = opIcon.glowRequested and true or false
+ns.DB:SetGroupHighlightEnabled("essential", true)
 
 -- Richer visibility: hide-when-full and with-target track the resource/target.
 local pbar = ns.bars.power
@@ -938,30 +1007,6 @@ ns.DB:GetBar("power").appearance.fontFace = ""
 styleBar:Layout()
 R.fontFaceDefault = styleBar.text.__fontFile
 ns.Media.Fetch = realFontFetch
-
--- The colour swatches drive Blizzard's picker and write a packed string back;
--- right-click puts the default back.
-ns.BarPanel:Show("power")
-local bgSwatch = _G.CDMCBarPanel.bgColor
-bgSwatch:GetScript("OnClick")(bgSwatch, "LeftButton")
-_G.ColorPickerFrame:SetColorRGB(0.2, 0.4, 0.6)
-_G.ColorPickerFrame.__color[4] = 0.8
-_G.ColorPickerFrame.__info.swatchFunc()
-R.swatchWrites = ns.DB:GetBar("power").appearance.bgColor
-
-bgSwatch:GetScript("OnClick")(bgSwatch, "RightButton")
-R.swatchResets = ns.DB:GetBar("power").appearance.bgColor
-
--- Cancelling restores what was stored, which for the unset fill override is ""
--- and not the colour the picker was seeded with.
-local fillSwatch = _G.CDMCBarPanel.fillColor
-fillSwatch:GetScript("OnClick")(fillSwatch, "LeftButton")
-_G.ColorPickerFrame:SetColorRGB(1, 1, 0)
-_G.ColorPickerFrame.__info.swatchFunc()
-R.fillSwatchWrites = ns.DB:GetBar("power").appearance.fillColor ~= ""
-_G.ColorPickerFrame.__info.cancelFunc()
-R.fillSwatchCancels = ns.DB:GetBar("power").appearance.fillColor
-ns.BarPanel:Hide()
 
 -- New styling fields round-trip through export/import.
 ns.DB:GetBar("power").appearance.borderSize = 3
@@ -1230,8 +1275,6 @@ def run(with_art):
     check("druid caster resolves none", results["druidCasterSource"], "nil")
     check("resource override none hides", results["druidForcedNone"], "nil")
     check("resource override forces source", results["druidForcedSource"], "soulshards")
-    check("resource source dropdown shown for combo", results["resourceSourceShownForCombo"], True)
-    check("resource source dropdown hidden for power", results["resourceSourceHiddenForPower"], False)
     check("target dot drives cooldown bar active", results["dotPhase"], "active")
     check("target dot bar shows remaining", results["dotRemaining"], 9)
     check("unflagged bar ignores target dot", results["dotUnflaggedPhase"], "ready")
@@ -1275,6 +1318,16 @@ def run(with_art):
     check("highlight on proc", results["glowOn"], True)
     check("highlight clears", results["glowOff"], False)
     check("highlight off when disabled", results["glowDisabled"], False)
+    check("overlay glow on icon", results["overlayGlowOn"], True)
+    check("overlay glow clears on icon", results["overlayGlowOff"], False)
+    check("overlay glow off when disabled", results["overlayGlowDisabled"], False)
+    check("overlay glow on bar", results["overlayBarGlowOn"], True)
+    check("overlay glow clears on bar", results["overlayBarGlowOff"], False)
+    check("warrior has combat rules", results["warriorHasCombatRules"], True)
+    check("overpower glows on dodge", results["overpowerGlowOn"], True)
+    check("overpower clears on cast", results["overpowerGlowClearedOnCast"], False)
+    check("overpower clears after window", results["overpowerGlowOff"], False)
+    check("overpower respects group toggle", results["overpowerGroupOff"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
@@ -1283,9 +1336,9 @@ def run(with_art):
     check("round-trip spell name", results["importedSpellName"], "Maelstrom Weapon")
     check("picker opens", results["pickerShown"], True)
     check("share window opens", results["shareShown"], True)
-    check("edit panel opens", results["panelShown"], True)
-    check("highlight checkbox enables", results["highlightCheckboxOn"], True)
-    check("highlight checkbox disables", results["highlightCheckboxOff"], False)
+    check("per-group highlight enables", results["highlightGroupOn"], True)
+    check("per-group highlight leaves others off", results["highlightUtilityStaysOff"], False)
+    check("per-group highlight disables", results["highlightGroupOff"], False)
     check("tracked icon found for the menu", results["menuIconFound"], True)
     check("right-click opens the entry menu", results["menuOpens"], True)
     check("menu offers aura tracking", results["menuHasAura"], True)
@@ -1347,8 +1400,6 @@ def run(with_art):
     check("keybind shown when enabled", results["keybindShown"], True)
     check("keybind text abbreviated", results["keybindText"], "s2")
     check("keybind off by default", results["keybindOff"], False)
-    check("bar panel opens", results["barPanelShown"], True)
-    check("bar panel enable checkbox", results["barPanelEnables"], True)
     check("bar hidden when full", results["barHiddenWhenFull"], False)
     check("bar shown when not full", results["barShownWhenNotFull"], True)
     check("bar hidden with no target", results["barHiddenNoTarget"], False)
@@ -1374,10 +1425,6 @@ def run(with_art):
     check("empty outline means none", results["fontOutlineNone"], "")
     check("font face applies", results["fontFaceApplied"], "Interface/Test/Blocky.ttf")
     check("font face returns to the built-in", results["fontFaceDefault"], "Fonts\\FRIZQT__.TTF")
-    check("swatch writes a packed colour", results["swatchWrites"], "0.200,0.400,0.600,0.800")
-    check("right-click resets a swatch", results["swatchResets"], "0,0,0,0.5")
-    check("fill swatch pins a colour", results["fillSwatchWrites"], True)
-    check("cancel restores the unset fill", results["fillSwatchCancels"], "")
     check("border size round-trips", results["rtBorderSize"], 3)
     check("bg colour round-trips", results["rtBgColor"], "0.1,0.2,0.3,0.4")
     check("segment style round-trips", results["rtSegment"], "ticks")

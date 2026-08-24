@@ -1,12 +1,10 @@
 local addonName, ns = ...
 
 local Const = ns.Constants
-
 local EditMode = {}
 ns.EditMode = EditMode
 
 EditMode.active = false
-EditMode.manualUnlock = false
 
 local lem = _G.LibStub and LibStub("LibEQOLEditMode-1.0", true)
 EditMode.usingLibEQOL = lem ~= nil
@@ -84,8 +82,11 @@ function EditMode:Enter()
         end
     end)
 
-    if not lem then
-        ns.EditModePanel:Show(Const.GROUP_ORDER[1])
+    -- A disabled bar renders nothing, so under LibEQOL it would be an empty box
+    -- in Edit Mode; render its contents so it can be seen and positioned. The
+    -- non-LibEQOL SetUnlocked path already does this for itself.
+    if lem then
+        for _, bar in pairs(ns.bars) do bar:Update() end
     end
 end
 
@@ -93,18 +94,14 @@ function EditMode:Exit()
     if not self.active then return end
     self.active = false
 
-    if not self.manualUnlock then
-        ForEachWidget(function(widget)
-            if lem then
-                widget.unlocked = false
-                widget:UpdateVisibility()
-            else
-                widget:SetUnlocked(false)
-            end
-        end)
-        ns.EditModePanel:Hide()
-        if ns.BarPanel then ns.BarPanel:Hide() end
-    end
+    ForEachWidget(function(widget)
+        if lem then
+            widget.unlocked = false
+            widget:UpdateVisibility()
+        else
+            widget:SetUnlocked(false)
+        end
+    end)
 
     positionSnapshot = nil
 end
@@ -116,24 +113,6 @@ end
 
 function EditMode:RevertChanges()
     RestoreSnapshot(positionSnapshot)
-end
-
-function EditMode:SetManualUnlock(unlocked)
-    self.manualUnlock = unlocked
-    ns.DB:GetGlobal().locked = not unlocked
-
-    ForEachWidget(function(widget) widget:SetUnlocked(unlocked) end)
-
-    if unlocked then
-        ns.EditModePanel:Show(Const.GROUP_ORDER[1])
-    else
-        ns.EditModePanel:Hide()
-    end
-end
-
-function EditMode:ToggleManualUnlock()
-    self:SetManualUnlock(not self.manualUnlock)
-    return self.manualUnlock
 end
 
 local function Appearance(groupKey)
@@ -165,6 +144,17 @@ local function DropdownValues(labels)
     return values
 end
 
+local MEDIA_DEFAULT = "Default"
+
+local function FillMediaValues(values, mediatype)
+    wipe(values)
+    values[1] = { text = MEDIA_DEFAULT }
+    for _, name in ipairs(ns.Media.List(mediatype)) do
+        values[#values + 1] = { text = name }
+    end
+    return values
+end
+
 local function FillDirectionValues(groupKey, values)
     local orientation = GetOption(groupKey, "orientation", "Horizontal")
     local allowed = Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal
@@ -179,6 +169,7 @@ end
 
 local function BuildSettings(groupKey)
     local directionValues = FillDirectionValues(groupKey, {})
+    local fontValues = FillMediaValues({}, "font")
 
     local settings = {
         {
@@ -321,6 +312,37 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "showGCD", false) and true or false end,
             set = function(_, value) SetOption(groupKey, "showGCD", value and true or false) end,
         },
+        {
+            order = 10.1,
+            name = "Show Keybind",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "showKeybind", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "showKeybind", value and true or false) end,
+        },
+        {
+            order = 10.2,
+            name = "Reactive Highlights",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "highlightsEnabled", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "highlightsEnabled", value and true or false) end,
+        },
+        {
+            order = 10.3,
+            name = "Font",
+            kind = lem.SettingType.Dropdown,
+            default = MEDIA_DEFAULT,
+            values = fontValues,
+            get = function()
+                FillMediaValues(fontValues, "font")
+                local current = GetOption(groupKey, "fontFace", "")
+                return (current ~= "" and current) or MEDIA_DEFAULT
+            end,
+            set = function(_, value)
+                SetOption(groupKey, "fontFace", value ~= MEDIA_DEFAULT and value or "")
+            end,
+        },
     }
 
     if Const.AURA_GROUPS[groupKey] then
@@ -426,17 +448,6 @@ local function SetBarOption(key, option, value)
     appearance[option] = value
     local bar = ns.bars[key]
     if bar then bar:Layout() end
-end
-
-local MEDIA_DEFAULT = "Default"
-
-local function FillMediaValues(values, mediatype)
-    wipe(values)
-    values[1] = { text = MEDIA_DEFAULT }
-    for _, name in ipairs(ns.Media.List(mediatype)) do
-        values[#values + 1] = { text = name }
-    end
-    return values
 end
 
 local function MediaSetting(order, name, key, option, mediatype)
@@ -843,7 +854,7 @@ function EditMode:Register()
     end
 
     if not self:IsAvailable() then
-        ns.Debug("Edit Mode not present on this client; use /cdmc unlock.")
+        ns.Debug("Blizzard Edit Mode not present on this client; frames cannot be moved.")
         return false
     end
 

@@ -336,13 +336,6 @@ local function OnDragStop(frame)
     end
 end
 
-local function OnMouseUp(frame)
-    if frame.cdmcGroup and frame.cdmcGroup.unlocked then
-        if ns.BarPanel then ns.BarPanel:Hide() end
-        ns.EditModePanel:Show(frame.cdmcGroup.key)
-    end
-end
-
 function Group:SetUnlocked(unlocked)
     self.unlocked = unlocked
 
@@ -355,7 +348,6 @@ function Group:SetUnlocked(unlocked)
     end
     frame:SetScript("OnDragStart", unlocked and OnDragStart or nil)
     frame:SetScript("OnDragStop", unlocked and OnDragStop or nil)
-    frame:SetScript("OnMouseUp", unlocked and OnMouseUp or nil)
 
     if unlocked then
         if not self.dragBackdrop then

@@ -168,6 +168,14 @@ local EVENTS = {
     "BAG_UPDATE_DELAYED",
     "ACTIONBAR_SLOT_CHANGED",
     "UPDATE_BINDINGS",
+    "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW",
+    "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE",
+}
+
+
+local OVERLAY_GLOW_EVENTS = {
+    SPELL_ACTIVATION_OVERLAY_GLOW_SHOW = true,
+    SPELL_ACTIVATION_OVERLAY_GLOW_HIDE = true,
 }
 
 local UNIT_EVENTS = {
@@ -286,6 +294,21 @@ local function OnEvent(_, event, arg1)
         end
     end
 
+    if OVERLAY_GLOW_EVENTS[event] then
+        if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
+            ns.Highlights:OnOverlayShow(arg1)
+        else
+            ns.Highlights:OnOverlayHide(arg1)
+        end
+        ns.Highlights:Apply()
+        return
+    end
+
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        ns.Highlights:OnCombatLogEvent()
+        return
+    end
+
     if RESOURCE_ONLY_EVENTS[event] then
         if event == "UNIT_DISPLAYPOWER" then
             for _, key in ipairs({ "power", "combo" }) do
@@ -357,10 +380,6 @@ function Core:Initialize()
 
     ns.EditMode:Register()
 
-    if ns.DB:GetGlobal().locked == false then
-        ns.EditMode:SetManualUnlock(true)
-    end
-
     self:RefreshAll()
 
     for _, event in ipairs(EVENTS) do
@@ -369,6 +388,10 @@ function Core:Initialize()
 
     for _, event in ipairs(UNIT_EVENTS) do
         RegisterUnitIfValid(event, "player")
+    end
+
+    if ns.Highlights:HasCombatRules() then
+        RegisterIfValid("COMBAT_LOG_EVENT_UNFILTERED")
     end
 
     self.auraEventRegistered = RegisterUnitIfValid("UNIT_AURA", "player", "target")
@@ -446,9 +469,9 @@ function Core:PrintUIProbe()
                 yes(ns.Compat.ShowColorPicker ~= nil),
                 yes(ns.Media.RegisterBuiltins ~= nil)))
 
-    out(("edit mode: LibEQOL %s  EditModeManagerFrame %s  our unlock %s")
+    out(("edit mode: LibEQOL %s  EditModeManagerFrame %s  active %s")
         :format(yes(ns.EditMode.usingLibEQOL), yes(_G.EditModeManagerFrame ~= nil),
-                yes(ns.EditMode.manualUnlock)))
+                yes(ns.EditMode.active)))
     if ns.EditMode.registrationError then
         out("|cffff5555LibEQOL registration failed:|r " .. tostring(ns.EditMode.registrationError))
     end
@@ -481,7 +504,7 @@ function Core:PrintUIProbe()
     end
 
     out("|cff888888If the dialog templates read no, that client cannot draw LibEQOL's|r")
-    out("|cff888888dropdowns -- use /cdme and click a bar, or the Bar Style Settings button.|r")
+    out("|cff888888dropdowns -- open Blizzard's Edit Mode and select the bar.|r")
 end
 
 function Core:PrintStatus()
@@ -539,9 +562,9 @@ function Core:PrintStatus()
         :format(tostring(self.auraEventRegistered), tostring(ticker ~= nil),
                 tostring(self:HasTrackedAuras())))
 
-    out(("Edit Mode: |cffffff00%s|r  unlocked: |cffffff00%s|r  profile: |cffffff00%s|r")
+    out(("Edit Mode: |cffffff00%s|r  active: |cffffff00%s|r  profile: |cffffff00%s|r")
         :format(ns.EditMode:IsAvailable() and "available" or "absent",
-                tostring(ns.EditMode.manualUnlock), tostring(ns.DB:GetCurrentProfileName())))
+                tostring(ns.EditMode.active), tostring(ns.DB:GetCurrentProfileName())))
 
     for _, key in ipairs(Const.GROUP_ORDER) do
         local settings = ns.DB:GetGroup(key)
@@ -719,8 +742,7 @@ local function PrintHelp()
     ns.Print("commands:")
     local lines = {
         "|cffffff00/cdmc|r or |cffffff00/cdm|r - open the spell picker",
-        "|cffffff00/cdme|r - toggle edit mode (same as unlock / lock)",
-        "|cffffff00/cdmc unlock|r / |cffffff00lock|r - move the groups",
+        "|cff888888move groups/bars and change their settings in Blizzard's Edit Mode|r",
         "|cffffff00/cdmc preset|r [list | <name>] - load a starter layout",
         "|cffffff00/cdmc export|r / |cffffff00import|r - share a profile",
         "|cffffff00/cdmc profile|r [list | use | new | copy | delete] <name>",
@@ -789,17 +811,6 @@ SLASH_CDMC1 = "/cdmc"
 SLASH_CDMC2 = "/cooldownmanager"
 SLASH_CDMC3 = "/cdm"
 
-SLASH_CDMCEDIT1 = "/cdme"
-SLASH_CDMCEDIT2 = "/cdmedit"
-SlashCmdList["CDMCEDIT"] = function()
-    local unlocked = ns.EditMode:ToggleManualUnlock()
-    if unlocked then
-        ns.Print("edit mode on - drag the groups, then /cdme again to finish.")
-    else
-        ns.Print("edit mode off.")
-    end
-end
-
 SlashCmdList["CDMC"] = function(input)
     input = (input or ""):gsub("^%s+", ""):gsub("%s+$", "")
     local command, rest = input:match("^(%S*)%s*(.*)$")
@@ -807,14 +818,6 @@ SlashCmdList["CDMC"] = function(input)
 
     if command == "" then
         ns.SpellPicker:Toggle()
-
-    elseif command == "unlock" then
-        ns.EditMode:SetManualUnlock(true)
-        ns.Print("groups unlocked - drag them, then /cdmc lock.")
-
-    elseif command == "lock" then
-        ns.EditMode:SetManualUnlock(false)
-        ns.Print("groups locked.")
 
     elseif command == "preset" then
         if rest == "" then
