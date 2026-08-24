@@ -168,6 +168,7 @@ local EVENTS = {
     "BAG_UPDATE_DELAYED",
     "ACTIONBAR_SLOT_CHANGED",
     "UPDATE_BINDINGS",
+    "CURRENT_SPELL_CAST_CHANGED",
     "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW",
     "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE",
 }
@@ -300,6 +301,11 @@ local function OnEvent(_, event, arg1)
         else
             ns.Highlights:OnOverlayHide(arg1)
         end
+        ns.Highlights:Apply()
+        return
+    end
+
+    if event == "CURRENT_SPELL_CAST_CHANGED" then
         ns.Highlights:Apply()
         return
     end

@@ -145,6 +145,7 @@ function Icon:Release(frame)
     frame.entry = nil
     frame.groupKey = nil
     self:SetGlow(frame, false)
+    self:SetQueued(frame, false)
     frame.cooldown:Clear()
     iconPool[#iconPool + 1] = frame
 end
@@ -168,6 +169,20 @@ function Icon:SetGlow(frame, shown)
             LCG.ButtonGlow_Stop(frame)
         end
         frame.border:Hide()
+    end
+end
+
+function Icon:SetQueued(frame, shown)
+    shown = shown and true or false
+    if frame.queued == shown then return end
+    frame.queued = shown
+
+    if not (LCG and LCG.AutoCastGlow_Start) then return end
+
+    if shown then
+        LCG.AutoCastGlow_Start(frame, Const.QUEUED_GLOW_COLOR, nil, nil, nil, nil, nil, "cdmc-queued")
+    else
+        LCG.AutoCastGlow_Stop(frame, "cdmc-queued")
     end
 end
 

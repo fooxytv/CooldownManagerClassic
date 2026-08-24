@@ -414,6 +414,8 @@ Const.BAR_FILL_COLOR = { 1.0, 0.5, 0.25 }
 
 Const.BAR_COOLDOWN_COLOR = { 0.38, 0.40, 0.48 }
 
+Const.QUEUED_GLOW_COLOR = { 0.30, 0.85, 1.00, 1 }
+
 Const.ART = {
     mask        = "UI-HUD-CoolDownManager-Mask",
     iconOverlay = "UI-HUD-CoolDownManager-IconOverlay",
