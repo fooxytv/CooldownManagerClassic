@@ -144,16 +144,33 @@ Const.CLASS_RESOURCE_SOURCE = {
 }
 
 Const.CLASS_RESOURCE_INFO = {
-    combo      = { mode = "pips",  label = "Combo Points" },
-    maelstrom  = { mode = "pips",  label = "Maelstrom Weapon" },
-    soulshards = { mode = "count", label = "Soul Shards" },
+    combo         = { mode = "pips",  label = "Combo Points" },
+    maelstrom     = { mode = "pips",  label = "Maelstrom Weapon" },
+    soulshards    = { mode = "count", label = "Soul Shards" },
+    demonicfury   = { mode = "power", label = "Demonic Fury" },
+    burningembers = { mode = "pips",  label = "Burning Embers" },
 }
+
+-- MoP made the Warlock resource a power type and split it by spec. Era and TBC
+-- have none of these, so the bag count in SOUL_SHARD_ITEM_ID still carries them.
+Const.WARLOCK_POWER_TYPES = {
+    soulshards    = { enum = "SoulShards",    value = 7  },
+    demonicfury   = { enum = "DemonicFury",   value = 15 },
+    burningembers = { enum = "BurningEmbers", value = 14 },
+}
+
+Const.WARLOCK_RESOURCE_ORDER = { "soulshards", "demonicfury", "burningembers" }
+
+Const.DEMONIC_FURY_COLOR = { 0.60, 0.35, 0.85 }
+Const.BURNING_EMBERS_COLOR = { 0.95, 0.45, 0.15 }
 
 Const.RESOURCE_SOURCE_OPTIONS = {
     { value = "",           label = "Auto" },
     { value = "combo",      label = "Combo Points" },
     { value = "maelstrom",  label = "Maelstrom Weapon" },
     { value = "soulshards", label = "Soul Shards" },
+    { value = "demonicfury",   label = "Demonic Fury" },
+    { value = "burningembers", label = "Burning Embers" },
     { value = "none",       label = "None" },
 }
 
