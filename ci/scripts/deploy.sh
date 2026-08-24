@@ -37,7 +37,7 @@ fi
 
 # The AddOns folder name must match the .toc basename, so that is what we use
 # for both the zip and the destination directory. ## Title is display-only.
-addon_name=$(basename "$toc_file" .toc)
+addon_name=$(basename "$toc_file" .toc | sed -E 's/_(Vanilla|TBC|Wrath|Cata|Mists|Mainline)$//')
 # awk rather than `grep -oP`: PCRE mode is unavailable in some Git Bash locales
 # ("-P supports only unibyte and UTF-8 locales") and silently yields nothing.
 title=$(awk -F': ' '/^## Title:/{print $2}' "$toc_file" | tr -d '\r')

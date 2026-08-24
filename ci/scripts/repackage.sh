@@ -16,7 +16,7 @@ if [ -z "$toc_file" ]; then
     echo -e "\033[31mError: No .toc file found in project root.\033[0m"
     exit 1
 fi
-addon_name=$(basename "$toc_file" .toc)
+addon_name=$(basename "$toc_file" .toc | sed -E 's/_(Vanilla|TBC|Wrath|Cata|Mists|Mainline)$//')
 
 existing_zip=$(find "$dist_dir" -type f -name "${addon_name}-*.zip" | head -n 1)
 
