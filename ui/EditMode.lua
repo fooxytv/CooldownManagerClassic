@@ -1,12 +1,6 @@
 local addonName, ns = ...
 
 local Const = ns.Constants
-
--- All settings live in Blizzard's Edit Mode via LibEQOL: the groups and bars
--- become genuine Edit Mode systems with real selection frames, grid snapping and
--- settings inside Blizzard's own dialog. On a client where LibEQOL cannot
--- register but Blizzard Edit Mode is present, plain drag handles stand in for
--- positioning (there is no settings UI in that fallback).
 local EditMode = {}
 ns.EditMode = EditMode
 
@@ -26,11 +20,6 @@ function EditMode:IsBlizzardEditModeActive()
     return manager ~= nil and manager.editModeActive == true
 end
 
--- Groups and resource bars are both draggable Edit Mode systems and are always
--- unlocked, saved and reverted together. ns.bars was omitted from every one of
--- these loops originally, which left the bars unreachable: disabled by default,
--- hidden while disabled, and hidden frames cannot be clicked to reach the
--- setting that would enable them.
 local function ForEachWidget(callback)
     for _, group in pairs(ns.groups) do callback(group) end
     for _, bar in pairs(ns.bars) do callback(bar) end
@@ -84,9 +73,6 @@ function EditMode:Enter()
 
     positionSnapshot = TakeSnapshot()
 
-    -- With LibEQOL the library owns selection and dragging, so ours would get
-    -- in the way. Either way everything is forced visible, so an empty,
-    -- disabled or combat-hidden widget can still be positioned.
     ForEachWidget(function(widget)
         if lem then
             widget.unlocked = true
@@ -150,7 +136,6 @@ local function SetOption(groupKey, option, value)
     ns.Core:RefreshGroup(groupKey)
 end
 
--- LibEQOL dropdowns work in display strings, not values.
 local function DropdownValues(labels)
     local values = {}
     for _, label in ipairs(labels) do
@@ -159,14 +144,8 @@ local function DropdownValues(labels)
     return values
 end
 
--- LibEQOL dropdowns speak in display strings, so "" -- our "use the built-in"
--- media -- shows and reads back as this.
 local MEDIA_DEFAULT = "Default"
 
--- The dialog builds a dropdown's menu from the `values` table the setting was
--- registered with, and ignores `optionfunc`. A LibSharedMedia list grows as
--- other addons load, so the table is refilled in place from `get`, which the
--- dialog calls whenever it builds or refreshes the row -- the one hook there is.
 local function FillMediaValues(values, mediatype)
     wipe(values)
     values[1] = { text = MEDIA_DEFAULT }
@@ -176,10 +155,6 @@ local function FillMediaValues(values, mediatype)
     return values
 end
 
--- Refills `values` in place with the directions the group's current orientation
--- allows. In place because the dropdown's menu closes over the table it was
--- registered with: rebuilding it as a new table would leave the menu showing the
--- directions that were valid at login.
 local function FillDirectionValues(groupKey, values)
     local orientation = GetOption(groupKey, "orientation", "Horizontal")
     local allowed = Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal
@@ -193,11 +168,7 @@ local function FillDirectionValues(groupKey, values)
 end
 
 local function BuildSettings(groupKey)
-    -- Icon Direction's choices depend on the orientation, so its list is owned
-    -- here and refilled whenever that changes.
     local directionValues = FillDirectionValues(groupKey, {})
-
-    -- Font list, refilled from its get (media grows as other addons load).
     local fontValues = FillMediaValues({}, "font")
 
     local settings = {
@@ -210,8 +181,6 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "orientation", "Horizontal") end,
             set = function(_, value)
                 SetOption(groupKey, "orientation", value)
-                -- The valid directions differ per orientation, so a stale one
-                -- has to be corrected rather than left pointing sideways.
                 local allowed = Const.ICON_DIRECTIONS[value] or Const.ICON_DIRECTIONS.Horizontal
                 local current = GetOption(groupKey, "iconDirection")
                 local stillValid = false
@@ -240,10 +209,6 @@ local function BuildSettings(groupKey)
             name = "Icon Direction",
             kind = lem.SettingType.Dropdown,
             default = "Down",
-            -- `values`, not `optionfunc`: the Edit Mode dialog's dropdown builds
-            -- its menu from `values` (or a `generator`) alone and ignores
-            -- `optionfunc`, which only the settings-mode surfaces honour. With
-            -- neither, the control rendered as an empty box with no menu.
             values = directionValues,
             optionfunc = function()
                 return FillDirectionValues(groupKey, directionValues)
@@ -267,8 +232,6 @@ local function BuildSettings(groupKey)
             name = "Icon Padding",
             kind = lem.SettingType.Slider,
             default = Const.DEFAULT_APPEARANCE.spacing,
-            -- Negative padding lets the icons touch or overlap, which the
-            -- Blizzard bevel otherwise prevents at zero.
             minValue = -12,
             maxValue = 24,
             valueStep = 1,
@@ -403,8 +366,6 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "display", "Icons") end,
             set = function(_, value)
                 SetOption(groupKey, "display", value)
-                -- Flipped with the display, because bars are wide and stack
-                -- downwards where icons run along a row.
                 if value == "Bars" then
                     SetOption(groupKey, "orientation", "Vertical")
                     SetOption(groupKey, "iconDirection", "Right")
@@ -509,8 +470,6 @@ local function MediaSetting(order, name, key, option, mediatype)
     }
 end
 
--- A dropdown over one of the Const {value, label} lists. The dialog holds the
--- label, so both directions map through the list.
 local function ChoiceSetting(order, name, key, option, choices)
     local values = {}
     for _, choice in ipairs(choices) do
@@ -541,8 +500,6 @@ local function ChoiceSetting(order, name, key, option, choices)
     }
 end
 
--- Colours are stored as packed strings (they have to survive the scalar
--- appearance serialiser); the dialog works in {r, g, b, a} tables.
 local function PackedColor(value)
     if type(value) ~= "table" then return nil end
     return Const.PackColor(value.r or value[1], value.g or value[2],
@@ -650,8 +607,6 @@ local function BuildBarSettings(key)
         },
     }
 
-    -- Combo points show pips rather than a value, so the text toggle is
-    -- replaced by pip spacing.
     if key == "combo" then
         settings[#settings + 1] = {
             order = 6,
@@ -675,14 +630,6 @@ local function BuildBarSettings(key)
         }
     end
 
-    -- Styling (#34, #38). These used to live only in BarPanel, which opens on a
-    -- click -- and while LibEQOL is driving Edit Mode it owns the click, so this
-    -- dialog is the surface a player actually has. BarPanel keeps the same
-    -- options for the clients where LibEQOL is absent.
-    --
-    -- Gathered under one collapsible header rather than appended to the list:
-    -- fourteen more rows would bury Enabled and Visibility, and the library
-    -- remembers the section's state for us.
     local STYLE_SECTION = "cdmcBarStyle"
     local style = {}
 
@@ -714,8 +661,6 @@ local function BuildBarSettings(key)
     style[#style + 1] = ColorSetting(25, "Background Colour", key, "bgColor",
         Const.DEFAULT_BAR_APPEARANCE.bgColor)
 
-    -- The fill override is a checkbox with its own swatch: unticked ("") leaves
-    -- the resource its own colour, which no colour value can express.
     style[#style + 1] = {
         order = 26,
         name = "Custom Fill Colour",
@@ -731,8 +676,6 @@ local function BuildBarSettings(key)
                 SetBarOption(key, "fillColor", "")
                 return
             end
-            -- Seeded from what the bar draws now, so ticking it changes nothing
-            -- until a colour is actually chosen.
             local bar = ns.bars[key]
             local statusBar = bar and bar.statusBar
             local r, g, b = 1, 1, 1
@@ -785,8 +728,6 @@ local function BuildBarSettings(key)
         set = function(_, value) SetBarOption(key, "spark", value and true or false) end,
     }
 
-    -- The class-resource bar alone: how a segmented resource draws, and which
-    -- resource it shows.
     if key == "combo" then
         style[#style + 1] = ChoiceSetting(33, "Segments", key, "segmentStyle",
             Const.BAR_SEGMENT_OPTIONS)
@@ -794,7 +735,6 @@ local function BuildBarSettings(key)
             Const.RESOURCE_SOURCE_OPTIONS)
     end
 
-    -- Every styling row hangs off the collapsible header above.
     for _, setting in ipairs(style) do
         setting.parentId = STYLE_SECTION
         settings[#settings + 1] = setting
@@ -803,8 +743,6 @@ local function BuildBarSettings(key)
     return settings
 end
 
--- LibEQOL reports the new anchor as a loose argument list, so the values are
--- picked out by type rather than by position.
 local function ParsePositionArgs(...)
     local anchors = {
         CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
@@ -845,10 +783,6 @@ function EditMode:RegisterWithLibEQOL()
                 ns.DB:SetGroupPosition(key, point, relativePoint, x, y)
             end, defaults)
 
-            -- Classic's EditModeSystemSelectionBaseMixin:CheckShowInstructionalTooltip
-            -- calls self.system:GetSystemName() on mouse-enter. Blizzard's real
-            -- systems set that field and an addon-registered frame does not, so
-            -- hovering throws without this stub.
             local selection = group.frame.Selection
             if selection and not selection.system then
                 local label = Const.GROUP_LABELS[key] or key
@@ -884,8 +818,6 @@ function EditMode:RegisterWithLibEQOL()
             lem:AddFrame(bar.frame, function(...)
                 local point, relativePoint, x, y = ParsePositionArgs(...)
                 if not point then return end
-                -- Through the accessor, not the captured `settings`: see
-                -- DB:SetBarPosition.
                 ns.DB:SetBarPosition(key, point, relativePoint, x, y)
             end, defaults)
 
@@ -915,9 +847,6 @@ function EditMode:Register()
             return true
         end
 
-        -- Fall through to the basic path rather than leaving the groups with no
-        -- way to be moved at all. The error is kept for /cdmc ui, since the
-        -- chat line scrolls away long before anyone goes looking.
         ns.Print("|cffffcc00Edit Mode integration failed, using the basic handles:|r " .. tostring(err))
         self.registrationError = err
         lem = nil

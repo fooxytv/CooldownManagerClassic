@@ -22,8 +22,6 @@ local function DeepCopy(source)
 end
 ns.DeepCopy = DeepCopy
 
--- Never overwrites an existing value, so it doubles as the migration path when
--- a new option is added. See RunMigrations for changes that must be forced.
 local function ApplyDefaults(target, defaults)
     for k, v in pairs(defaults) do
         if type(v) == "table" then
@@ -37,12 +35,6 @@ local function ApplyDefaults(target, defaults)
 end
 ns.ApplyDefaults = ApplyDefaults
 
--- Keyed on class, so all your rogues share a layout but your shaman gets its own.
---
--- Returns nil rather than falling back to "Default" when the class is not known
--- yet. That fallback silently bound every character that hit it to one shared
--- profile, so a shaman inherited a rogue's abilities and neither could be
--- customised separately -- see SelectProfileForCharacter.
 function DB.GetDefaultProfileNameForPlayer()
     local localizedClass = UnitClass("player")
     if not localizedClass or localizedClass == "" then return nil end
@@ -55,7 +47,6 @@ function DB.GetCharacterKey()
     return name .. " - " .. realm
 end
 
--- Keeps the groups from overlapping on a fresh install.
 local GROUP_DEFAULT_Y = {
     essential    = -140,
     utility      = -190,
@@ -64,7 +55,6 @@ local GROUP_DEFAULT_Y = {
 }
 
 local function DefaultGroup(key)
-    -- Shared defaults first, then Blizzard's per-category sizing on top.
     local appearance = DeepCopy(Const.DEFAULT_APPEARANCE)
     for option, value in pairs(Const.GROUP_APPEARANCE[key] or {}) do
         appearance[option] = value
@@ -72,7 +62,6 @@ local function DefaultGroup(key)
 
     return {
         enabled = true,
-        -- Array of { spellID = n, name = "...", rankIndependent = bool }
         spells = {},
         position = {
             point = "CENTER",
@@ -86,8 +75,6 @@ end
 
 local function DefaultBar(key)
     return {
-        -- Off by default: these duplicate the stock player frame, so they are
-        -- opt-in for people replacing it rather than adding to it.
         enabled = false,
         position = {
             point = "CENTER",
@@ -118,23 +105,11 @@ DB.DefaultProfile = DefaultProfile
 local DEFAULT_GLOBAL = {
     locked = true,
     debug = false,
-    -- On by default: the only practical way to find the ID of a buff that is
-    -- not in the spellbook.
     showTooltipIDs = true,
-    -- Which picker sections are rolled up, keyed "tab:section". A display
-    -- preference rather than part of a layout, so it lives here and not in the
-    -- profile -- switching profile should not re-open everything.
     collapsedSections = {},
-    -- Layouts the player saved themselves, by name. Per account rather than per
-    -- profile, so one can seed a new character (see Presets:SaveCurrentAs).
     customPresets = {},
 }
 
--- Migrations, for changes ApplyDefaults cannot make: it never overwrites a
--- stored value, so a changed *default* never reaches an existing profile.
--- Guarded by dbVersion so each runs exactly once.
-
--- v2: profiles before this had a flat 40px on every group.
 local function MigrateGroupAppearance(root)
     for _, profile in pairs(root.profiles) do
         if type(profile) == "table" and type(profile.groups) == "table" then
@@ -150,9 +125,6 @@ local function MigrateGroupAppearance(root)
     end
 end
 
--- v3: a tracked rune placeholder is a permanently dead icon -- its spell ID
--- never reports a cooldown, usability or aura -- so they are removed outright
--- rather than left for the user to find.
 local function MigrateRunePlaceholders(root)
     local removed = 0
 
@@ -210,14 +182,8 @@ function DB:Initialize()
         root.profiles["Default"] = DefaultProfile()
     end
 
-    -- After the profile table exists, since migrations rewrite stored profiles.
     self.migratedFrom = self:RunMigrations(root)
 
-    -- Deliberately not bound to a character here. This runs on ADDON_LOADED,
-    -- which does not guarantee UnitClass("player") has data yet, and choosing a
-    -- profile from a nil class is what put several characters on one. Default
-    -- is a placeholder so nothing between here and PLAYER_LOGIN sees a nil
-    -- profile; SelectProfileForCharacter replaces it.
     self.currentProfileName = "Default"
     self.profile = root.profiles["Default"]
     self:NormalizeProfile(self.profile)
@@ -225,11 +191,6 @@ function DB:Initialize()
     return self.profile
 end
 
--- Was this character put on "Default" by the old nil-class fallback?
---
--- Signature: pointed at "Default" while at least one other character is too,
--- and this character has a class profile it could be using instead. A single
--- character deliberately sitting on Default is left alone.
 local function IsSharedDefaultBinding(root, charKey, profileName, className)
     if profileName ~= "Default" then return false end
     if not className or className == "Default" then return false end
@@ -240,9 +201,6 @@ local function IsSharedDefaultBinding(root, charKey, profileName, className)
     return false
 end
 
--- Binds this character to its profile. Called at PLAYER_LOGIN, where the class
--- is finally reliable. An existing assignment is kept, unless it was made by
--- the shared-Default bug.
 function DB:SelectProfileForCharacter()
     local root = self.root
     local charKey = DB.GetCharacterKey()
@@ -250,9 +208,6 @@ function DB:SelectProfileForCharacter()
     local profileName = root.profileKeys[charKey]
 
     if profileName and IsSharedDefaultBinding(root, charKey, profileName, className) then
-        -- Default keeps its contents: another character is still using it, and
-        -- it may hold this one's real layout. Core reports the switch so it can
-        -- be undone with /cdmc profile use Default.
         self.repairedFromShared = profileName
         profileName = nil
     end
@@ -274,14 +229,6 @@ function DB:SelectProfileForCharacter()
     return self.profile
 end
 
--- Gives a Druid's existing entries the form tags they would have been created
--- with today (#43), so form-aware tracking starts working on a layout that was
--- built before the defaults existed.
---
--- Called from here rather than NormalizeProfile because it needs the class and
--- the spell names, and neither is reliable at ADDON_LOADED -- the same reason
--- profile binding waits for PLAYER_LOGIN. A non-Druid leaves without stamping
--- the flag, so a Druid sharing the profile is still backfilled later.
 function DB:BackfillFormTags(profile)
     if not profile or profile.formTagsApplied then return false end
 
@@ -291,8 +238,6 @@ function DB:BackfillFormTags(profile)
     local tagged = 0
     for _, group in pairs(profile.groups or {}) do
         for _, entry in ipairs(group.spells or {}) do
-            -- Only entries with no tags at all: a hand-tagged ability, including
-            -- one deliberately tagged for every form, is left as it is.
             if type(entry) == "table" and entry.forms == nil then
                 local forms = Const.DefaultFormsFor(entry.spellID)
                 if forms then
@@ -329,8 +274,6 @@ function DB:NormalizeProfile(profile)
         end
         ApplyDefaults(group, DefaultGroup(key))
 
-        -- Tolerate the shorthand presets and hand-written imports use, where a
-        -- group is a plain array of spell IDs.
         for index, entry in ipairs(group.spells) do
             if type(entry) == "number" then
                 group.spells[index] = { spellID = entry, rankIndependent = true }
@@ -357,9 +300,6 @@ function DB:GetGlobal()
     return self.root.global
 end
 
--- Reactive highlighting is per group: each cooldown group opts in on its own, so
--- it can be on for Essential Cooldowns but off for Utility. Aura (tracked-buff)
--- groups never highlight and are skipped by the all-groups helpers below.
 function DB:IsGroupHighlightEnabled(key)
     local group = self:GetGroup(key)
     local value = group and group.appearance and group.appearance.highlightsEnabled
@@ -374,8 +314,6 @@ function DB:SetGroupHighlightEnabled(key, enabled)
     end
 end
 
--- True when any highlight-capable group has it on. Backs the slash command's
--- toggle and the engine's cheap "is anything on?" short-circuit.
 function DB:AreHighlightsEnabled()
     for _, key in ipairs(Const.GROUP_ORDER) do
         if not Const.AURA_GROUPS[key] and self:IsGroupHighlightEnabled(key) then
@@ -385,8 +323,6 @@ function DB:AreHighlightsEnabled()
     return false
 end
 
--- Sets every highlight-capable group at once -- the /cdmc highlight command,
--- which stays a single on/off switch over all groups.
 function DB:SetHighlightsEnabled(enabled)
     for _, key in ipairs(Const.GROUP_ORDER) do
         if not Const.AURA_GROUPS[key] then
@@ -422,8 +358,6 @@ function DB:SetProfile(name)
     return true
 end
 
--- copyFrom takes a profile name or a table outright (preset and import use the
--- table form).
 function DB:CreateProfile(name, copyFrom)
     if not name or name == "" then
         return false, "Profile name cannot be empty."
@@ -452,9 +386,6 @@ function DB:DeleteProfile(name)
     if name == self.currentProfileName then
         return false, "Cannot delete the profile currently in use."
     end
-    -- Deletion repoints characters at "Default", so it has to outlive them: it
-    -- is otherwise recreated only on the next login, and until then those
-    -- characters point at a profile that does not exist.
     if name == "Default" then
         return false, "Cannot delete the Default profile."
     end
@@ -481,7 +412,6 @@ function DB:GroupContains(groupKey, spellID)
     local name = ns.Compat.GetSpellInfo(spellID)
     for index, entry in ipairs(group.spells) do
         if entry.spellID == spellID then return index end
-        -- A rank-independent entry matches any rank of the same spell.
         if entry.rankIndependent and name and entry.name == name then return index end
     end
     return nil
@@ -538,9 +468,6 @@ function DB:SetGroupPosition(groupKey, point, relativePoint, x, y)
     group.position.y = y or 0
 end
 
--- Takes a key, not the bar table, so Edit Mode's drag callback resolves the
--- profile at drag time: closing over the table registered with the frame writes
--- the new position into the old profile after a profile switch.
 function DB:SetBarPosition(barKey, point, relativePoint, x, y)
     local bar = self:GetBar(barKey)
     if not bar then return end

@@ -3,14 +3,9 @@ local addonName, ns = ...
 local Const = ns.Constants
 local Compat = ns.Compat
 
--- Modelled on Blizzard's Advanced Cooldown Settings. Edits commit immediately;
--- Revert restores the profile as it was when the dialog opened.
-
 local SpellPicker = {}
 ns.SpellPicker = SpellPicker
 
--- Metrics follow Retail's Cooldown Settings frame (#40): fewer icons per row and
--- more air between them than the ten-wide grid this started as.
 local ICON_SIZE = 36
 local ICON_GAP = 6
 local ICONS_PER_ROW = 7
@@ -18,15 +13,11 @@ local SECTION_HEADER_HEIGHT = 24
 local SECTION_GAP = 8
 local CONTENT_WIDTH = ICONS_PER_ROW * (ICON_SIZE + ICON_GAP)
 
--- Sections roll up under their header. Blizzard's own plus/minus art, which has
--- been in the client since vanilla, so nothing here needs an atlas probe.
 local COLLAPSE_TEXTURES = {
     expanded  = "Interface\\Buttons\\UI-MinusButton-Up",
     collapsed = "Interface\\Buttons\\UI-PlusButton-Up",
 }
 
--- The "Not Displayed" bucket has no group key: dropping into it removes the
--- spell from whichever group it was in.
 local TABS = {
     cooldowns = {
         title = "Cooldown Settings",
@@ -54,21 +45,12 @@ local TABS = {
     },
 }
 
--- The Options tab is hidden, not deleted: every setting it held is also in the
--- Edit Mode panel, and two surfaces for the same options only disagree.
--- Profiles are not in the Edit Mode panel at all, so there is no such clash.
 local TAB_ORDER = { "cooldowns", "buffs", "profiles" }
 
--- Tabs that draw their own panel instead of sections of spell icons. Search and
--- Save/Revert mean nothing on these.
 local PANEL_TABS = { options = true, profiles = true }
 
--- Applied immediately rather than staged: seeing the icons resize as you drag
--- the slider is the point.
 local OPTION_SLIDERS = {
     { option = "iconSize", label = "Icon Size", min = 16, max = 72, step = 1 },
-    -- Negative minimum on purpose: the Blizzard bevel overhangs the icon by
-    -- several pixels, so zero padding still reads as a gap.
     { option = "spacing",  label = "Icon Padding", min = -12, max = 24, step = 1 },
 }
 
@@ -85,10 +67,8 @@ local frame
 local currentTab = "cooldowns"
 local searchText = ""
 
--- Staged edits: groupKey -> array of profile entries.
 local working = {}
 
--- In-flight drag: { spellID, fromGroup, fromIndex, entry, handled }
 local drag = nil
 
 local function LoadWorking()
@@ -99,7 +79,6 @@ local function LoadWorking()
     end
 end
 
--- What Revert goes back to, now that edits commit immediately.
 local openSnapshot = {}
 
 local function SaveWorking()
@@ -112,9 +91,6 @@ local function SaveWorking()
     ns.Core:RefreshAll()
 end
 
--- Commits immediately. Staging until a Save press meant closing the window
--- silently discarded everything just dragged in, which looks identical to the
--- spell never having been tracked.
 local function CommitEdit()
     SaveWorking()
 end
@@ -134,15 +110,6 @@ local function RestoreOpenSnapshot()
     SaveWorking()
 end
 
--- Scoped to the tab, not the whole profile: a spell can be both an Essential
--- cooldown and a Tracked Buff, and checking every group would hide it from the
--- Buffs tab the moment it appeared on the Cooldowns one.
---
--- The name test alongside the ID is not belt-and-braces. Entries are stored
--- rank-independent and presets store rank 1, while the picker offers the best
--- rank known; once you out-level rank 1 the IDs differ, and an ID-only test
--- listed the spell as both tracked and Not Displayed -- adding it from there
--- left two icons for one spell.
 local function IsTracked(spellID, tabKey)
     local name = Compat.GetSpellInfo(spellID)
 
@@ -177,16 +144,11 @@ local function GetNotDisplayed(tabKey)
         Add(spell.spellID, spell.name)
     end
 
-    -- Anything currently on the player is offered too: SoD runes especially
-    -- apply a buff whose ID is not the ability cast and is nowhere in the
-    -- spellbook, so this is the only way to reach them.
     if tabKey == "buffs" then
         for _, aura in ipairs(ns.Compat.GetPlayerAuras()) do
             Add(aura.spellID, aura.name)
         end
 
-        -- Weapon enchants are always offered, whether or not one is currently
-        -- applied: they are a slot to watch rather than a spell you know.
         for _, enchant in ipairs(Const.WEAPON_ENCHANTS) do
             Add(enchant.id, enchant.label)
         end
@@ -232,7 +194,6 @@ end
 local function BeginDrag(button)
     if not button.spellID then return end
 
-    -- A menu left open from a right-click would sit over the drop targets.
     if SpellPicker.CloseEntryMenu then SpellPicker.CloseEntryMenu() end
 
     drag = {
@@ -253,9 +214,6 @@ local function EndDrag()
     if dragVisual then dragVisual:Hide() end
 end
 
--- Hit-testing rather than OnReceiveDrag, which only fires when something is
--- genuinely on the cursor. Dragging a plain frame carries no cursor payload, so
--- the drop has to be resolved on OnDragStop instead.
 local function GetFrameUnderCursor()
     if _G.GetMouseFoci then
         local foci = GetMouseFoci()
@@ -267,7 +225,6 @@ local function GetFrameUnderCursor()
     return nil
 end
 
--- A nil targetGroup is the "Not Displayed" bucket: remove it from wherever it was.
 local function DropInto(targetGroup, targetIndex)
     if not drag then return end
     drag.handled = true
@@ -277,9 +234,6 @@ local function DropInto(targetGroup, targetIndex)
             spellID = drag.spellID,
             name = drag.entry and drag.entry.name,
             rankIndependent = true,
-            -- Dragged in fresh from Not Displayed: an ability whose value is its
-            -- aura defaults to aura tracking. A moved entry keeps whatever flag
-            -- it already had.
             trackDebuff = Const.IsAuraSpell(drag.spellID) or nil,
             forms = Const.DefaultFormsFor(drag.spellID),
         }
@@ -287,7 +241,6 @@ local function DropInto(targetGroup, targetIndex)
     if targetGroup and working[targetGroup] then
         local list = working[targetGroup]
 
-        -- Or a cross-group move leaves a duplicate behind.
         for index, existing in ipairs(list) do
             if existing.spellID == entry.spellID then
                 table.remove(list, index)
@@ -307,8 +260,6 @@ local function DropInto(targetGroup, targetIndex)
     SpellPicker:Refresh()
 end
 
--- Walks up from whatever is under the cursor until it finds an icon (insert at
--- that position) or a section (append), and cancels if it finds neither.
 local function ResolveDrop()
     if not drag then return end
 
@@ -345,8 +296,6 @@ local function IsDruidPlayer()
     return select(2, UnitClass("player")) == "DRUID"
 end
 
--- The tag badge for a tracked icon: the initials of the forms it is limited to,
--- or nil for an untagged (all-forms) entry, which shows no badge.
 local function FormBadge(entry)
     local forms = entry and entry.forms
     if type(forms) ~= "table" or not next(forms) then return nil end
@@ -358,9 +307,6 @@ local function FormBadge(entry)
     return table.concat(out)
 end
 
--- Flips one form for an entry. Works from the effective set (an untagged entry
--- shows in all forms), and collapses "all forms on" -- or the empty set -- back
--- to untagged, so the badge disappears when a tag adds nothing.
 local function ToggleEntryForm(entry, formKey)
     local set = {}
     if type(entry.forms) == "table" and next(entry.forms) then
@@ -381,21 +327,13 @@ local function ToggleEntryForm(entry, formKey)
     end
 end
 
--- Right-click menu on a tracked icon (Druids only): a checkable toggle per form.
--- Checking every form -- the default -- is the same as untagged.
 local formMenu
 
--- The menu is a free-floating frame owned by nothing, so it outlives whatever
--- opened it: closing the picker, switching tab or dragging an icon otherwise
--- left it hanging over the game world.
 local function CloseEntryMenu()
     if _G.CloseDropDownMenus then CloseDropDownMenus() end
 end
 SpellPicker.CloseEntryMenu = CloseEntryMenu
 
--- Re-reads the check marks from the entry while the menu stays open. Toggling a
--- form can change every other tick -- tagging the last untagged form is the same
--- as untagging the ability -- and the client only repaints the one clicked.
 local function RefreshEntryMenu()
     if formMenu and _G.UIDropDownMenu_Refresh then
         UIDropDownMenu_Refresh(formMenu, false, 1)
@@ -407,23 +345,15 @@ local function ShowEntryMenu(button)
         formMenu = CreateFrame("Frame", "CDMCFormMenu", UIParent, "UIDropDownMenuTemplate")
     end
 
-    -- Closed first: ToggleDropDownMenu on the same frame would otherwise treat a
-    -- right-click on a *different* icon as "close the one already open", so the
-    -- second icon's menu never appeared.
     CloseEntryMenu()
 
     UIDropDownMenu_Initialize(formMenu, function()
         local entry = button.entry
         if not entry then return end
 
-        -- Aura tracking applies to every class: the ability is followed by the
-        -- aura it leaves rather than (only) its cooldown -- its own buff on the
-        -- player when one is up, the debuff on the target otherwise.
         local dot = UIDropDownMenu_CreateInfo()
         dot.text = "Track its aura (buff or DoT)"
         dot.isNotRadio = true
-        -- Not kept shown: this is a single decision, and a menu that stays open
-        -- after it reads as one that failed to take the click.
         dot.checked = entry.trackDebuff and true or false
         dot.func = function()
             entry.trackDebuff = not entry.trackDebuff or nil
@@ -433,7 +363,6 @@ local function ShowEntryMenu(button)
         end
         UIDropDownMenu_AddButton(dot)
 
-        -- Form tags are Druid-only.
         if IsDruidPlayer() then
             local title = UIDropDownMenu_CreateInfo()
             title.text = "Track in forms"
@@ -447,9 +376,6 @@ local function ShowEntryMenu(button)
                 info.isNotRadio = true
                 info.keepShownOnClick = true
                 info.checked = Const.FormAllows(entry.forms, opt.value)
-                -- Kept shown, unlike the aura toggle: forms are picked in
-                -- combination, and reopening the menu per tick is worse. The
-                -- other ticks are repainted by hand afterwards.
                 info.keepShownOnClick = true
                 info.func = function()
                     ToggleEntryForm(entry, opt.value)
@@ -460,9 +386,6 @@ local function ShowEntryMenu(button)
                 UIDropDownMenu_AddButton(info)
             end
 
-            -- Tags are ignored while a group is unlocked, so that every row can
-            -- be dragged (ui/Group.lua). Said here because testing the feature
-            -- from inside Edit Mode otherwise looks like it does nothing.
             local note = UIDropDownMenu_CreateInfo()
             note.text = "|cff888888(all forms show while unlocked)|r"
             note.isTitle = true
@@ -488,16 +411,11 @@ local function CreateIconButton(parent)
     button.highlight:SetAllPoints()
     button.highlight:SetColorTexture(1, 1, 1, 0.25)
 
-    -- Form-tag badge (Druids), lit corner initials of the forms this ability is
-    -- limited to. Hidden for untagged entries and non-Druids.
     button.formText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     button.formText:SetPoint("BOTTOMLEFT", 1, 1)
     button.formText:SetTextColor(0.4, 0.8, 1)
     button.formText:Hide()
 
-    -- Bar sections preview how the entry will actually draw -- an icon with a
-    -- named bar beside it -- instead of showing another square in a grid, which
-    -- said nothing about what that section does. Hidden everywhere else.
     button.plate = button:CreateTexture(nil, "BACKGROUND")
     button.plate:SetPoint("TOPLEFT", button, "TOPRIGHT", ICON_GAP, -2)
     button.plate:SetHeight(ICON_SIZE - 4)
@@ -510,8 +428,6 @@ local function CreateIconButton(parent)
     button.plateText:SetJustifyH("LEFT")
     button.plateText:Hide()
 
-    -- Aura-tracking badge, opposite corner, shown when the entry is followed by
-    -- the aura it leaves rather than its cooldown.
     button.dotText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     button.dotText:SetPoint("BOTTOMRIGHT", -1, 1)
     button.dotText:SetTextColor(1, 0.5, 0.3)
@@ -525,9 +441,6 @@ local function CreateIconButton(parent)
     button:SetScript("OnDragStart", BeginDrag)
     button:SetScript("OnDragStop", ResolveDrop)
 
-    -- Left-click moves a spell between tracked and not-displayed without
-    -- dragging; right-click on a tracked icon opens the tracking menu (aura
-    -- tracking for any class, plus form tags for Druids).
     button:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
             if self.groupKey then
@@ -544,8 +457,6 @@ local function CreateIconButton(parent)
                     spellID = self.spellID,
                     name = self.entry and self.entry.name,
                     rankIndependent = true,
-                    -- An ability whose value is its aura defaults to aura
-                    -- tracking when first added.
                     trackDebuff = Const.IsAuraSpell(self.spellID) or nil,
                     forms = Const.DefaultFormsFor(self.spellID),
                 })
@@ -582,9 +493,6 @@ end
 local sectionPool = {}
 local activeSections = {}
 
--- Collapse state is per tab and section, and lives in the global table rather
--- than the profile: it is how the window is arranged, not part of a layout, so
--- switching profile should not throw every section back open.
 local function SectionKey(definition)
     return currentTab .. ":" .. (definition.key or "notDisplayed")
 end
@@ -599,7 +507,6 @@ local function SetSectionCollapsed(definition, collapsed)
     local global = ns.DB:GetGlobal()
     if not global then return end
     global.collapsedSections = global.collapsedSections or {}
-    -- nil rather than false, so the table only ever holds what is rolled up.
     global.collapsedSections[SectionKey(definition)] = collapsed or nil
 end
 
@@ -608,10 +515,6 @@ local function CreateSection(parent)
     section:SetWidth(CONTENT_WIDTH)
     section:EnableMouse(true)
 
-    -- A raised header bar rather than the bare text label this had: the name on
-    -- the left, how many entries on the right, and a toggle that rolls the
-    -- section up. Built from plain colour textures, so there is no atlas to be
-    -- missing on Classic Era.
     local header = CreateFrame("Button", nil, section)
     header:SetPoint("TOPLEFT", 0, 0)
     header:SetPoint("TOPRIGHT", 0, 0)
@@ -644,8 +547,6 @@ local function CreateSection(parent)
     section.toggle = toggle
 
     local function ToggleSection()
-        -- Mid-drag the header is a drop target, not a button: rolling the
-        -- section up under the cursor would drop the icon into nothing.
         if drag or not section.definition then return end
         SetSectionCollapsed(section.definition, not IsSectionCollapsed(section.definition))
         SpellPicker:Refresh()
@@ -659,8 +560,6 @@ local function CreateSection(parent)
     section.bg:SetPoint("BOTTOMRIGHT", 0, 0)
     section.bg:SetColorTexture(0, 0, 0, 0.25)
 
-    -- Marked so ResolveDrop can find it by walking up from the cursor target;
-    -- dropping on the section background appends to the end of that group.
     section.cdmcIsSection = true
 
     section.buttons = {}
@@ -685,7 +584,6 @@ local function MatchesSearch(name)
     return name ~= nil and name:lower():find(searchText:lower(), 1, true) ~= nil
 end
 
--- Returns the section's height.
 local function BuildSection(parent, definition, entries, yOffset)
     local section = table.remove(sectionPool) or CreateSection(parent)
     section:SetParent(parent)
@@ -698,8 +596,6 @@ local function BuildSection(parent, definition, entries, yOffset)
     section:Show()
     activeSections[#activeSections + 1] = section
 
-    -- Rolled up: the header alone, and none of the icons are acquired, so a
-    -- collapsed Not Displayed costs nothing to draw.
     local collapsed = IsSectionCollapsed(definition)
     section.toggle:SetNormalTexture(collapsed and COLLAPSE_TEXTURES.collapsed
         or COLLAPSE_TEXTURES.expanded)
@@ -710,9 +606,6 @@ local function BuildSection(parent, definition, entries, yOffset)
         return SECTION_HEADER_HEIGHT
     end
 
-    -- A duration-bar group draws as bars in game, so it previews as one bar per
-    -- row here rather than as another grid of squares, which said nothing about
-    -- what that section is for.
     local isBarSection = definition.key ~= nil and Const.DURATION_BAR_GROUPS[definition.key]
     local rows = isBarSection and math.max(1, #entries)
         or math.max(1, math.ceil(#entries / ICONS_PER_ROW))
@@ -733,8 +626,6 @@ local function BuildSection(parent, definition, entries, yOffset)
         button.entry = entry
         button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
 
-        -- Badges only on tracked (not not-displayed) entries: form initials for a
-        -- Druid, and a DoT marker for a DoT-tracked ability.
         local badge = definition.key and IsDruidPlayer() and FormBadge(entry)
         if badge then
             button.formText:SetText(badge)
@@ -745,8 +636,6 @@ local function BuildSection(parent, definition, entries, yOffset)
 
         button.dotText:SetShown(definition.key ~= nil and entry.trackDebuff == true)
 
-        -- Inset from the header and the section edge, so the grid sits inside
-        -- the panel rather than flush against it.
         local column = isBarSection and 0 or (index - 1) % ICONS_PER_ROW
         local row = isBarSection and (index - 1)
             or math.floor((index - 1) / ICONS_PER_ROW)
@@ -765,16 +654,12 @@ local function BuildSection(parent, definition, entries, yOffset)
             button.plateText:Hide()
         end
 
-        -- Search dims rather than filters, so an icon never moves under the
-        -- cursor while you are typing.
         local matches = MatchesSearch(name)
         button.icon:SetAlpha(matches and 1 or 0.25)
         if button.icon.SetDesaturated then
             button.icon:SetDesaturated(not matches)
         end
 
-        -- A spell the character cannot currently cast (unlearned rank, or a
-        -- rune that is not engraved) stays in the profile but is marked.
         if not resolvedID then
             button.icon:SetVertexColor(1, 0.4, 0.4)
         else
@@ -808,8 +693,6 @@ local function EnsureOptionWidgets(parent)
 
     optionWidgets = { groupButtons = {}, sliders = {}, toggles = {} }
 
-    -- A wrapping grid, not a row: with four groups a single row overran the
-    -- dialog, clipping "Essential Cooldowns" and pushing the last button off.
     local PER_ROW = 2
     local BUTTON_GAP = 4
     local BUTTON_W = (CONTENT_WIDTH - BUTTON_GAP) / PER_ROW
@@ -833,7 +716,6 @@ local function EnsureOptionWidgets(parent)
         optionWidgets.groupButtons[key] = button
     end
 
-    -- Start the sliders below however many rows of group buttons there were.
     local buttonRows = math.ceil(#Const.GROUP_ORDER / PER_ROW)
     local y = -4 - buttonRows * ROW_STEP - 12
     for index, definition in ipairs(OPTION_SLIDERS) do
@@ -887,17 +769,12 @@ local function EnsureOptionWidgets(parent)
     return optionWidgets
 end
 
--- Which profile the list has highlighted. Only a selection: switching to it is
--- a separate button, so picking a profile to copy or delete does not drag the
--- character onto it first.
 local selectedProfile = nil
--- The layout highlighted in the starter-layout list, by key.
 local selectedLayout = nil
 local profileWidgets = nil
 
 local PROFILE_ROWS = 10
 local PROFILE_ROW_HEIGHT = 20
--- Built-in layouts for one class plus whatever has been saved by hand.
 local LAYOUT_ROWS = 8
 
 local function SetProfileStatus(text, isError)
@@ -910,9 +787,6 @@ local function SetProfileStatus(text, isError)
     end
 end
 
--- Every action reports through the same place: these all fail for ordinary
--- reasons (duplicate name, empty name, deleting the profile in use) and a
--- silent no-op looks identical to the button being broken.
 local function RunProfileAction(ok, err, success)
     if ok then
         SetProfileStatus(success, false)
@@ -944,8 +818,6 @@ local function EnsureProfileWidgets(parent)
     profileWidgets.heading = heading
     y = y - 18
 
-    -- A fixed pool rather than a scroll frame: the list is one entry per class
-    -- plus whatever the player has named, so it does not grow without bound.
     for index = 1, PROFILE_ROWS do
         local row = CreateFrame("Button", nil, parent)
         row:SetSize(CONTENT_WIDTH - 16, PROFILE_ROW_HEIGHT)
@@ -1015,9 +887,6 @@ local function EnsureProfileWidgets(parent)
         return button
     end
 
-    -- The headline case: a second shaman starts from the first shaman's layout
-    -- and then diverges. Copy writes a new profile and moves this character to
-    -- it, so the source is never edited by accident.
     profileWidgets.copyButton = AddButton("Copy Selected", 0, 0, function()
         local name = NewProfileName()
         if name == "" then
@@ -1076,8 +945,6 @@ local function EnsureProfileWidgets(parent)
         end
     end, "Deletes the selected profile. The profile in use and the Default profile cannot be deleted.")
 
-    -- Sharing lives here rather than on the bottom strip: it belongs with the
-    -- other profile actions, and the strip is now the profile in use and Revert.
     profileWidgets.shareButton = AddButton("Share Profile", 0, 2, function()
         ns.ProfileShare:ShowExport()
     end, "Exports the profile in use as a string to paste to someone else, and imports one they send you.")
@@ -1090,9 +957,6 @@ local function EnsureProfileWidgets(parent)
     profileWidgets.status:SetJustifyH("LEFT")
     y = y - 30
 
-    -- Starter layouts. A profile is where your setup lives; a layout is a set of
-    -- spells to pour into it, so they belong on the same tab but not in the same
-    -- list -- applying one rewrites what the profile tracks.
     local layoutHeading = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     layoutHeading:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
     layoutHeading:SetText("Starter layouts:")
@@ -1128,8 +992,6 @@ local function EnsureProfileWidgets(parent)
 
     y = y - 8
 
-    -- Applying overwrites what this profile tracks. Nothing is lost while the
-    -- window is open: Revert restores the layout as it was when it opened.
     profileWidgets.applyLayout = AddButton("Apply Layout", 0, 0, function()
         if not selectedLayout then
             SetProfileStatus("Select a layout first.", true)
@@ -1186,7 +1048,6 @@ local function ShowProfiles(parent)
     local current = ns.DB:GetCurrentProfileName()
     local names = ns.DB:ListProfiles()
 
-    -- A profile deleted underneath the selection must not stay selected.
     if selectedProfile and not ns.DB.root.profiles[selectedProfile] then
         selectedProfile = nil
     end
@@ -1216,8 +1077,6 @@ local function ShowProfiles(parent)
     end
 
     if #names > PROFILE_ROWS then
-        -- No silent truncation: the list is a fixed pool, so say so rather than
-        -- letting a profile simply not appear.
         widgets.status:SetText(("Showing the first %d of %d profiles - use /cdmc profile list for the rest.")
             :format(PROFILE_ROWS, #names))
         widgets.status:SetTextColor(1, 0.8, 0.3)
@@ -1229,13 +1088,11 @@ local function ShowProfiles(parent)
     widgets.deleteButton:Show()
     widgets.shareButton:Show()
 
-    -- Starter layouts: this class's built-in packs, then anything saved by hand.
     local layouts = ns.Presets:ListForPlayer()
     widgets.layoutHeading:Show()
 
     local selectedPreset = selectedLayout and ns.Presets:GetByKey(selectedLayout)
     if selectedLayout and not selectedPreset then
-        -- Deleted underneath the selection.
         selectedLayout = nil
     end
 
@@ -1256,7 +1113,6 @@ local function ShowProfiles(parent)
     widgets.saveLayout:Show()
     widgets.deleteLayout:Show()
     widgets.applyLayout:SetEnabled(selectedLayout ~= nil)
-    -- Built-in packs are not the player's to delete.
     widgets.deleteLayout:SetEnabled(selectedPreset ~= nil and selectedPreset.custom == true)
 
     if #layouts > LAYOUT_ROWS then
@@ -1265,7 +1121,6 @@ local function ShowProfiles(parent)
         widgets.status:SetTextColor(1, 0.8, 0.3)
     end
 
-    -- Both are rejected by the DB anyway; disabling says why before the click.
     widgets.deleteButton:SetEnabled(selectedProfile ~= nil
         and selectedProfile ~= current and selectedProfile ~= "Default")
     widgets.useButton:SetEnabled(selectedProfile ~= nil and selectedProfile ~= current)
@@ -1306,7 +1161,6 @@ local function ShowOptions(parent)
         local value = appearance and appearance[slider.definition.option]
             or Const.DEFAULT_APPEARANCE[slider.definition.option] or 0
 
-        -- Guard so setting the value programmatically does not write it back.
         slider.settingValue = true
         slider:SetValue(value)
         slider.settingValue = false
@@ -1335,15 +1189,8 @@ local function HideOptions()
     for _, check in ipairs(optionWidgets.toggles) do check:Hide() end
 end
 
--- ButtonFrameTemplate gives the portrait, title bar, close button, inset and
--- bottom button strip that Blizzard's own dialogs use. Its keys moved around
--- between versions, so both the mixin and the direct paths are tried.
-
 local function SetDialogTitle(dialog, text)
     if dialog.SetTitle then
-        -- PortraitFrameTemplateMixin:SetTitle reads self.TitleText, but the
-        -- FontString's parentKey is scoped to TitleContainer, so on some builds
-        -- that resolves to nil and throws.
         if pcall(dialog.SetTitle, dialog, text) then return end
     end
 
@@ -1354,10 +1201,6 @@ local function SetDialogTitle(dialog, text)
     if titleText then titleText:SetText(text) end
 end
 
--- `coords` selects a region of an atlas, for art that is already round -- the
--- class circles. That path deliberately skips the circle mask: masking a
--- texture that carries a TexCoord is exactly what breaks below, and the class
--- art needs no mask, being a circle on transparency already.
 local function SetDialogPortrait(dialog, texture, coords)
     local portrait = (dialog.PortraitContainer and dialog.PortraitContainer.portrait)
         or dialog.portrait
@@ -1374,25 +1217,14 @@ local function SetDialogPortrait(dialog, texture, coords)
         return
     end
 
-    -- Reset, in case the portrait was showing a cropped class circle before.
     if portrait.SetTexCoord then portrait:SetTexCoord(0, 1, 0, 1) end
 
-    -- Never SetTexCoord on this path: the texture is masked by the template's
-    -- CircleMask, and a non-default TexCoord on a masked texture breaks the
-    -- masking. (SetPortraitToTexture does not exist on Classic at all.)
-
-    -- SetTexture drops the texture's mask associations, so the circle mask has
-    -- to be attached again afterwards or the icon renders as a bare square
-    -- overhanging the portrait ring.
     local mask = dialog.PortraitContainer and dialog.PortraitContainer.CircleMask
     if mask and portrait.AddMaskTexture then
         pcall(portrait.AddMaskTexture, portrait, mask)
     end
 end
 
--- The portrait follows the character's class rather than showing a fixed clock.
--- CLASS_ICON_TCOORDS is the long-standing mapping into the class-circle sheet;
--- without it, or on a class it does not know, the addon's own icon stands.
 local function ApplyClassPortrait(dialog)
     local _, class = UnitClass("player")
     local coords = class and _G.CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
@@ -1421,16 +1253,12 @@ local function CreateFrameOnce()
 
     ApplyClassPortrait(frame)
 
-    -- Push the inset down to leave room for the tab row and the search box,
-    -- which sit above it rather than inside the scrolling area.
     if frame.Inset then
         frame.Inset:ClearAllPoints()
         frame.Inset:SetPoint("TOPLEFT", 4, -62)
         frame.Inset:SetPoint("BOTTOMRIGHT", -6, 30)
     end
 
-    -- Side tabs down the right edge, as Blizzard's own dialog has them. A row
-    -- across the top would collide with the overhanging portrait.
     local TABS_META = {
         cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
         buffs     = { label = "Buffs",     icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
@@ -1456,18 +1284,12 @@ local function CreateFrameOnce()
         background:SetSize(64, 64)
         background:SetPoint("TOPLEFT", -3, 11)
 
-        -- The icon is its own ARTWORK texture rather than the button's normal
-        -- texture. A bare CheckButton stops drawing its normal texture while it
-        -- is checked, which blanked the icon on exactly the selected tab; an
-        -- explicit texture is shown regardless of check state.
         local icon = tab:CreateTexture(nil, "ARTWORK")
         icon:SetTexture(meta.icon)
         icon:SetAllPoints()
         tab.icon = icon
 
         tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        -- Drawn behind the icon so "selected" reads as a glow around it, not a
-        -- square on top of it.
         local checked = tab:CreateTexture(nil, "BORDER")
         checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
         checked:SetBlendMode("ADD")
@@ -1482,7 +1304,6 @@ local function CreateFrameOnce()
         end)
         tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
         tab:SetScript("OnClick", function()
-            -- The same click the character and spellbook side tabs make.
             if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
                 PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
             end
@@ -1494,9 +1315,6 @@ local function CreateFrameOnce()
         previousTab = tab
     end
 
-    -- SearchBoxTemplate carries the magnifier, the placeholder and a clear
-    -- button, which is what Retail's frame shows. It is not guaranteed on every
-    -- Classic build, so the plain input box stays as the fallback.
     local search
     local ok, built = pcall(CreateFrame, "EditBox", nil, frame, "SearchBoxTemplate")
     if ok and built then
@@ -1508,15 +1326,9 @@ local function CreateFrameOnce()
         search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     end
 
-    -- Height only: the width comes from anchoring both ends, once the ID box
-    -- below has claimed its space. Sizing this by hand is what pushed that box
-    -- off the right edge of the frame.
     search:SetHeight(20)
-    -- Kept clear of the portrait, which overhangs the top-left corner.
     search:SetPoint("TOPLEFT", 72, -34)
     search:SetAutoFocus(false)
-    -- Hooked, not set: SearchBoxTemplate's own handlers drive the clear button
-    -- and the placeholder, and replacing them leaves both stuck.
     search:HookScript("OnTextChanged", function(self)
         searchText = self:GetText() or ""
         SpellPicker:Refresh()
@@ -1526,7 +1338,6 @@ local function CreateFrameOnce()
         self:ClearFocus()
     end)
     frame.search = search
-
 
     local anchor = frame.Inset or frame
     local scroll = CreateFrame("ScrollFrame", "CDMCSettingsScroll", frame, "UIPanelScrollFrameTemplate")
@@ -1539,17 +1350,10 @@ local function CreateFrameOnce()
     scroll:SetScrollChild(content)
     frame.content = content
 
-    -- Bottom strip: the profile in use on the left and Revert on the right, as
-    -- Retail's frame has it. Done is gone -- edits commit as they happen, so it
-    -- only ever closed the window, which the frame's own close button does.
     local profileDropdown = CreateFrame("Frame", "CDMCPickerProfile", frame, "UIDropDownMenuTemplate")
     profileDropdown:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", -6, 1)
     UIDropDownMenu_SetWidth(profileDropdown, 118)
 
-    -- UIDropDownMenuTemplate carries heavy gold-bevel art that reads as a widget
-    -- dropped on the frame rather than part of the bottom strip. Its three
-    -- border pieces are hidden and a flat plate drawn in their place, keeping
-    -- the arrow button and the label the template already positions.
     for _, piece in ipairs({ "Left", "Middle", "Right" }) do
         local art = _G["CDMCPickerProfile" .. piece]
         if art then art:Hide() end
@@ -1573,8 +1377,6 @@ local function CreateFrameOnce()
             info.text = name
             info.checked = (name == ns.DB:GetCurrentProfileName())
             info.func = function()
-                -- SetProfile drives Core:OnProfileChanged, so the groups and
-                -- bars follow; the picker only has to redraw itself.
                 ns.DB:SetProfile(name)
                 CloseDropDownMenus()
                 SpellPicker:Refresh()
@@ -1594,14 +1396,8 @@ local function CreateFrameOnce()
     end)
     frame.revertButton = revert
 
-    -- Manual ID entry, for auras that appear nowhere the picker can find them.
-    -- Beside the search box, where it has always been -- but anchored to the
-    -- frame's own right edge rather than chained off the search, so it cannot be
-    -- pushed outside the window by however wide the search happens to be. The
-    -- search then fills whatever is left between the two.
     local addBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
     addBox:SetSize(56, 18)
-    -- The template's art overhangs the box on both sides, hence the inset.
     addBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -35)
     addBox:SetAutoFocus(false)
     addBox:SetNumeric(true)
@@ -1621,15 +1417,11 @@ local function CreateFrameOnce()
     addLabel:SetText("Add ID:")
     frame.addLabel = addLabel
 
-    -- The search takes what is left between the portrait and the label, so
-    -- neither box can push the other out of the frame.
     search:SetPoint("RIGHT", addLabel, "LEFT", -8, 0)
 
     return frame
 end
 
--- Deliberately unvalidated against the spellbook: the point is to reach IDs the
--- picker cannot discover.
 function SpellPicker:AddByID(spellID)
     if not spellID or spellID <= 0 then
         ns.Print("|cffff5555Enter a numeric spell ID.|r")
@@ -1653,8 +1445,6 @@ function SpellPicker:AddByID(spellID)
     table.insert(working[target], {
         spellID = spellID,
         name = name,
-        -- Exact: a manually entered ID is the specific one the user wants, so
-        -- it must not be re-pointed at another rank by name.
         rankIndependent = false,
         trackDebuff = Const.IsAuraSpell(spellID) or nil,
         forms = Const.DefaultFormsFor(spellID),
@@ -1671,26 +1461,17 @@ end
 function SpellPicker:Refresh()
     if not frame or not frame:IsShown() then return end
 
-    -- Re-read every time, never the copy taken when the dialog opened. Import,
-    -- preset, profile switch and reset all replace the profile underneath an
-    -- open dialog, and the stale copy would be written back over the new one on
-    -- the next click. Edits commit as they happen, so nothing is lost here.
     LoadWorking()
 
     local tab = TABS[currentTab]
     SetDialogTitle(frame, tab.title)
 
-    -- Side tabs are CheckButtons, so the active one is shown checked rather
-    -- than disabled.
     for key, button in pairs(frame.tabButtons) do
         button:SetChecked(key == currentTab)
     end
 
     ReleaseSections()
 
-    -- Search, the ID box and Revert only mean anything on the spell tabs. The
-    -- profile dropdown is shown throughout: it says which profile everything on
-    -- screen belongs to, which matters most on the Profiles tab.
     local isPanel = PANEL_TABS[currentTab] or false
     frame.search:SetShown(not isPanel)
     frame.addLabel:SetShown(not isPanel)
@@ -1725,12 +1506,7 @@ end
 
 function SpellPicker:Show(tabKey)
     CreateFrameOnce()
-    -- Re-applied on every open rather than only at build time: the frame is
-    -- built lazily, and whether that happened before the class was known is not
-    -- something to depend on.
     ApplyClassPortrait(frame)
-    -- A menu opened on the previous tab's icons has no business surviving
-    -- into this one.
     CloseEntryMenu()
     if tabKey and TABS[tabKey] then currentTab = tabKey end
     LoadWorking()
