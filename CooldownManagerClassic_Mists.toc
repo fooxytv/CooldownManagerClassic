@@ -1,0 +1,53 @@
+## Interface: 50504
+## Title: Cooldown Manager Classic
+## Notes: Retail-style grouped cooldown, charge and buff tracking for Classic
+## Author: Simon
+## Version: 0.5.1-alpha.46840d2
+## SavedVariables: CooldownManagerClassicDB
+## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
+## DefaultState: enabled
+
+# Libraries
+libs\LibStub\LibStub.lua
+libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
+libs\LibCustomGlow\LibCustomGlow-1.0.lua
+
+# LibEQOL Edit Mode integration.
+libs\LibEQOL\LibEQOLSettingsMode.lua
+libs\LibEQOL\LibEQOLSettingsMultiDropdown.lua
+libs\LibEQOL\LibEQOLSettingsScrollDropdown.lua
+libs\LibEQOL\LibEQOLSettingsColorOverrides.lua
+libs\LibEQOL\LibEQOLSettingsSoundDropdown.lua
+libs\LibEQOL\LibEQOLEditMode.lua
+libs\LibEQOL\LibEQOL.lua
+
+# Core
+core\Constants.lua
+core\Compat.lua
+core\Media.lua
+core\Database.lua
+core\Serialization.lua
+core\Spellbook.lua
+core\Tooltip.lua
+
+# Tracking
+tracking\Cooldowns.lua
+tracking\Auras.lua
+tracking\Highlights.lua
+tracking\Keybinds.lua
+
+# UI
+ui\Icon.lua
+ui\BuffBar.lua
+ui\Group.lua
+ui\ResourceBar.lua
+ui\EditMode.lua
+ui\SpellPicker.lua
+ui\ProfileShare.lua
+
+# Data
+data\Presets.lua
+
+# Entry point
+core\Core.lua

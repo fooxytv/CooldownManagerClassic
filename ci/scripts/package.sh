@@ -4,7 +4,8 @@
 #
 # The archive is named after the .toc *filename*, not the ## Title, because the
 # folder WoW loads the addon from has to match the .toc basename and our title
-# ("Cooldown Manager Classic") contains spaces.
+# ("Cooldown Manager Classic") contains spaces. The flavour suffix is stripped:
+# CooldownManagerClassic_TBC.toc still installs to CooldownManagerClassic.
 
 toc_file=$(find "$(pwd)" -maxdepth 1 -name "*.toc" | head -n 1)
 
@@ -13,7 +14,7 @@ if [ -z "$toc_file" ]; then
     exit 1
 fi
 
-addon_name=$(basename "$toc_file" .toc)
+addon_name=$(basename "$toc_file" .toc | sed -E 's/_(Vanilla|TBC|Wrath|Cata|Mists|Mainline)$//')
 version=$(awk -F': ' '/^## Version:/{print $2}' "$toc_file" | tr -d '\r')
 
 if [ -z "$addon_name" ] || [ -z "$version" ]; then
