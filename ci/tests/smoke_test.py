@@ -51,11 +51,15 @@ def addon_files():
     ]
 
 
-def load_addon(with_art=True):
+def load_addon(with_art=True, env=None):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(STUB.read_text(encoding="utf-8"))
     if not with_art:
         lua.execute("__setAtlasesPresent(false)")
+    if env:
+        # Applied before the addon loads: Compat caches the flavour and the C_*
+        # namespaces at load time.
+        lua.execute(env)
 
     lua.execute("__ns = {}")
     ns = lua.globals().__ns
@@ -1525,9 +1529,81 @@ def run_profiles():
     check("lone Default not flagged", results["soloNotRepaired"], True)
 
 
+MOP_ENV = """
+_G.WOW_PROJECT_MISTS_CLASSIC = 19
+_G.WOW_PROJECT_ID = 19
+_G.GetBuildInfo = function() return "5.5.4", "69383", "Aug 2026", 50504 end
+_G.UnitClass = function() return "Warlock", "WARLOCK", 9 end
+_G.GetItemCount = function() return 0 end
+_G.__powers = {}
+_G.UnitPower = function(unit, kind)
+    local p = _G.__powers[kind]
+    return p and p[1] or 0
+end
+_G.UnitPowerMax = function(unit, kind)
+    local p = _G.__powers[kind]
+    return p and p[2] or 0
+end
+"""
+
+# MoP moved the Warlock resource to a power type and split it by spec, so the
+# bag count that carries Era and TBC reads zero there.
+MOP_SCRIPT = """
+local ns = __ns
+local R = {}
+ns.DB:Initialize()
+ns.Core.initialized = true
+R.flavor = ns.Compat.flavor
+
+local bar = ns.ResourceBar.Create("combo")
+local settings = bar:GetSettings()
+settings.enabled = true
+settings.appearance.showText = true
+
+-- Pips are pooled and merely hidden when a spec does not use them, so count
+-- the shown ones rather than the table.
+local function forSpec(powers)
+    _G.__powers = powers
+    bar:Layout()
+    bar:Update()
+    local shown = 0
+    for _, pip in ipairs(bar.pips) do
+        if pip:IsShown() then shown = shown + 1 end
+    end
+    return bar.source, bar.text:GetText(), shown
+end
+
+R.afflSource, R.afflText, R.afflPips = forSpec({ [7]  = { 3, 4 } })
+R.demoSource, R.demoText, R.demoPips = forSpec({ [15] = { 620, 1000 } })
+R.destSource, R.destText, R.destPips = forSpec({ [14] = { 2, 4 } })
+return R
+"""
+
+
+def run_mop():
+    print("\nsmoke_test [MoP Warlock resources]")
+    try:
+        lua = load_addon(True, env=MOP_ENV)
+        results = dict(lua.execute(MOP_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[mop] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("flavour resolves", results["flavor"], "mop")
+    check("affliction reads shards", results["afflSource"], "soulshards")
+    check("affliction pips match max", results["afflPips"], 4)
+    check("demonology reads fury", results["demoSource"], "demonicfury")
+    check("demonic fury is a bar", results["demoText"], "620 / 1000")
+    check("demonic fury shows no pips", results["demoPips"], 0)
+    check("destruction reads embers", results["destSource"], "burningembers")
+    check("burning embers pips match max", results["destPips"], 4)
+
+
 run(with_art=True)
 run(with_art=False)
 run_profiles()
+run_mop()
 
 print()
 if failures:

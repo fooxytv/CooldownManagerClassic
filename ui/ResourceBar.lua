@@ -47,6 +47,66 @@ local function ReadMaxComboPoints()
     return _G.MAX_COMBO_POINTS or 5
 end
 
+-- Shards sat in the bags through Wrath and became a power type in Cataclysm;
+-- MoP then split the Warlock resource three ways by spec. Probing UnitPowerMax
+-- alone is not enough to tell -- it answers for power types the client does not
+-- really have -- so the flavour decides first.
+local BAG_SHARD_FLAVORS = { era = true, tbc = true, wrath = true }
+
+local function UsesShardItems()
+    return BAG_SHARD_FLAVORS[ns.Compat.flavor] == true
+end
+
+local function WarlockPowerType(source)
+    local info = Const.WARLOCK_POWER_TYPES[source]
+    if not info then return nil end
+
+    if _G.Enum and Enum.PowerType and Enum.PowerType[info.enum] then
+        return Enum.PowerType[info.enum]
+    end
+
+    return info.value
+end
+
+local function WarlockPowerMax(source)
+    local powerType = WarlockPowerType(source)
+    if not powerType or not _G.UnitPowerMax then return 0 end
+    return UnitPowerMax("player", powerType) or 0
+end
+
+-- Which resource the Warlock's current spec actually has. Probing the max
+-- rather than reading the spec index keeps this working when the spec ordering
+-- is not what we assume, and on flavours where none of these exist it falls
+-- through to the bag count.
+local function ResolveWarlockResource()
+    if UsesShardItems() then return "soulshards" end
+
+    for _, source in ipairs(Const.WARLOCK_RESOURCE_ORDER) do
+        if WarlockPowerMax(source) > 0 then return source end
+    end
+    return "soulshards"
+end
+
+-- Shards are a bag item on Era and TBC and a power type from MoP on, so the
+-- display mode cannot be static.
+local function ResourceMode(source)
+    local info = source and Const.CLASS_RESOURCE_INFO[source]
+    if not info then return nil end
+    if source == "soulshards" then
+        if not UsesShardItems() and WarlockPowerMax(source) > 0 then
+            return "pips"
+        end
+        return "count"
+    end
+    return info.mode
+end
+
+local function ReadWarlockPower(source)
+    local powerType = WarlockPowerType(source)
+    if not powerType or not _G.UnitPower then return 0, 0 end
+    return UnitPower("player", powerType) or 0, WarlockPowerMax(source)
+end
+
 local function ResolveClassResource(override)
     local _, classToken = UnitClass("player")
 
@@ -63,6 +123,10 @@ local function ResolveClassResource(override)
         return nil
     end
 
+    if classToken == "WARLOCK" and Const.WARLOCK_POWER_TYPES[source] then
+        source = ResolveWarlockResource()
+    end
+
     if source == "combo" and classToken == "DRUID" then
         local _, powerToken = UnitPowerType("player")
         if powerToken ~= "ENERGY" then return nil end
@@ -74,6 +138,9 @@ end
 local function ReadPipSource(source)
     if source == "maelstrom" then
         return ns.Auras:StacksByName(Const.MAELSTROM_WEAPON_AURA), Const.MAELSTROM_MAX_STACKS
+    end
+    if Const.WARLOCK_POWER_TYPES[source] then
+        return ReadWarlockPower(source)
     end
     return ReadComboPoints(), ReadMaxComboPoints()
 end
@@ -120,6 +187,12 @@ local function FormatValue(current, max, appearance)
 end
 
 local function PipFillColor(source, current, max)
+    if source == "burningembers" then
+        return Const.BURNING_EMBERS_COLOR
+    end
+    if source == "soulshards" then
+        return Const.SOUL_SHARD_COLORS[#Const.SOUL_SHARD_COLORS]
+    end
     if source == "combo" then
         local colors = Const.COMBO_COLORS
         if current >= max then
@@ -383,7 +456,7 @@ function Bar:Layout()
         local info = source and Const.CLASS_RESOURCE_INFO[source]
         self.label:SetText((info and info.label) or Const.BAR_LABELS.combo)
 
-        if info and info.mode == "pips" then
+        if ResourceMode(source) == "pips" then
             local _, maxPoints = ReadPipSource(source)
             if appearance.segmentStyle == "ticks" then
                 self:LayoutTicks(width, height, appearance, maxPoints)
@@ -499,8 +572,8 @@ function Bar:UpdateClassResource(appearance)
         source = ResolveClassResource(appearance.resourceSource)
     end
 
-    local info = source and Const.CLASS_RESOURCE_INFO[source]
-    if not info then
+    local mode = ResourceMode(source)
+    if not mode then
         self.statusBar:SetValue(0)
         self:HidePips()
         self:HideTicks()
@@ -508,7 +581,24 @@ function Bar:UpdateClassResource(appearance)
         return
     end
 
-    if info.mode == "pips" then
+    if mode == "power" then
+        local current, max = ReadWarlockPower(source)
+        local color = Const.DEMONIC_FURY_COLOR
+
+        self.statusBar:SetStatusBarColor(self:FillColor(appearance, color[1], color[2], color[3]))
+        self:SetFill(current, max, appearance)
+        self:HidePips()
+
+        if appearance.showText ~= false then
+            self.text:SetText(FormatValue(current, max, appearance))
+            self.text:Show()
+        else
+            self.text:Hide()
+        end
+        return
+    end
+
+    if mode == "pips" then
         local current, max = ReadPipSource(source)
         local fill = PipFillColor(source, current, max)
         local fr, fg, fb = self:FillColor(appearance, fill[1], fill[2], fill[3])
@@ -556,7 +646,7 @@ function Bar:GetFill()
         local override = settings and settings.appearance.resourceSource
         local source = self.source or ResolveClassResource(override)
         local info = source and Const.CLASS_RESOURCE_INFO[source]
-        if info and info.mode == "pips" then
+        if ResourceMode(source) == "pips" then
             return ReadPipSource(source)
         end
         return nil
