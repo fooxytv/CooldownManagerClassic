@@ -153,6 +153,14 @@ function Highlights:OnCombatLogEvent()
     end
 end
 
+local function IsQueued(spellID)
+    if not spellID then return false end
+    if not ns.Compat.IsSpellQueued(spellID) then return false end
+    -- IsCurrentSpell is also true while a spell is being cast, which is not a
+    -- queued swing.
+    return (ns.Compat.GetSpellCastTime(spellID) or 0) <= 0
+end
+
 function Highlights:Apply()
     if not activeRules then self:ResolveRules() end
 
@@ -199,6 +207,7 @@ function Highlights:Apply()
                 for _, item in ipairs(group.icons) do
                     local name = item.entry and item.entry.name
                     widget:SetGlow(item, on and name ~= nil and glowNames[name] == true)
+                    widget:SetQueued(item, on and IsQueued(item.spellID))
                 end
             end
         end

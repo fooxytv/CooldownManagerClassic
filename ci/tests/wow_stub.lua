@@ -426,7 +426,7 @@ local SPELLS = {
     [187880] = { name = "Maelstrom Weapon", icon = "Interface\\Icons\\Spell_Shaman_MaelstromWeapon" },
     [324] = { name = "Lightning Shield", icon = "Interface\\Icons\\Spell_Nature_LightningShield" },
     [2645] = { name = "Ghost Wolf", icon = "Interface\\Icons\\Spell_Nature_SpiritWolf" },
-    [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" },
+    [686] = { name = "Shadow Bolt", icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt", castTime = 3000 },
     -- A self-buff with no cooldown: its aura is the only thing to show.
     [5171] = { name = "Slice and Dice", icon = "Interface\\Icons\\Ability_Rogue_SliceDice" },
     -- Druid abilities for the form tags: one cat-only, one bear-only, one caster
@@ -441,7 +441,7 @@ _G.C_Spell = {
     GetSpellInfo = function(id)
         local spell = SPELLS[id]
         if not spell then return nil end
-        return { name = spell.name, iconID = spell.icon, spellID = id }
+        return { name = spell.name, iconID = spell.icon, spellID = id, castTime = spell.castTime or 0 }
     end,
     GetSpellTexture = function(id) return SPELLS[id] and SPELLS[id].icon end,
     -- Driveable cooldown: __cd = { start=, duration= }. Empty means ready.
@@ -518,8 +518,12 @@ end
 _G.GetSpellInfo = function(id)
     local spell = SPELLS[id]
     if not spell then return nil end
-    return spell.name, nil, spell.icon
+    return spell.name, nil, spell.icon, spell.castTime or 0
 end
+
+-- Which spell is armed for the next swing. Set to a spellID to queue it.
+_G.__queued = nil
+_G.IsCurrentSpell = function(id) return _G.__queued == id end
 _G.GetSpellCooldown = function() return 0, 0, 1 end
 _G.GetSpellCharges = function() return nil end
 _G.GetSpellTexture = function(id) return SPELLS[id] and SPELLS[id].icon end

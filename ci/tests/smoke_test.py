@@ -782,6 +782,40 @@ ns.DB:SetHighlightsEnabled(false)
 ns.Highlights:Apply()
 R.glowDisabled = sbIcon.glowRequested and true or false
 
+-- Queued next-swing abilities: Maul is armed for the next swing. That is a
+-- different state from a proc, so it must raise its own indicator and leave the
+-- proc glow alone.
+ns.DB:SetHighlightsEnabled(true)
+local maulIcon = ns.Icon:Acquire(eGroup.frame, "essential")
+maulIcon.entry = { name = "Maul" }
+maulIcon.spellID = 6807
+eGroup.icons = { sbIcon, maulIcon }
+
+_G.__queued = 6807
+ns.Highlights:Apply()
+R.queuedOn = maulIcon.queued and true or false
+R.queuedNotGlowing = maulIcon.glowRequested and true or false
+
+_G.__queued = nil
+ns.Highlights:Apply()
+R.queuedOff = maulIcon.queued and true or false
+
+-- A spell mid-cast is also "current", but that is not a queued swing: Shadow
+-- Bolt has a cast time in the stub and must not raise the indicator.
+_G.__queued = 686
+ns.Highlights:Apply()
+R.queuedCastFiltered = sbIcon.queued and true or false
+
+-- With highlighting off, a queued ability must not show either.
+_G.__queued = 6807
+ns.DB:SetHighlightsEnabled(false)
+ns.Highlights:Apply()
+R.queuedDisabled = maulIcon.queued and true or false
+
+_G.__queued = nil
+ns.DB:SetHighlightsEnabled(true)
+eGroup.icons = { sbIcon }
+
 -- Overlay source: the game's own activation glow lights the matching tracked
 -- icon by resolving the fired spell ID to its name. The aura is cleared and no
 -- rule is active here, so only the overlay can be lighting sbIcon.
@@ -1320,6 +1354,11 @@ def run(with_art):
     check("highlight off when disabled", results["glowDisabled"], False)
     check("overlay glow on icon", results["overlayGlowOn"], True)
     check("overlay glow clears on icon", results["overlayGlowOff"], False)
+    check("queued ability indicates", results["queuedOn"], True)
+    check("queued does not use the proc glow", results["queuedNotGlowing"], False)
+    check("queued clears when unqueued", results["queuedOff"], False)
+    check("a spell mid-cast is not queued", results["queuedCastFiltered"], False)
+    check("queued off when highlights disabled", results["queuedDisabled"], False)
     check("overlay glow off when disabled", results["overlayGlowDisabled"], False)
     check("overlay glow on bar", results["overlayBarGlowOn"], True)
     check("overlay glow clears on bar", results["overlayBarGlowOff"], False)

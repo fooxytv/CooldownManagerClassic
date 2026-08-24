@@ -186,6 +186,27 @@ function Compat.GetSpellCharges(spellID)
     return nil
 end
 
+function Compat.IsSpellQueued(spellID)
+    if not spellID then return false end
+    if _G.IsCurrentSpell and IsCurrentSpell(spellID) then return true end
+    return false
+end
+
+function Compat.GetSpellCastTime(spellID)
+    if not spellID then return nil end
+
+    if C_Spell_ and C_Spell_.GetSpellInfo then
+        local info = C_Spell_.GetSpellInfo(spellID)
+        return info and info.castTime
+    end
+
+    if _G.GetSpellInfo then
+        return (select(4, GetSpellInfo(spellID)))
+    end
+
+    return nil
+end
+
 function Compat.IsSpellUsable(spellID)
     if not spellID then return true, false end
 

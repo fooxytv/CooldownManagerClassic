@@ -62,6 +62,7 @@ globals = {
     "IsSpellKnown",
     "IsPlayerSpell",
     "IsUsableSpell",
+    "IsCurrentSpell",
     "PickupSpellBookItem",
     "GetWeaponEnchantInfo",
     "UnitPower",

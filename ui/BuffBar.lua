@@ -129,6 +129,7 @@ function BuffBar:Release(frame)
     -- Stop any proc glow first, or the bar returns to the pool still glowing and
     -- reappears lit when reused for an unrelated spell.
     self:SetGlow(frame, false)
+    self:SetQueued(frame, false)
     frame:Hide()
     frame:ClearAllPoints()
     frame:SetParent(UIParent)
@@ -151,6 +152,20 @@ function BuffBar:SetGlow(frame, shown)
         LCG.PixelGlow_Start(frame, nil, nil, nil, nil, nil, nil, nil, false, "cdmc")
     else
         LCG.PixelGlow_Stop(frame, "cdmc")
+    end
+end
+
+function BuffBar:SetQueued(frame, shown)
+    shown = shown and true or false
+    if frame.queued == shown then return end
+    frame.queued = shown
+
+    if not (LCG and LCG.AutoCastGlow_Start) then return end
+
+    if shown then
+        LCG.AutoCastGlow_Start(frame, Const.QUEUED_GLOW_COLOR, nil, nil, nil, nil, nil, "cdmc-queued")
+    else
+        LCG.AutoCastGlow_Stop(frame, "cdmc-queued")
     end
 end
 
