@@ -297,6 +297,15 @@ local function BuildSettings(groupKey)
             set = function(_, value) SetOption(groupKey, "showCountdownText", value and true or false) end,
         },
         {
+            order = 9.1,
+            name = "Tooltip Anchor",
+            kind = lem.SettingType.Dropdown,
+            default = "Default Position",
+            values = DropdownValues(Const.TOOLTIP_ANCHORS),
+            get = function() return GetOption(groupKey, "tooltipAnchor", "Default Position") end,
+            set = function(_, value) SetOption(groupKey, "tooltipAnchor", value) end,
+        },
+        {
             order = 9,
             name = "Show Tooltips",
             kind = lem.SettingType.Checkbox,

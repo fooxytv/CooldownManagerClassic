@@ -296,6 +296,12 @@ end
 
 _G.UIParent = newWidget("Frame", "UIParent")
 _G.GameTooltip = newWidget("GameTooltip", "GameTooltip")
+_G.__tooltipAnchor = nil
+_G.GameTooltip.SetOwner = function(self, owner, anchor)
+    _G.__tooltipAnchor = anchor
+    self.__owner = owner
+end
+_G.GameTooltip_SetDefaultAnchor = function() _G.__tooltipAnchor = "DEFAULT" end
 _G.DEFAULT_CHAT_FRAME = newWidget("Frame", "DEFAULT_CHAT_FRAME")
 
 --------------------------------------------------------------------------------

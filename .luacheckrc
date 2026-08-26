@@ -86,6 +86,7 @@ globals = {
     -- UI globals
     "UIParent",
     "GameTooltip",
+    "GameTooltip_SetDefaultAnchor",
     "TooltipDataProcessor",
     "PowerBarColor",
     "CLASS_ICON_TCOORDS",
