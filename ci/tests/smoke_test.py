@@ -499,28 +499,50 @@ R.menuIconFound = menuIcon ~= nil
 menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
 R.menuOpens = _G.__dropdownOpen
 
-local items = _G.__buildDropdown(_G.CDMCFormMenu)
-local auraItem, catItem
+local items = _G.__buildDropdown(_G.CDMCEntryMenu)
+local auraItem, catOnly, allForms, chooseForms
 for _, item in ipairs(items) do
     if item.text and item.text:find("Track its aura", 1, true) then auraItem = item end
-    if item.text == "Cat" then catItem = item end
+    if item.text == "Cat only" then catOnly = item end
+    if item.text == "All forms" then allForms = item end
+    if item.text == "Choose forms" then chooseForms = item end
 end
 R.menuHasAura = auraItem ~= nil
-R.menuHasForms = catItem ~= nil
+R.menuHasForms = catOnly ~= nil
+
+-- All forms is the default, and shows as the selected row rather than as four
+-- ticks nobody set.
+R.menuDefaultIsAllForms = allForms ~= nil and allForms.checked == true
 
 -- The aura toggle is a single decision: it applies and the menu closes.
 auraItem.func()
 R.menuAuraApplied = ns.DB:GetGroup("essential").spells[1].trackDebuff == true
 R.menuClosesAfterAura = _G.__dropdownOpen
 
--- Form ticks are picked in combination, so that one stays open -- and repaints,
--- since toggling one form changes what the others show.
+-- Picking a form is one click, and it selects rather than deselects. This is
+-- the whole point: ticking four boxes to say "cat ability" was the wrong shape.
 menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
-_G.__buildDropdown(_G.CDMCFormMenu)
+_G.__buildDropdown(_G.CDMCEntryMenu)
+catOnly.func()
+local picked = ns.DB:GetGroup("essential").spells[1].forms
+R.formPresetIsCatOnly = type(picked) == "table" and picked.cat == true
+    and picked.bear == nil and picked.moonkin == nil and picked.caster == nil
+
+-- Combinations still reachable, through the submenu, which stays open and
+-- repaints because each tick changes what the others read.
+menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
+local sub = _G.__buildDropdown(_G.CDMCEntryMenu, 2, chooseForms and chooseForms.menuList)
+local bearTick
+for _, item in ipairs(sub) do
+    if item.text == "Bear" then bearTick = item end
+end
+R.submenuHasForms = bearTick ~= nil
 local before = _G.__dropdownRefreshed
-catItem.func()
+if bearTick then bearTick.func() end
 R.menuStaysOpenForForms = _G.__dropdownOpen
 R.menuRepaintsForms = _G.__dropdownRefreshed > before
+local combo = ns.DB:GetGroup("essential").spells[1].forms
+R.formComboKeepsBoth = type(combo) == "table" and combo.cat == true and combo.bear == true
 
 -- Nothing else closes it, so the picker has to: hiding the window must not
 -- leave a menu floating over the game world.
@@ -1410,6 +1432,10 @@ def run(with_art):
     check("menu closes after the aura toggle", results["menuClosesAfterAura"], False)
     check("menu stays open for form ticks", results["menuStaysOpenForForms"], True)
     check("form ticks repaint the menu", results["menuRepaintsForms"], True)
+    check("all forms is the default row", results["menuDefaultIsAllForms"], True)
+    check("one click picks a single form", results["formPresetIsCatOnly"], True)
+    check("submenu offers each form", results["submenuHasForms"], True)
+    check("submenu builds combinations", results["formComboKeepsBoth"], True)
     check("closing the picker closes the menu", results["menuClosedWithPicker"], False)
     check("section has a header bar", results["sectionHasHeader"], True)
     check("expanded section is full height", results["sectionExpandedHeight"], True)

@@ -374,9 +374,9 @@ _G.UIDropDownMenu_SetText = function() end
 _G.UIDropDownMenu_Refresh = function() _G.__dropdownRefreshed = _G.__dropdownRefreshed + 1 end
 
 -- Runs a menu's initialiser, as opening it would, and hands back the items.
-_G.__buildDropdown = function(frame)
+_G.__buildDropdown = function(frame, level, menuList)
     _G.__dropdownButtons = {}
-    if frame and frame.__initializer then frame.__initializer() end
+    if frame and frame.__initializer then frame.__initializer(frame, level or 1, menuList) end
     return _G.__dropdownButtons
 end
 _G.StaticPopup_Show = function() end
