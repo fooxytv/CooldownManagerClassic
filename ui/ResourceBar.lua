@@ -74,17 +74,45 @@ local function WarlockPowerMax(source)
     return UnitPowerMax("player", powerType) or 0
 end
 
--- Which resource the Warlock's current spec actually has. Probing the max
--- rather than reading the spec index keeps this working when the spec ordering
--- is not what we assume, and on flavours where none of these exist it falls
--- through to the bag count.
+local function PlayerSpec()
+    if _G.C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
+        return C_SpecializationInfo.GetSpecialization()
+    end
+    if _G.GetSpecialization then return GetSpecialization() end
+    return nil
+end
+
+-- Keyed off the spec, as Blizzard's own ShardBar does. Probing UnitPowerMax
+-- instead would show a shard bar to a Destruction warlock who has not learned
+-- Burning Embers yet, because shards are first in the order and the probe has
+-- no way to tell "wrong spec" from "not learned".
+local function WarlockSpecResource()
+    local spec = PlayerSpec()
+    if not spec then return nil end
+
+    local bySpec = {
+        [_G.SPEC_WARLOCK_AFFLICTION or 1]  = "soulshards",
+        [_G.SPEC_WARLOCK_DEMONOLOGY or 2]  = "demonicfury",
+        [_G.SPEC_WARLOCK_DESTRUCTION or 3] = "burningembers",
+    }
+    return bySpec[spec]
+end
+
 local function ResolveWarlockResource()
     if UsesShardItems() then return "soulshards" end
+
+    local source = WarlockSpecResource()
+    if source then
+        -- The spec is right but the resource is not there yet at low level, so
+        -- show nothing rather than a bar that cannot fill.
+        if WarlockPowerMax(source) > 0 then return source end
+        return nil
+    end
 
     for _, source in ipairs(Const.WARLOCK_RESOURCE_ORDER) do
         if WarlockPowerMax(source) > 0 then return source end
     end
-    return "soulshards"
+    return nil
 end
 
 -- Shards are a bag item on Era and TBC and a power type from MoP on, so the
