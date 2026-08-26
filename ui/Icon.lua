@@ -32,15 +32,33 @@ local function FormatTime(seconds)
 end
 ns.FormatTime = FormatTime
 
-function ns.SetTooltipsShown(frame, shown)
+function ns.SetTooltipsShown(frame, shown, clickable)
+    clickable = clickable and true or false
     if frame.SetMouseClickEnabled then
-        frame:SetMouseClickEnabled(false)
+        frame:SetMouseClickEnabled(clickable)
     end
+
+    local wantsMouse = shown or clickable
     if frame.SetMouseMotionEnabled then
-        frame:SetMouseMotionEnabled(shown)
+        frame:SetMouseMotionEnabled(shown and true or false)
+        if not frame.SetMouseClickEnabled then
+            frame:EnableMouse(wantsMouse and true or false)
+        end
     else
-        frame:EnableMouse(shown)
+        frame:EnableMouse(wantsMouse and true or false)
     end
+end
+
+local function OnMouseUp(self, button)
+    if button ~= "RightButton" or not self.entry then return end
+    if not ns.EntryMenu then return end
+    ns.EntryMenu.Show("cursor", {
+        entry = self.entry,
+        groupKey = self.groupKey,
+        allowMove = true,
+        allowAdd = true,
+        onChanged = function() ns.Core:RefreshAll() end,
+    })
 end
 
 local function OnEnter(self)
@@ -120,6 +138,7 @@ local function CreateIcon(parent)
 
     frame:SetScript("OnEnter", OnEnter)
     frame:SetScript("OnLeave", OnLeave)
+    frame:SetScript("OnMouseUp", OnMouseUp)
 
     return frame
 end
@@ -238,7 +257,7 @@ function Icon:Configure(frame, entry, spellID, appearance, groupKey)
         frame.keybindText:Hide()
     end
 
-    ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
+    ns.SetTooltipsShown(frame, appearance.showTooltips ~= false, appearance.rightClickMenu == true)
 end
 
 function Icon:GetItemSize(appearance)

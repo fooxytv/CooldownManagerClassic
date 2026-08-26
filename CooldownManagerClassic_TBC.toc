@@ -38,6 +38,7 @@ tracking\Highlights.lua
 tracking\Keybinds.lua
 
 # UI
+ui\EntryMenu.lua
 ui\Icon.lua
 ui\BuffBar.lua
 ui\Group.lua

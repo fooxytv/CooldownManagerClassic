@@ -18,6 +18,17 @@ BuffBar.art = {
     pip   = Compat.AtlasExists(Const.ART.barPip),
 }
 
+local function OnMouseUp(self, button)
+    if button ~= "RightButton" or not self.entry or not ns.EntryMenu then return end
+    ns.EntryMenu.Show("cursor", {
+        entry = self.entry,
+        groupKey = self.groupKey,
+        allowMove = true,
+        allowAdd = true,
+        onChanged = function() ns.Core:RefreshAll() end,
+    })
+end
+
 local function OnEnter(self)
     if not self.spellID then return end
     local group = ns.DB:GetGroup(self.groupKey)
@@ -108,6 +119,7 @@ local function CreateBar(parent)
 
     frame:SetScript("OnEnter", OnEnter)
     frame:SetScript("OnLeave", OnLeave)
+    frame:SetScript("OnMouseUp", OnMouseUp)
 
     return frame
 end
@@ -273,7 +285,7 @@ function BuffBar:Configure(frame, entry, spellID, appearance, groupKey)
 
     frame.nameText:SetText(ns.Spellbook:GetName(spellID) or (entry and entry.name) or "")
 
-    ns.SetTooltipsShown(frame, appearance.showTooltips ~= false)
+    ns.SetTooltipsShown(frame, appearance.showTooltips ~= false, appearance.rightClickMenu == true)
 end
 
 function BuffBar:Update(frame, state, appearance)

@@ -340,7 +340,31 @@ local function RefreshEntryMenu()
     end
 end
 
+-- LoadWorking replaces these tables on every refresh, so look the entry up
+-- again rather than handing the menu a table it will outlive.
+local function WorkingEntry(groupKey, spellID)
+    local list = groupKey and working[groupKey]
+    if not list then return nil end
+    for _, entry in ipairs(list) do
+        if entry.spellID == spellID then return entry end
+    end
+    return nil
+end
+
 local function ShowEntryMenu(button)
+    if ns.EntryMenu then
+        local groupKey, spellID = button.groupKey, button.spellID
+        ns.EntryMenu.Show("cursor", {
+            entry = function() return WorkingEntry(groupKey, spellID) end,
+            groupKey = groupKey,
+            onChanged = function()
+                CommitEdit()
+                SpellPicker:Refresh()
+            end,
+        })
+        return
+    end
+
     if not formMenu then
         formMenu = CreateFrame("Frame", "CDMCFormMenu", UIParent, "UIDropDownMenuTemplate")
     end
