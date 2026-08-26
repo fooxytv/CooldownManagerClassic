@@ -1535,6 +1535,13 @@ _G.WOW_PROJECT_ID = 19
 _G.GetBuildInfo = function() return "5.5.4", "69383", "Aug 2026", 50504 end
 _G.UnitClass = function() return "Warlock", "WARLOCK", 9 end
 _G.GetItemCount = function() return 0 end
+_G.SPEC_WARLOCK_AFFLICTION = 1
+_G.SPEC_WARLOCK_DEMONOLOGY = 2
+_G.SPEC_WARLOCK_DESTRUCTION = 3
+_G.__spec = 1
+_G.C_SpecializationInfo = {
+    GetSpecialization = function() return _G.__spec end,
+}
 _G.__powers = {}
 _G.UnitPower = function(unit, kind)
     local p = _G.__powers[kind]
@@ -1562,7 +1569,8 @@ settings.appearance.showText = true
 
 -- Pips are pooled and merely hidden when a spec does not use them, so count
 -- the shown ones rather than the table.
-local function forSpec(powers)
+local function forSpec(spec, powers)
+    _G.__spec = spec
     _G.__powers = powers
     bar:Layout()
     bar:Update()
@@ -1573,9 +1581,17 @@ local function forSpec(powers)
     return bar.source, bar.text:GetText(), shown
 end
 
-R.afflSource, R.afflText, R.afflPips = forSpec({ [7]  = { 3, 4 } })
-R.demoSource, R.demoText, R.demoPips = forSpec({ [15] = { 620, 1000 } })
-R.destSource, R.destText, R.destPips = forSpec({ [14] = { 2, 4 } })
+R.afflSource, R.afflText, R.afflPips = forSpec(1, { [7]  = { 3, 4 } })
+R.demoSource, R.demoText, R.demoPips = forSpec(2, { [15] = { 620, 1000 } })
+R.destSource, R.destText, R.destPips = forSpec(3, { [14] = { 2, 4 } })
+
+-- The spec is right but the resource is not learned yet, as on a low-level
+-- warlock. Blizzard shows no bar here; a probe would fall through to shards.
+R.lowLevelSource = tostring(forSpec(3, {}))
+
+-- Every spec's resource reporting a max must still follow the spec rather than
+-- the first one that answers.
+R.demoAmbiguous = forSpec(2, { [7] = { 3, 4 }, [15] = { 620, 1000 }, [14] = { 2, 4 } })
 return R
 """
 
@@ -1598,6 +1614,8 @@ def run_mop():
     check("demonic fury shows no pips", results["demoPips"], 0)
     check("destruction reads embers", results["destSource"], "burningembers")
     check("burning embers pips match max", results["destPips"], 4)
+    check("no bar before the resource is learned", results["lowLevelSource"], "nil")
+    check("spec wins when every power answers", results["demoAmbiguous"], "demonicfury")
 
 
 run(with_art=True)
