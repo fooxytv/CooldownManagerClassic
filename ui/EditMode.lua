@@ -1,16 +1,10 @@
 local addonName, ns = ...
 
 local Const = ns.Constants
-
--- Two tiers. With LibEQOL the groups become genuine Edit Mode systems -- real
--- selection frames, grid snapping, settings inside Blizzard's own dialog.
--- Without it, our own drag handles and panel, which is also what runs on a
--- client with no Edit Mode at all.
 local EditMode = {}
 ns.EditMode = EditMode
 
 EditMode.active = false
-EditMode.manualUnlock = false
 
 local lem = _G.LibStub and LibStub("LibEQOLEditMode-1.0", true)
 EditMode.usingLibEQOL = lem ~= nil
@@ -26,11 +20,6 @@ function EditMode:IsBlizzardEditModeActive()
     return manager ~= nil and manager.editModeActive == true
 end
 
--- Groups and resource bars are both draggable Edit Mode systems and are always
--- unlocked, saved and reverted together. ns.bars was omitted from every one of
--- these loops originally, which left the bars unreachable: disabled by default,
--- hidden while disabled, and hidden frames cannot be clicked to reach the
--- setting that would enable them.
 local function ForEachWidget(callback)
     for _, group in pairs(ns.groups) do callback(group) end
     for _, bar in pairs(ns.bars) do callback(bar) end
@@ -84,9 +73,6 @@ function EditMode:Enter()
 
     positionSnapshot = TakeSnapshot()
 
-    -- With LibEQOL the library owns selection and dragging, so ours would get
-    -- in the way. Either way everything is forced visible, so an empty,
-    -- disabled or combat-hidden widget can still be positioned.
     ForEachWidget(function(widget)
         if lem then
             widget.unlocked = true
@@ -96,8 +82,11 @@ function EditMode:Enter()
         end
     end)
 
-    if not lem then
-        ns.EditModePanel:Show(Const.GROUP_ORDER[1])
+    -- A disabled bar renders nothing, so under LibEQOL it would be an empty box
+    -- in Edit Mode; render its contents so it can be seen and positioned. The
+    -- non-LibEQOL SetUnlocked path already does this for itself.
+    if lem then
+        for _, bar in pairs(ns.bars) do bar:Update() end
     end
 end
 
@@ -105,18 +94,14 @@ function EditMode:Exit()
     if not self.active then return end
     self.active = false
 
-    if not self.manualUnlock then
-        ForEachWidget(function(widget)
-            if lem then
-                widget.unlocked = false
-                widget:UpdateVisibility()
-            else
-                widget:SetUnlocked(false)
-            end
-        end)
-        ns.EditModePanel:Hide()
-        if ns.BarPanel then ns.BarPanel:Hide() end
-    end
+    ForEachWidget(function(widget)
+        if lem then
+            widget.unlocked = false
+            widget:UpdateVisibility()
+        else
+            widget:SetUnlocked(false)
+        end
+    end)
 
     positionSnapshot = nil
 end
@@ -128,24 +113,6 @@ end
 
 function EditMode:RevertChanges()
     RestoreSnapshot(positionSnapshot)
-end
-
-function EditMode:SetManualUnlock(unlocked)
-    self.manualUnlock = unlocked
-    ns.DB:GetGlobal().locked = not unlocked
-
-    ForEachWidget(function(widget) widget:SetUnlocked(unlocked) end)
-
-    if unlocked then
-        ns.EditModePanel:Show(Const.GROUP_ORDER[1])
-    else
-        ns.EditModePanel:Hide()
-    end
-end
-
-function EditMode:ToggleManualUnlock()
-    self:SetManualUnlock(not self.manualUnlock)
-    return self.manualUnlock
 end
 
 local function Appearance(groupKey)
@@ -169,7 +136,6 @@ local function SetOption(groupKey, option, value)
     ns.Core:RefreshGroup(groupKey)
 end
 
--- LibEQOL dropdowns work in display strings, not values.
 local function DropdownValues(labels)
     local values = {}
     for _, label in ipairs(labels) do
@@ -178,7 +144,33 @@ local function DropdownValues(labels)
     return values
 end
 
+local MEDIA_DEFAULT = "Default"
+
+local function FillMediaValues(values, mediatype)
+    wipe(values)
+    values[1] = { text = MEDIA_DEFAULT }
+    for _, name in ipairs(ns.Media.List(mediatype)) do
+        values[#values + 1] = { text = name }
+    end
+    return values
+end
+
+local function FillDirectionValues(groupKey, values)
+    local orientation = GetOption(groupKey, "orientation", "Horizontal")
+    local allowed = Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal
+
+    wipe(values)
+    for _, direction in ipairs(allowed) do
+        values[#values + 1] = { text = direction }
+    end
+
+    return values
+end
+
 local function BuildSettings(groupKey)
+    local directionValues = FillDirectionValues(groupKey, {})
+    local fontValues = FillMediaValues({}, "font")
+
     local settings = {
         {
             order = 1,
@@ -189,8 +181,6 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "orientation", "Horizontal") end,
             set = function(_, value)
                 SetOption(groupKey, "orientation", value)
-                -- The valid directions differ per orientation, so a stale one
-                -- has to be corrected rather than left pointing sideways.
                 local allowed = Const.ICON_DIRECTIONS[value] or Const.ICON_DIRECTIONS.Horizontal
                 local current = GetOption(groupKey, "iconDirection")
                 local stillValid = false
@@ -200,6 +190,7 @@ local function BuildSettings(groupKey)
                 if not stillValid then
                     SetOption(groupKey, "iconDirection", allowed[1])
                 end
+                FillDirectionValues(groupKey, directionValues)
             end,
         },
         {
@@ -218,9 +209,9 @@ local function BuildSettings(groupKey)
             name = "Icon Direction",
             kind = lem.SettingType.Dropdown,
             default = "Down",
+            values = directionValues,
             optionfunc = function()
-                local orientation = GetOption(groupKey, "orientation", "Horizontal")
-                return DropdownValues(Const.ICON_DIRECTIONS[orientation] or Const.ICON_DIRECTIONS.Horizontal)
+                return FillDirectionValues(groupKey, directionValues)
             end,
             get = function() return GetOption(groupKey, "iconDirection", "Down") end,
             set = function(_, value) SetOption(groupKey, "iconDirection", value) end,
@@ -241,8 +232,6 @@ local function BuildSettings(groupKey)
             name = "Icon Padding",
             kind = lem.SettingType.Slider,
             default = Const.DEFAULT_APPEARANCE.spacing,
-            -- Negative padding lets the icons touch or overlap, which the
-            -- Blizzard bevel otherwise prevents at zero.
             minValue = -12,
             maxValue = 24,
             valueStep = 1,
@@ -323,6 +312,37 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "showGCD", false) and true or false end,
             set = function(_, value) SetOption(groupKey, "showGCD", value and true or false) end,
         },
+        {
+            order = 10.1,
+            name = "Show Keybind",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "showKeybind", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "showKeybind", value and true or false) end,
+        },
+        {
+            order = 10.2,
+            name = "Reactive Highlights",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "highlightsEnabled", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "highlightsEnabled", value and true or false) end,
+        },
+        {
+            order = 10.3,
+            name = "Font",
+            kind = lem.SettingType.Dropdown,
+            default = MEDIA_DEFAULT,
+            values = fontValues,
+            get = function()
+                FillMediaValues(fontValues, "font")
+                local current = GetOption(groupKey, "fontFace", "")
+                return (current ~= "" and current) or MEDIA_DEFAULT
+            end,
+            set = function(_, value)
+                SetOption(groupKey, "fontFace", value ~= MEDIA_DEFAULT and value or "")
+            end,
+        },
     }
 
     if Const.AURA_GROUPS[groupKey] then
@@ -346,8 +366,6 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "display", "Icons") end,
             set = function(_, value)
                 SetOption(groupKey, "display", value)
-                -- Flipped with the display, because bars are wide and stack
-                -- downwards where icons run along a row.
                 if value == "Bars" then
                     SetOption(groupKey, "orientation", "Vertical")
                     SetOption(groupKey, "iconDirection", "Right")
@@ -432,6 +450,83 @@ local function SetBarOption(key, option, value)
     if bar then bar:Layout() end
 end
 
+local function MediaSetting(order, name, key, option, mediatype)
+    local values = FillMediaValues({}, mediatype)
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Dropdown,
+        default = MEDIA_DEFAULT,
+        values = values,
+        get = function()
+            FillMediaValues(values, mediatype)
+            local current = GetBarOption(key, option, "")
+            return (current ~= "" and current) or MEDIA_DEFAULT
+        end,
+        set = function(_, value)
+            SetBarOption(key, option, value ~= MEDIA_DEFAULT and value or "")
+        end,
+    }
+end
+
+local function ChoiceSetting(order, name, key, option, choices)
+    local values = {}
+    for _, choice in ipairs(choices) do
+        values[#values + 1] = { text = choice.label }
+    end
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Dropdown,
+        default = choices[1].label,
+        values = values,
+        get = function()
+            local current = GetBarOption(key, option)
+            for _, choice in ipairs(choices) do
+                if choice.value == current then return choice.label end
+            end
+            return choices[1].label
+        end,
+        set = function(_, value)
+            for _, choice in ipairs(choices) do
+                if choice.label == value then
+                    SetBarOption(key, option, choice.value)
+                    return
+                end
+            end
+        end,
+    }
+end
+
+local function PackedColor(value)
+    if type(value) ~= "table" then return nil end
+    return Const.PackColor(value.r or value[1], value.g or value[2],
+                           value.b or value[3], value.a or value[4] or 1)
+end
+
+local function ColorSetting(order, name, key, option, fallback)
+    local function Current()
+        local r, g, b, a = Const.UnpackColor(GetBarOption(key, option),
+            Const.UnpackColor(fallback, 1, 1, 1, 1))
+        return { r = r, g = g, b = b, a = a }
+    end
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Color,
+        hasOpacity = true,
+        default = Current(),
+        get = Current,
+        set = function(_, value)
+            local packed = PackedColor(value)
+            if packed then SetBarOption(key, option, packed) end
+        end,
+    }
+end
+
 local function BuildBarSettings(key)
     local settings = {
         {
@@ -512,8 +607,6 @@ local function BuildBarSettings(key)
         },
     }
 
-    -- Combo points show pips rather than a value, so the text toggle is
-    -- replaced by pip spacing.
     if key == "combo" then
         settings[#settings + 1] = {
             order = 6,
@@ -537,11 +630,119 @@ local function BuildBarSettings(key)
         }
     end
 
+    local STYLE_SECTION = "cdmcBarStyle"
+    local style = {}
+
+    settings[#settings + 1] = {
+        order = 20,
+        name = "Style",
+        kind = lem.SettingType.Collapsible,
+        id = STYLE_SECTION,
+        defaultCollapsed = false,
+    }
+
+    style[#style + 1] = MediaSetting(21, "Bar Texture", key, "barTexture", "statusbar")
+
+    style[#style + 1] = {
+        order = 22,
+        name = "Border Size",
+        kind = lem.SettingType.Slider,
+        default = Const.DEFAULT_BAR_APPEARANCE.borderSize,
+        minValue = 0,
+        maxValue = 12,
+        valueStep = 1,
+        get = function() return GetBarOption(key, "borderSize") end,
+        set = function(_, value) SetBarOption(key, "borderSize", math.floor(value + 0.5)) end,
+    }
+
+    style[#style + 1] = MediaSetting(23, "Border Texture", key, "borderTexture", "border")
+    style[#style + 1] = ColorSetting(24, "Border Colour", key, "borderColor",
+        Const.DEFAULT_BAR_APPEARANCE.borderColor)
+    style[#style + 1] = ColorSetting(25, "Background Colour", key, "bgColor",
+        Const.DEFAULT_BAR_APPEARANCE.bgColor)
+
+    style[#style + 1] = {
+        order = 26,
+        name = "Custom Fill Colour",
+        kind = lem.SettingType.CheckboxColor,
+        hasOpacity = false,
+        default = false,
+        get = function()
+            local current = GetBarOption(key, "fillColor", "")
+            return current ~= "" and current ~= nil
+        end,
+        set = function(_, value)
+            if not value then
+                SetBarOption(key, "fillColor", "")
+                return
+            end
+            local bar = ns.bars[key]
+            local statusBar = bar and bar.statusBar
+            local r, g, b = 1, 1, 1
+            if statusBar and statusBar.GetStatusBarColor then
+                local sr, sg, sb = statusBar:GetStatusBarColor()
+                if sr then r, g, b = sr, sg, sb end
+            end
+            SetBarOption(key, "fillColor", Const.PackColor(r, g, b, 1))
+        end,
+        colorGet = function()
+            local r, g, b, a = Const.UnpackColor(GetBarOption(key, "fillColor", ""), 1, 1, 1, 1)
+            return { r = r, g = g, b = b, a = a }
+        end,
+        colorSet = function(_, value)
+            local packed = PackedColor(value)
+            if packed then SetBarOption(key, "fillColor", packed) end
+        end,
+    }
+
+    style[#style + 1] = MediaSetting(27, "Font", key, "fontFace", "font")
+    style[#style + 1] = ChoiceSetting(28, "Font Outline", key, "fontOutline",
+        Const.FONT_OUTLINE_OPTIONS)
+    style[#style + 1] = ChoiceSetting(29, "Text Align", key, "textAlign",
+        Const.TEXT_ALIGN_OPTIONS)
+
+    style[#style + 1] = {
+        order = 30,
+        name = "Show Percentage",
+        kind = lem.SettingType.Checkbox,
+        default = false,
+        get = function() return GetBarOption(key, "showPercent") and true or false end,
+        set = function(_, value) SetBarOption(key, "showPercent", value and true or false) end,
+    }
+
+    style[#style + 1] = {
+        order = 31,
+        name = "Smooth Fill",
+        kind = lem.SettingType.Checkbox,
+        default = false,
+        get = function() return GetBarOption(key, "animate") and true or false end,
+        set = function(_, value) SetBarOption(key, "animate", value and true or false) end,
+    }
+
+    style[#style + 1] = {
+        order = 32,
+        name = "Edge Spark",
+        kind = lem.SettingType.Checkbox,
+        default = false,
+        get = function() return GetBarOption(key, "spark") and true or false end,
+        set = function(_, value) SetBarOption(key, "spark", value and true or false) end,
+    }
+
+    if key == "combo" then
+        style[#style + 1] = ChoiceSetting(33, "Segments", key, "segmentStyle",
+            Const.BAR_SEGMENT_OPTIONS)
+        style[#style + 1] = ChoiceSetting(34, "Resource Source", key, "resourceSource",
+            Const.RESOURCE_SOURCE_OPTIONS)
+    end
+
+    for _, setting in ipairs(style) do
+        setting.parentId = STYLE_SECTION
+        settings[#settings + 1] = setting
+    end
+
     return settings
 end
 
--- LibEQOL reports the new anchor as a loose argument list, so the values are
--- picked out by type rather than by position.
 local function ParsePositionArgs(...)
     local anchors = {
         CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
@@ -582,10 +783,6 @@ function EditMode:RegisterWithLibEQOL()
                 ns.DB:SetGroupPosition(key, point, relativePoint, x, y)
             end, defaults)
 
-            -- Classic's EditModeSystemSelectionBaseMixin:CheckShowInstructionalTooltip
-            -- calls self.system:GetSystemName() on mouse-enter. Blizzard's real
-            -- systems set that field and an addon-registered frame does not, so
-            -- hovering throws without this stub.
             local selection = group.frame.Selection
             if selection and not selection.system then
                 local label = Const.GROUP_LABELS[key] or key
@@ -621,8 +818,6 @@ function EditMode:RegisterWithLibEQOL()
             lem:AddFrame(bar.frame, function(...)
                 local point, relativePoint, x, y = ParsePositionArgs(...)
                 if not point then return end
-                -- Through the accessor, not the captured `settings`: see
-                -- DB:SetBarPosition.
                 ns.DB:SetBarPosition(key, point, relativePoint, x, y)
             end, defaults)
 
@@ -634,6 +829,7 @@ function EditMode:RegisterWithLibEQOL()
 
             lem:AddFrameSettings(bar.frame, BuildBarSettings(key))
             lem:SetFrameResetVisible(bar.frame, true)
+
         end
     end
 
@@ -651,15 +847,14 @@ function EditMode:Register()
             return true
         end
 
-        -- Fall through to the basic path rather than leaving the groups with no
-        -- way to be moved at all.
         ns.Print("|cffffcc00Edit Mode integration failed, using the basic handles:|r " .. tostring(err))
+        self.registrationError = err
         lem = nil
         self.usingLibEQOL = false
     end
 
     if not self:IsAvailable() then
-        ns.Debug("Edit Mode not present on this client; use /cdmc unlock.")
+        ns.Debug("Blizzard Edit Mode not present on this client; frames cannot be moved.")
         return false
     end
 

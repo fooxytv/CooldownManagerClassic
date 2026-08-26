@@ -7,9 +7,6 @@ Programming by: FooxyTV
 
 local addonName, ns = ...
 
--- Spell and aura IDs on tooltips, as WeakAuras and friends do. The practical way
--- to find a buff that is reachable no other way -- SoD rune buffs in particular
--- have aura IDs that appear nowhere in the spellbook.
 local Tooltip = {}
 ns.Tooltip = Tooltip
 
@@ -17,7 +14,6 @@ local function Enabled()
     return ns.DB and ns.DB.root and ns.DB:GetGlobal().showTooltipIDs ~= false
 end
 
--- More than one hook can fire for a single display, which would stack ID lines.
 local function AlreadyShown(tooltip, id)
     if tooltip.cdmcShownID == id and tooltip.cdmcShownFor == tooltip:GetName() then
         return true
@@ -64,8 +60,6 @@ function Tooltip:Initialize()
         return
     end
 
-    -- The aura setters are hooked separately because a buff tooltip does not
-    -- fire OnTooltipSetSpell.
     if GameTooltip.HookScript then
         GameTooltip:HookScript("OnTooltipSetSpell", function(tooltip)
             local _, id = tooltip:GetSpell()

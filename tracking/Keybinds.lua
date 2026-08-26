@@ -1,21 +1,10 @@
 local addonName, ns = ...
 
--- Keybind text for tracked icons. Classic has no C_CooldownViewer binding
--- service, so the hotkey is recovered from the action bars: every action slot is
--- resolved to the spell (or macro's spell) it holds, and the slot's binding is
--- read from the standard binding command, falling back to the on-screen button's
--- HotKey text.
---
--- Keyed by spell *name* so it spans ranks -- the bar may hold a different rank
--- from the tracked entry, but both resolve to the same name.
-
 local Keybinds = {}
 ns.Keybinds = Keybinds
 
 local map = {}
 
--- Action slot -> binding command name. Pages 13-24 have no stable binding of
--- their own (they share the main bar's), so they are left out.
 local function CommandForSlot(slot)
     if slot >= 1 and slot <= 12 then return "ACTIONBUTTON" .. slot end
     if slot >= 61 and slot <= 72 then return "MULTIACTIONBAR1BUTTON" .. (slot - 60) end
@@ -25,7 +14,6 @@ local function CommandForSlot(slot)
     return nil
 end
 
--- The on-screen button for a slot, for the HotKey-text fallback.
 local function ButtonNameForSlot(slot)
     if slot >= 1 and slot <= 12 then return "ActionButton" .. slot end
     if slot >= 61 and slot <= 72 then return "MultiBarBottomLeftButton" .. (slot - 60) end
@@ -35,8 +23,6 @@ local function ButtonNameForSlot(slot)
     return nil
 end
 
--- Abbreviate a binding string the way an action button does: lowercase modifier
--- letters and short mouse/scroll tokens, so "SHIFT-BUTTON4" reads as "sm4".
 local ABBREV = {
     ["SHIFT%-"]       = "s",
     ["CTRL%-"]        = "c",
@@ -66,9 +52,6 @@ local function HotkeyForSlot(slot)
         if key then return Abbreviate(key) end
     end
 
-    -- Fallback: whatever the on-screen button is already showing. Matches
-    -- macro-driven and third-party bindings the command lookup misses, when the
-    -- default button exists.
     local button = ButtonNameForSlot(slot)
     local widget = button and _G[button]
     local hotkey = widget and widget.HotKey
@@ -82,8 +65,6 @@ local function HotkeyForSlot(slot)
     return nil
 end
 
---- Rebuilds the spell-name -> hotkey map from the current action bars. First
---- binding found for a name wins.
 function Keybinds:Rebuild()
     wipe(map)
     if not _G.GetActionInfo then return end
@@ -107,7 +88,6 @@ function Keybinds:Rebuild()
     end
 end
 
---- The hotkey for a tracked spell, or nil if it is not on any bar.
 function Keybinds:Get(spellID)
     local name = ns.Spellbook:GetName(spellID) or ns.Compat.GetSpellInfo(spellID)
     return name and map[name] or nil

@@ -6,14 +6,8 @@ local Compat = ns.Compat
 local Cooldowns = {}
 ns.Cooldowns = Cooldowns
 
--- State tables are reused per spell ID, not allocated fresh, so a caller must
--- consume one before asking for another spell.
 local cache = {}
 
--- Tracked once for the whole display: Classic has no equivalent of retail's
--- spell 61304 to read the GCD from, and detecting it per spell fails whenever a
--- given spell ID does not report one -- rune placeholders being the obvious
--- case. Any tracked spell showing a short cooldown identifies it instead.
 Cooldowns.gcdStart = 0
 Cooldowns.gcdDuration = 0
 
@@ -23,8 +17,6 @@ function Cooldowns:IsGlobalCooldownActive()
 end
 
 function Cooldowns:RefreshGlobalCooldown(spellIDs)
-    -- Re-reading one already in flight risks latching onto a different spell's
-    -- short cooldown.
     if self:IsGlobalCooldownActive() then return end
 
     self.gcdStart = 0
@@ -49,6 +41,8 @@ function Cooldowns:GetState(spellID, showGCD)
 
     state.usable, state.notEnoughPower = Compat.IsSpellUsable(spellID)
 
+    state.aura = nil
+
     local start, duration, enabled, modRate = Compat.GetSpellCooldown(spellID)
     local charges, maxCharges, chargeStart, chargeDuration, chargeModRate = Compat.GetSpellCharges(spellID)
 
@@ -60,13 +54,9 @@ function Cooldowns:GetState(spellID, showGCD)
     state.charges = charges
     state.maxCharges = maxCharges
 
-    -- Still usable as far as the display is concerned, so not drawn as
-    -- unavailable.
     state.isGCD = duration > 0 and duration <= Const.GCD_THRESHOLD
 
     if charges and maxCharges and maxCharges > 1 then
-        -- The icon stays lit while charges remain; the swipe shows progress
-        -- towards the next one instead.
         state.available = charges > 0
         state.swipeStart = chargeStart or 0
         state.swipeDuration = (charges < maxCharges and chargeDuration) or 0
@@ -84,8 +74,6 @@ function Cooldowns:GetState(spellID, showGCD)
             state.swipeDuration = duration
             state.swipeModRate = modRate
         elseif showGCD and self:IsGlobalCooldownActive() then
-            -- From the shared timer, not this spell's own reading: icons whose
-            -- spell ID reports no cooldown still sweep with everything else.
             state.swipeStart = self.gcdStart
             state.swipeDuration = self.gcdDuration
             state.swipeModRate = 1
@@ -102,11 +90,8 @@ function Cooldowns:GetState(spellID, showGCD)
         end
     end
 
-    -- A GCD sweep should not print a countdown over every icon.
     state.suppressText = state.isGCD
 
-    -- enabled == false is a cooldown the client has paused: it reads as running
-    -- but of unknown length, so it is unavailable but static.
     if not enabled then
         state.available = false
     end
@@ -116,28 +101,39 @@ function Cooldowns:GetState(spellID, showGCD)
     return state
 end
 
--- Effect takes precedence over recharge. `phase` tells the widget which:
---   active    the aura is up -- show its remaining duration, bright
---   cooldown  no effect, but recharging -- show the recharge, dimmed
---   ready     available now
---
--- Matched on the ability's own spell ID, which is the same ID for most
--- self-buff defensives. Where the applied aura differs it is simply not found
--- and the bar shows the recharge, which is no worse than an icon manages.
+function Cooldowns:GetIconState(spellID, showGCD, trackAura)
+    local state = self:GetState(spellID, showGCD)
+    if not trackAura then return state end
+
+    local aura = ns.Auras:GetState(spellID)
+    if not (aura and aura.active and (aura.remaining or 0) > 0) then
+        aura = ns.Auras:GetTargetDotState(spellID)
+    end
+
+    if aura and aura.active and (aura.remaining or 0) > 0 then
+        state.swipeStart = aura.swipeStart
+        state.swipeDuration = aura.swipeDuration
+        state.swipeModRate = aura.swipeModRate
+        state.remaining = aura.remaining
+        state.active = true
+        state.isGCD = false
+        state.suppressText = false
+        state.aura = aura.aura
+    end
+
+    return state
+end
+
 local barCache = {}
-function Cooldowns:GetBarState(spellID)
+function Cooldowns:GetBarState(spellID, trackAura)
     local state = barCache[spellID]
     if not state then
         state = {}
         barCache[spellID] = state
     end
 
-    -- The aura the ability leaves on the player (a defensive's own buff), then
-    -- the DoT it leaves on the target (Moonfire, Sunfire -- no player buff, no
-    -- real cooldown, so the target debuff is the only thing to count down).
-    -- Either drives the "active" phase; the first that is up wins.
     local aura = ns.Auras:GetState(spellID)
-    if not (aura and aura.active and (aura.remaining or 0) > 0) then
+    if trackAura and not (aura and aura.active and (aura.remaining or 0) > 0) then
         aura = ns.Auras:GetTargetDotState(spellID)
     end
 

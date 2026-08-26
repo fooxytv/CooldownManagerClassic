@@ -3,24 +3,24 @@ local addonName, ns = ...
 local Const = ns.Constants
 local Compat = ns.Compat
 
--- Modelled on Blizzard's Advanced Cooldown Settings. Edits commit immediately;
--- Revert restores the profile as it was when the dialog opened.
-
 local SpellPicker = {}
 ns.SpellPicker = SpellPicker
 
 local ICON_SIZE = 36
-local ICON_GAP = 4
-local ICONS_PER_ROW = 10
-local SECTION_HEADER_HEIGHT = 20
-local SECTION_GAP = 10
+local ICON_GAP = 6
+local ICONS_PER_ROW = 7
+local SECTION_HEADER_HEIGHT = 24
+local SECTION_GAP = 8
 local CONTENT_WIDTH = ICONS_PER_ROW * (ICON_SIZE + ICON_GAP)
 
--- The "Not Displayed" bucket has no group key: dropping into it removes the
--- spell from whichever group it was in.
+local COLLAPSE_TEXTURES = {
+    expanded  = "Interface\\Buttons\\UI-MinusButton-Up",
+    collapsed = "Interface\\Buttons\\UI-PlusButton-Up",
+}
+
 local TABS = {
     cooldowns = {
-        title = "Advanced Cooldown Settings",
+        title = "Cooldown Settings",
         sections = {
             { key = "essential",    label = "Essential Cooldowns" },
             { key = "utility",      label = "Utility Cooldowns" },
@@ -29,7 +29,7 @@ local TABS = {
         },
     },
     buffs = {
-        title = "Advanced Buff Settings",
+        title = "Buff Settings",
         sections = {
             { key = "buffs", label = "Tracked Buffs" },
             { key = nil,     label = "Not Displayed" },
@@ -45,21 +45,12 @@ local TABS = {
     },
 }
 
--- The Options tab is hidden, not deleted: every setting it held is also in the
--- Edit Mode panel, and two surfaces for the same options only disagree.
--- Profiles are not in the Edit Mode panel at all, so there is no such clash.
 local TAB_ORDER = { "cooldowns", "buffs", "profiles" }
 
--- Tabs that draw their own panel instead of sections of spell icons. Search and
--- Save/Revert mean nothing on these.
 local PANEL_TABS = { options = true, profiles = true }
 
--- Applied immediately rather than staged: seeing the icons resize as you drag
--- the slider is the point.
 local OPTION_SLIDERS = {
     { option = "iconSize", label = "Icon Size", min = 16, max = 72, step = 1 },
-    -- Negative minimum on purpose: the Blizzard bevel overhangs the icon by
-    -- several pixels, so zero padding still reads as a gap.
     { option = "spacing",  label = "Icon Padding", min = -12, max = 24, step = 1 },
 }
 
@@ -76,10 +67,8 @@ local frame
 local currentTab = "cooldowns"
 local searchText = ""
 
--- Staged edits: groupKey -> array of profile entries.
 local working = {}
 
--- In-flight drag: { spellID, fromGroup, fromIndex, entry, handled }
 local drag = nil
 
 local function LoadWorking()
@@ -90,7 +79,6 @@ local function LoadWorking()
     end
 end
 
--- What Revert goes back to, now that edits commit immediately.
 local openSnapshot = {}
 
 local function SaveWorking()
@@ -103,9 +91,6 @@ local function SaveWorking()
     ns.Core:RefreshAll()
 end
 
--- Commits immediately. Staging until a Save press meant closing the window
--- silently discarded everything just dragged in, which looks identical to the
--- spell never having been tracked.
 local function CommitEdit()
     SaveWorking()
 end
@@ -125,15 +110,6 @@ local function RestoreOpenSnapshot()
     SaveWorking()
 end
 
--- Scoped to the tab, not the whole profile: a spell can be both an Essential
--- cooldown and a Tracked Buff, and checking every group would hide it from the
--- Buffs tab the moment it appeared on the Cooldowns one.
---
--- The name test alongside the ID is not belt-and-braces. Entries are stored
--- rank-independent and presets store rank 1, while the picker offers the best
--- rank known; once you out-level rank 1 the IDs differ, and an ID-only test
--- listed the spell as both tracked and Not Displayed -- adding it from there
--- left two icons for one spell.
 local function IsTracked(spellID, tabKey)
     local name = Compat.GetSpellInfo(spellID)
 
@@ -168,16 +144,11 @@ local function GetNotDisplayed(tabKey)
         Add(spell.spellID, spell.name)
     end
 
-    -- Anything currently on the player is offered too: SoD runes especially
-    -- apply a buff whose ID is not the ability cast and is nowhere in the
-    -- spellbook, so this is the only way to reach them.
     if tabKey == "buffs" then
         for _, aura in ipairs(ns.Compat.GetPlayerAuras()) do
             Add(aura.spellID, aura.name)
         end
 
-        -- Weapon enchants are always offered, whether or not one is currently
-        -- applied: they are a slot to watch rather than a spell you know.
         for _, enchant in ipairs(Const.WEAPON_ENCHANTS) do
             Add(enchant.id, enchant.label)
         end
@@ -223,6 +194,8 @@ end
 local function BeginDrag(button)
     if not button.spellID then return end
 
+    if SpellPicker.CloseEntryMenu then SpellPicker.CloseEntryMenu() end
+
     drag = {
         spellID = button.spellID,
         fromGroup = button.groupKey,
@@ -241,9 +214,6 @@ local function EndDrag()
     if dragVisual then dragVisual:Hide() end
 end
 
--- Hit-testing rather than OnReceiveDrag, which only fires when something is
--- genuinely on the cursor. Dragging a plain frame carries no cursor payload, so
--- the drop has to be resolved on OnDragStop instead.
 local function GetFrameUnderCursor()
     if _G.GetMouseFoci then
         local foci = GetMouseFoci()
@@ -255,18 +225,22 @@ local function GetFrameUnderCursor()
     return nil
 end
 
--- A nil targetGroup is the "Not Displayed" bucket: remove it from wherever it was.
 local function DropInto(targetGroup, targetIndex)
     if not drag then return end
     drag.handled = true
 
     local entry = RemoveFrom(drag.fromGroup, drag.spellID)
-        or { spellID = drag.spellID, name = drag.entry and drag.entry.name, rankIndependent = true }
+        or {
+            spellID = drag.spellID,
+            name = drag.entry and drag.entry.name,
+            rankIndependent = true,
+            trackDebuff = Const.IsAuraSpell(drag.spellID) or nil,
+            forms = Const.DefaultFormsFor(drag.spellID),
+        }
 
     if targetGroup and working[targetGroup] then
         local list = working[targetGroup]
 
-        -- Or a cross-group move leaves a duplicate behind.
         for index, existing in ipairs(list) do
             if existing.spellID == entry.spellID then
                 table.remove(list, index)
@@ -286,8 +260,6 @@ local function DropInto(targetGroup, targetIndex)
     SpellPicker:Refresh()
 end
 
--- Walks up from whatever is under the cursor until it finds an icon (insert at
--- that position) or a section (append), and cancels if it finds neither.
 local function ResolveDrop()
     if not drag then return end
 
@@ -324,8 +296,6 @@ local function IsDruidPlayer()
     return select(2, UnitClass("player")) == "DRUID"
 end
 
--- The tag badge for a tracked icon: the initials of the forms it is limited to,
--- or nil for an untagged (all-forms) entry, which shows no badge.
 local function FormBadge(entry)
     local forms = entry and entry.forms
     if type(forms) ~= "table" or not next(forms) then return nil end
@@ -337,9 +307,6 @@ local function FormBadge(entry)
     return table.concat(out)
 end
 
--- Flips one form for an entry. Works from the effective set (an untagged entry
--- shows in all forms), and collapses "all forms on" -- or the empty set -- back
--- to untagged, so the badge disappears when a tag adds nothing.
 local function ToggleEntryForm(entry, formKey)
     local set = {}
     if type(entry.forms) == "table" and next(entry.forms) then
@@ -360,36 +327,70 @@ local function ToggleEntryForm(entry, formKey)
     end
 end
 
--- Right-click menu on a tracked icon (Druids only): a checkable toggle per form.
--- Checking every form -- the default -- is the same as untagged.
 local formMenu
-local function ShowFormMenu(button)
+
+local function CloseEntryMenu()
+    if _G.CloseDropDownMenus then CloseDropDownMenus() end
+end
+SpellPicker.CloseEntryMenu = CloseEntryMenu
+
+local function RefreshEntryMenu()
+    if formMenu and _G.UIDropDownMenu_Refresh then
+        UIDropDownMenu_Refresh(formMenu, false, 1)
+    end
+end
+
+local function ShowEntryMenu(button)
     if not formMenu then
         formMenu = CreateFrame("Frame", "CDMCFormMenu", UIParent, "UIDropDownMenuTemplate")
     end
+
+    CloseEntryMenu()
 
     UIDropDownMenu_Initialize(formMenu, function()
         local entry = button.entry
         if not entry then return end
 
-        local title = UIDropDownMenu_CreateInfo()
-        title.text = "Track in forms"
-        title.isTitle = true
-        title.notCheckable = true
-        UIDropDownMenu_AddButton(title)
+        local dot = UIDropDownMenu_CreateInfo()
+        dot.text = "Track its aura (buff or DoT)"
+        dot.isNotRadio = true
+        dot.checked = entry.trackDebuff and true or false
+        dot.func = function()
+            entry.trackDebuff = not entry.trackDebuff or nil
+            CommitEdit()
+            CloseEntryMenu()
+            SpellPicker:Refresh()
+        end
+        UIDropDownMenu_AddButton(dot)
 
-        for _, opt in ipairs(Const.FORM_TAG_OPTIONS) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = opt.label
-            info.isNotRadio = true
-            info.keepShownOnClick = true
-            info.checked = Const.FormAllows(entry.forms, opt.value)
-            info.func = function()
-                ToggleEntryForm(entry, opt.value)
-                CommitEdit()
-                SpellPicker:Refresh()
+        if IsDruidPlayer() then
+            local title = UIDropDownMenu_CreateInfo()
+            title.text = "Track in forms"
+            title.isTitle = true
+            title.notCheckable = true
+            UIDropDownMenu_AddButton(title)
+
+            for _, opt in ipairs(Const.FORM_TAG_OPTIONS) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = opt.label
+                info.isNotRadio = true
+                info.keepShownOnClick = true
+                info.checked = Const.FormAllows(entry.forms, opt.value)
+                info.keepShownOnClick = true
+                info.func = function()
+                    ToggleEntryForm(entry, opt.value)
+                    CommitEdit()
+                    SpellPicker:Refresh()
+                    RefreshEntryMenu()
+                end
+                UIDropDownMenu_AddButton(info)
             end
-            UIDropDownMenu_AddButton(info)
+
+            local note = UIDropDownMenu_CreateInfo()
+            note.text = "|cff888888(all forms show while unlocked)|r"
+            note.isTitle = true
+            note.notCheckable = true
+            UIDropDownMenu_AddButton(note)
         end
     end, "MENU")
 
@@ -410,12 +411,28 @@ local function CreateIconButton(parent)
     button.highlight:SetAllPoints()
     button.highlight:SetColorTexture(1, 1, 1, 0.25)
 
-    -- Form-tag badge (Druids), lit corner initials of the forms this ability is
-    -- limited to. Hidden for untagged entries and non-Druids.
     button.formText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     button.formText:SetPoint("BOTTOMLEFT", 1, 1)
     button.formText:SetTextColor(0.4, 0.8, 1)
     button.formText:Hide()
+
+    button.plate = button:CreateTexture(nil, "BACKGROUND")
+    button.plate:SetPoint("TOPLEFT", button, "TOPRIGHT", ICON_GAP, -2)
+    button.plate:SetHeight(ICON_SIZE - 4)
+    button.plate:SetColorTexture(0.85, 0.45, 0.15, 0.85)
+    button.plate:Hide()
+
+    button.plateText = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    button.plateText:SetPoint("LEFT", button.plate, "LEFT", 6, 0)
+    button.plateText:SetPoint("RIGHT", button.plate, "RIGHT", -6, 0)
+    button.plateText:SetJustifyH("LEFT")
+    button.plateText:Hide()
+
+    button.dotText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.dotText:SetPoint("BOTTOMRIGHT", -1, 1)
+    button.dotText:SetTextColor(1, 0.5, 0.3)
+    button.dotText:SetText("aura")
+    button.dotText:Hide()
 
     button.cdmcIsIcon = true
 
@@ -424,12 +441,10 @@ local function CreateIconButton(parent)
     button:SetScript("OnDragStart", BeginDrag)
     button:SetScript("OnDragStop", ResolveDrop)
 
-    -- Left-click moves a spell between tracked and not-displayed without
-    -- dragging; right-click on a tracked icon opens the Druid form-tag menu.
     button:SetScript("OnClick", function(self, mouseButton)
         if mouseButton == "RightButton" then
-            if self.groupKey and IsDruidPlayer() then
-                ShowFormMenu(self)
+            if self.groupKey then
+                ShowEntryMenu(self)
             end
             return
         end
@@ -442,6 +457,8 @@ local function CreateIconButton(parent)
                     spellID = self.spellID,
                     name = self.entry and self.entry.name,
                     rankIndependent = true,
+                    trackDebuff = Const.IsAuraSpell(self.spellID) or nil,
+                    forms = Const.DefaultFormsFor(self.spellID),
                 })
             end
         end
@@ -467,28 +484,82 @@ local function ReleaseButton(button)
     button.index = nil
     button.entry = nil
     if button.formText then button.formText:Hide() end
+    if button.dotText then button.dotText:Hide() end
+    if button.plate then button.plate:Hide() end
+    if button.plateText then button.plateText:Hide() end
     buttonPool[#buttonPool + 1] = button
 end
 
 local sectionPool = {}
 local activeSections = {}
 
+local function SectionKey(definition)
+    return currentTab .. ":" .. (definition.key or "notDisplayed")
+end
+
+local function IsSectionCollapsed(definition)
+    local global = ns.DB:GetGlobal()
+    local collapsed = global and global.collapsedSections
+    return collapsed ~= nil and collapsed[SectionKey(definition)] == true
+end
+
+local function SetSectionCollapsed(definition, collapsed)
+    local global = ns.DB:GetGlobal()
+    if not global then return end
+    global.collapsedSections = global.collapsedSections or {}
+    global.collapsedSections[SectionKey(definition)] = collapsed or nil
+end
+
 local function CreateSection(parent)
     local section = CreateFrame("Frame", nil, parent)
     section:SetWidth(CONTENT_WIDTH)
     section:EnableMouse(true)
+
+    local header = CreateFrame("Button", nil, section)
+    header:SetPoint("TOPLEFT", 0, 0)
+    header:SetPoint("TOPRIGHT", 0, 0)
+    header:SetHeight(SECTION_HEADER_HEIGHT)
+    section.header = header
+
+    header.bg = header:CreateTexture(nil, "BACKGROUND")
+    header.bg:SetAllPoints()
+    header.bg:SetColorTexture(0.13, 0.13, 0.16, 0.95)
+
+    header.edge = header:CreateTexture(nil, "BORDER")
+    header.edge:SetPoint("BOTTOMLEFT", 0, 0)
+    header.edge:SetPoint("BOTTOMRIGHT", 0, 0)
+    header.edge:SetHeight(1)
+    header.edge:SetColorTexture(0, 0, 0, 0.9)
+
+    header:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+
+    section.label = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    section.label:SetPoint("LEFT", 8, 0)
+    section.label:SetTextColor(1, 0.82, 0)
+
+    section.count = header:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    section.count:SetPoint("RIGHT", -28, 0)
+
+    local toggle = CreateFrame("Button", nil, header)
+    toggle:SetSize(16, 16)
+    toggle:SetPoint("RIGHT", -6, 0)
+    toggle:SetNormalTexture(COLLAPSE_TEXTURES.expanded)
+    section.toggle = toggle
+
+    local function ToggleSection()
+        if drag or not section.definition then return end
+        SetSectionCollapsed(section.definition, not IsSectionCollapsed(section.definition))
+        SpellPicker:Refresh()
+    end
+
+    toggle:SetScript("OnClick", ToggleSection)
+    header:SetScript("OnClick", ToggleSection)
 
     section.bg = section:CreateTexture(nil, "BACKGROUND")
     section.bg:SetPoint("TOPLEFT", 0, -SECTION_HEADER_HEIGHT)
     section.bg:SetPoint("BOTTOMRIGHT", 0, 0)
     section.bg:SetColorTexture(0, 0, 0, 0.25)
 
-    section.label = section:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    section.label:SetPoint("TOPLEFT", 2, -4)
-    section.label:SetTextColor(1, 0.82, 0)
-
-    -- Marked so ResolveDrop can find it by walking up from the cursor target;
-    -- dropping on the section background appends to the end of that group.
     section.cdmcIsSection = true
 
     section.buttons = {}
@@ -513,18 +584,31 @@ local function MatchesSearch(name)
     return name ~= nil and name:lower():find(searchText:lower(), 1, true) ~= nil
 end
 
--- Returns the section's height.
 local function BuildSection(parent, definition, entries, yOffset)
     local section = table.remove(sectionPool) or CreateSection(parent)
     section:SetParent(parent)
     section.groupKey = definition.key
+    section.definition = definition
     section.label:SetText(definition.label)
+    section.count:SetText(#entries > 0 and tostring(#entries) or "")
     section:ClearAllPoints()
     section:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -yOffset)
     section:Show()
     activeSections[#activeSections + 1] = section
 
-    local rows = math.max(1, math.ceil(#entries / ICONS_PER_ROW))
+    local collapsed = IsSectionCollapsed(definition)
+    section.toggle:SetNormalTexture(collapsed and COLLAPSE_TEXTURES.collapsed
+        or COLLAPSE_TEXTURES.expanded)
+    section.bg:SetShown(not collapsed)
+
+    if collapsed then
+        section:SetHeight(SECTION_HEADER_HEIGHT)
+        return SECTION_HEADER_HEIGHT
+    end
+
+    local isBarSection = definition.key ~= nil and Const.DURATION_BAR_GROUPS[definition.key]
+    local rows = isBarSection and math.max(1, #entries)
+        or math.max(1, math.ceil(#entries / ICONS_PER_ROW))
     local height = SECTION_HEADER_HEIGHT + rows * (ICON_SIZE + ICON_GAP) + ICON_GAP
     section:SetHeight(height)
 
@@ -542,7 +626,6 @@ local function BuildSection(parent, definition, entries, yOffset)
         button.entry = entry
         button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
 
-        -- Form badge only for a Druid's tracked (not not-displayed) entries.
         local badge = definition.key and IsDruidPlayer() and FormBadge(entry)
         if badge then
             button.formText:SetText(badge)
@@ -551,23 +634,32 @@ local function BuildSection(parent, definition, entries, yOffset)
             button.formText:Hide()
         end
 
-        local column = (index - 1) % ICONS_PER_ROW
-        local row = math.floor((index - 1) / ICONS_PER_ROW)
+        button.dotText:SetShown(definition.key ~= nil and entry.trackDebuff == true)
+
+        local column = isBarSection and 0 or (index - 1) % ICONS_PER_ROW
+        local row = isBarSection and (index - 1)
+            or math.floor((index - 1) / ICONS_PER_ROW)
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", section, "TOPLEFT",
-            column * (ICON_SIZE + ICON_GAP),
-            -(SECTION_HEADER_HEIGHT + row * (ICON_SIZE + ICON_GAP)))
+            ICON_GAP / 2 + column * (ICON_SIZE + ICON_GAP),
+            -(SECTION_HEADER_HEIGHT + ICON_GAP / 2 + row * (ICON_SIZE + ICON_GAP)))
 
-        -- Search dims rather than filters, so an icon never moves under the
-        -- cursor while you are typing.
+        if isBarSection then
+            button.plate:SetWidth(CONTENT_WIDTH - ICON_SIZE - ICON_GAP * 2)
+            button.plateText:SetText(name or "")
+            button.plate:Show()
+            button.plateText:Show()
+        else
+            button.plate:Hide()
+            button.plateText:Hide()
+        end
+
         local matches = MatchesSearch(name)
         button.icon:SetAlpha(matches and 1 or 0.25)
         if button.icon.SetDesaturated then
             button.icon:SetDesaturated(not matches)
         end
 
-        -- A spell the character cannot currently cast (unlearned rank, or a
-        -- rune that is not engraved) stays in the profile but is marked.
         if not resolvedID then
             button.icon:SetVertexColor(1, 0.4, 0.4)
         else
@@ -601,8 +693,6 @@ local function EnsureOptionWidgets(parent)
 
     optionWidgets = { groupButtons = {}, sliders = {}, toggles = {} }
 
-    -- A wrapping grid, not a row: with four groups a single row overran the
-    -- dialog, clipping "Essential Cooldowns" and pushing the last button off.
     local PER_ROW = 2
     local BUTTON_GAP = 4
     local BUTTON_W = (CONTENT_WIDTH - BUTTON_GAP) / PER_ROW
@@ -626,7 +716,6 @@ local function EnsureOptionWidgets(parent)
         optionWidgets.groupButtons[key] = button
     end
 
-    -- Start the sliders below however many rows of group buttons there were.
     local buttonRows = math.ceil(#Const.GROUP_ORDER / PER_ROW)
     local y = -4 - buttonRows * ROW_STEP - 12
     for index, definition in ipairs(OPTION_SLIDERS) do
@@ -680,14 +769,13 @@ local function EnsureOptionWidgets(parent)
     return optionWidgets
 end
 
--- Which profile the list has highlighted. Only a selection: switching to it is
--- a separate button, so picking a profile to copy or delete does not drag the
--- character onto it first.
 local selectedProfile = nil
+local selectedLayout = nil
 local profileWidgets = nil
 
 local PROFILE_ROWS = 10
 local PROFILE_ROW_HEIGHT = 20
+local LAYOUT_ROWS = 8
 
 local function SetProfileStatus(text, isError)
     if not profileWidgets then return end
@@ -699,9 +787,6 @@ local function SetProfileStatus(text, isError)
     end
 end
 
--- Every action reports through the same place: these all fail for ordinary
--- reasons (duplicate name, empty name, deleting the profile in use) and a
--- silent no-op looks identical to the button being broken.
 local function RunProfileAction(ok, err, success)
     if ok then
         SetProfileStatus(success, false)
@@ -733,8 +818,6 @@ local function EnsureProfileWidgets(parent)
     profileWidgets.heading = heading
     y = y - 18
 
-    -- A fixed pool rather than a scroll frame: the list is one entry per class
-    -- plus whatever the player has named, so it does not grow without bound.
     for index = 1, PROFILE_ROWS do
         local row = CreateFrame("Button", nil, parent)
         row:SetSize(CONTENT_WIDTH - 16, PROFILE_ROW_HEIGHT)
@@ -804,9 +887,6 @@ local function EnsureProfileWidgets(parent)
         return button
     end
 
-    -- The headline case: a second shaman starts from the first shaman's layout
-    -- and then diverges. Copy writes a new profile and moves this character to
-    -- it, so the source is never edited by accident.
     profileWidgets.copyButton = AddButton("Copy Selected", 0, 0, function()
         local name = NewProfileName()
         if name == "" then
@@ -865,13 +945,99 @@ local function EnsureProfileWidgets(parent)
         end
     end, "Deletes the selected profile. The profile in use and the Default profile cannot be deleted.")
 
-    y = y - 2 * (BUTTON_H + 6) - 8
+    profileWidgets.shareButton = AddButton("Share Profile", 0, 2, function()
+        ns.ProfileShare:ShowExport()
+    end, "Exports the profile in use as a string to paste to someone else, and imports one they send you.")
+
+    y = y - 3 * (BUTTON_H + 6) - 8
 
     profileWidgets.status = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     profileWidgets.status:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
     profileWidgets.status:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -8, y)
     profileWidgets.status:SetJustifyH("LEFT")
     y = y - 30
+
+    local layoutHeading = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    layoutHeading:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
+    layoutHeading:SetText("Starter layouts:")
+    profileWidgets.layoutHeading = layoutHeading
+    y = y - 18
+
+    profileWidgets.layoutRows = {}
+    for index = 1, LAYOUT_ROWS do
+        local row = CreateFrame("Button", nil, parent)
+        row:SetSize(CONTENT_WIDTH - 16, PROFILE_ROW_HEIGHT)
+        row:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, y)
+        row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+
+        local selected = row:CreateTexture(nil, "BACKGROUND")
+        selected:SetAllPoints()
+        selected:SetColorTexture(0.2, 0.5, 0.9, 0.35)
+        selected:Hide()
+        row.selectedTexture = selected
+
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.label:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.label:SetJustifyH("LEFT")
+
+        row:SetScript("OnClick", function(self)
+            selectedLayout = self.layoutKey
+            SetProfileStatus(nil)
+            SpellPicker:Refresh()
+        end)
+
+        profileWidgets.layoutRows[index] = row
+        y = y - PROFILE_ROW_HEIGHT
+    end
+
+    y = y - 8
+
+    profileWidgets.applyLayout = AddButton("Apply Layout", 0, 0, function()
+        if not selectedLayout then
+            SetProfileStatus("Select a layout first.", true)
+            return
+        end
+
+        local ok, result = ns.Presets:ApplyByKey(selectedLayout, true)
+        if ok then
+            SetProfileStatus(("Loaded the %s layout. Revert puts back what was here."):format(result))
+            SpellPicker:Refresh()
+        else
+            SetProfileStatus(result, true)
+        end
+    end, "Replaces what this profile tracks with the selected layout. Revert restores what was here when this window opened.")
+
+    profileWidgets.saveLayout = AddButton("Save Current As", 1, 0, function()
+        local name = NewProfileName()
+        local ok, result = ns.Presets:SaveCurrentAs(name)
+        if ok then
+            profileWidgets.nameBox:SetText("")
+            selectedLayout = "custom:" .. result
+            SetProfileStatus(("Saved this layout as %q. It is offered on every character."):format(result))
+            SpellPicker:Refresh()
+        else
+            SetProfileStatus(result, true)
+        end
+    end, "Saves what this profile currently tracks as a named layout, under the name typed above. Saved layouts are offered on every character on this account.")
+
+    profileWidgets.deleteLayout = AddButton("Delete Layout", 0, 1, function()
+        local preset = selectedLayout and ns.Presets:GetByKey(selectedLayout)
+        if not preset or not preset.custom then
+            SetProfileStatus("Only a saved layout can be deleted.", true)
+            return
+        end
+
+        local ok, err = ns.Presets:DeleteCustom(preset.name)
+        if ok then
+            selectedLayout = nil
+            SetProfileStatus(("Deleted the %s layout."):format(preset.name))
+            SpellPicker:Refresh()
+        else
+            SetProfileStatus(err, true)
+        end
+    end, "Deletes the selected saved layout. The built-in class layouts cannot be deleted.")
+
+    y = y - 2 * (BUTTON_H + 6) - 10
 
     profileWidgets.height = -y + 10
     return profileWidgets
@@ -882,7 +1048,6 @@ local function ShowProfiles(parent)
     local current = ns.DB:GetCurrentProfileName()
     local names = ns.DB:ListProfiles()
 
-    -- A profile deleted underneath the selection must not stay selected.
     if selectedProfile and not ns.DB.root.profiles[selectedProfile] then
         selectedProfile = nil
     end
@@ -912,8 +1077,6 @@ local function ShowProfiles(parent)
     end
 
     if #names > PROFILE_ROWS then
-        -- No silent truncation: the list is a fixed pool, so say so rather than
-        -- letting a profile simply not appear.
         widgets.status:SetText(("Showing the first %d of %d profiles - use /cdmc profile list for the rest.")
             :format(PROFILE_ROWS, #names))
         widgets.status:SetTextColor(1, 0.8, 0.3)
@@ -923,8 +1086,41 @@ local function ShowProfiles(parent)
     widgets.createButton:Show()
     widgets.useButton:Show()
     widgets.deleteButton:Show()
+    widgets.shareButton:Show()
 
-    -- Both are rejected by the DB anyway; disabling says why before the click.
+    local layouts = ns.Presets:ListForPlayer()
+    widgets.layoutHeading:Show()
+
+    local selectedPreset = selectedLayout and ns.Presets:GetByKey(selectedLayout)
+    if selectedLayout and not selectedPreset then
+        selectedLayout = nil
+    end
+
+    for index, row in ipairs(widgets.layoutRows) do
+        local preset = layouts[index]
+        if preset then
+            row.layoutKey = preset.key
+            row.label:SetText(preset.custom and (preset.name .. " |cff888888(saved)|r") or preset.name)
+            row.selectedTexture:SetShown(preset.key == selectedLayout)
+            row:Show()
+        else
+            row.layoutKey = nil
+            row:Hide()
+        end
+    end
+
+    widgets.applyLayout:Show()
+    widgets.saveLayout:Show()
+    widgets.deleteLayout:Show()
+    widgets.applyLayout:SetEnabled(selectedLayout ~= nil)
+    widgets.deleteLayout:SetEnabled(selectedPreset ~= nil and selectedPreset.custom == true)
+
+    if #layouts > LAYOUT_ROWS then
+        widgets.status:SetText(("Showing the first %d of %d layouts - use /cdmc preset list for the rest.")
+            :format(LAYOUT_ROWS, #layouts))
+        widgets.status:SetTextColor(1, 0.8, 0.3)
+    end
+
     widgets.deleteButton:SetEnabled(selectedProfile ~= nil
         and selectedProfile ~= current and selectedProfile ~= "Default")
     widgets.useButton:SetEnabled(selectedProfile ~= nil and selectedProfile ~= current)
@@ -944,6 +1140,12 @@ local function HideProfiles()
     profileWidgets.createButton:Hide()
     profileWidgets.useButton:Hide()
     profileWidgets.deleteButton:Hide()
+    profileWidgets.shareButton:Hide()
+    profileWidgets.layoutHeading:Hide()
+    for _, row in ipairs(profileWidgets.layoutRows) do row:Hide() end
+    profileWidgets.applyLayout:Hide()
+    profileWidgets.saveLayout:Hide()
+    profileWidgets.deleteLayout:Hide()
 end
 
 local function ShowOptions(parent)
@@ -959,7 +1161,6 @@ local function ShowOptions(parent)
         local value = appearance and appearance[slider.definition.option]
             or Const.DEFAULT_APPEARANCE[slider.definition.option] or 0
 
-        -- Guard so setting the value programmatically does not write it back.
         slider.settingValue = true
         slider:SetValue(value)
         slider.settingValue = false
@@ -988,15 +1189,8 @@ local function HideOptions()
     for _, check in ipairs(optionWidgets.toggles) do check:Hide() end
 end
 
--- ButtonFrameTemplate gives the portrait, title bar, close button, inset and
--- bottom button strip that Blizzard's own dialogs use. Its keys moved around
--- between versions, so both the mixin and the direct paths are tried.
-
 local function SetDialogTitle(dialog, text)
     if dialog.SetTitle then
-        -- PortraitFrameTemplateMixin:SetTitle reads self.TitleText, but the
-        -- FontString's parentKey is scoped to TitleContainer, so on some builds
-        -- that resolves to nil and throws.
         if pcall(dialog.SetTitle, dialog, text) then return end
     end
 
@@ -1007,24 +1201,38 @@ local function SetDialogTitle(dialog, text)
     if titleText then titleText:SetText(text) end
 end
 
-local function SetDialogPortrait(dialog, texture)
+local function SetDialogPortrait(dialog, texture, coords)
     local portrait = (dialog.PortraitContainer and dialog.PortraitContainer.portrait)
         or dialog.portrait
         or _G["CDMCSettingsFramePortrait"]
 
     if not portrait then return end
 
-    -- Never SetTexCoord here: this texture is masked by the template's
-    -- CircleMask, and a non-default TexCoord on a masked texture breaks the
-    -- masking. (SetPortraitToTexture does not exist on Classic at all.)
     portrait:SetTexture(texture)
 
-    -- SetTexture drops the texture's mask associations, so the circle mask has
-    -- to be attached again afterwards or the icon renders as a bare square
-    -- overhanging the portrait ring.
+    if coords then
+        if portrait.SetTexCoord then
+            portrait:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        end
+        return
+    end
+
+    if portrait.SetTexCoord then portrait:SetTexCoord(0, 1, 0, 1) end
+
     local mask = dialog.PortraitContainer and dialog.PortraitContainer.CircleMask
     if mask and portrait.AddMaskTexture then
         pcall(portrait.AddMaskTexture, portrait, mask)
+    end
+end
+
+local function ApplyClassPortrait(dialog)
+    local _, class = UnitClass("player")
+    local coords = class and _G.CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
+
+    if coords then
+        SetDialogPortrait(dialog, "Interface\\TargetingFrame\\UI-Classes-Circles", coords)
+    else
+        SetDialogPortrait(dialog, "Interface\\Icons\\INV_Misc_PocketWatch_01")
     end
 end
 
@@ -1043,18 +1251,14 @@ local function CreateFrameOnce()
     frame:Hide()
     tinsert(UISpecialFrames, "CDMCSettingsFrame")
 
-    SetDialogPortrait(frame, "Interface\\Icons\\INV_Misc_PocketWatch_01")
+    ApplyClassPortrait(frame)
 
-    -- Push the inset down to leave room for the tab row and the search box,
-    -- which sit above it rather than inside the scrolling area.
     if frame.Inset then
         frame.Inset:ClearAllPoints()
         frame.Inset:SetPoint("TOPLEFT", 4, -62)
         frame.Inset:SetPoint("BOTTOMRIGHT", -6, 30)
     end
 
-    -- Side tabs down the right edge, as Blizzard's own dialog has them. A row
-    -- across the top would collide with the overhanging portrait.
     local TABS_META = {
         cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
         buffs     = { label = "Buffs",     icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
@@ -1080,18 +1284,12 @@ local function CreateFrameOnce()
         background:SetSize(64, 64)
         background:SetPoint("TOPLEFT", -3, 11)
 
-        -- The icon is its own ARTWORK texture rather than the button's normal
-        -- texture. A bare CheckButton stops drawing its normal texture while it
-        -- is checked, which blanked the icon on exactly the selected tab; an
-        -- explicit texture is shown regardless of check state.
         local icon = tab:CreateTexture(nil, "ARTWORK")
         icon:SetTexture(meta.icon)
         icon:SetAllPoints()
         tab.icon = icon
 
         tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        -- Drawn behind the icon so "selected" reads as a glow around it, not a
-        -- square on top of it.
         local checked = tab:CreateTexture(nil, "BORDER")
         checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
         checked:SetBlendMode("ADD")
@@ -1106,7 +1304,6 @@ local function CreateFrameOnce()
         end)
         tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
         tab:SetScript("OnClick", function()
-            -- The same click the character and spellbook side tabs make.
             if SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
                 PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
             end
@@ -1118,16 +1315,25 @@ local function CreateFrameOnce()
         previousTab = tab
     end
 
-    local search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    search:SetSize(180, 18)
-    -- Kept clear of the portrait, which overhangs the top-left corner.
-    search:SetPoint("TOPLEFT", 78, -36)
+    local search
+    local ok, built = pcall(CreateFrame, "EditBox", nil, frame, "SearchBoxTemplate")
+    if ok and built then
+        search = built
+        if search.Instructions then
+            search.Instructions:SetText("Enter search text")
+        end
+    else
+        search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    end
+
+    search:SetHeight(20)
+    search:SetPoint("TOPLEFT", 72, -34)
     search:SetAutoFocus(false)
-    search:SetScript("OnTextChanged", function(self)
+    search:HookScript("OnTextChanged", function(self)
         searchText = self:GetText() or ""
         SpellPicker:Refresh()
     end)
-    search:SetScript("OnEscapePressed", function(self)
+    search:HookScript("OnEscapePressed", function(self)
         self:SetText("")
         self:ClearFocus()
     end)
@@ -1144,21 +1350,45 @@ local function CreateFrameOnce()
     scroll:SetScrollChild(content)
     frame.content = content
 
-    -- The bottom strip ButtonFrameTemplate reserves is where Blizzard puts
-    -- Save, so the buttons go there rather than floating over the inset.
-    local save = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    save:SetSize(100, 22)
-    save:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 4)
-    save:SetText("Done")
-    save:SetScript("OnClick", function()
-        -- Edits already committed; this just closes the dialog.
-        SpellPicker:Hide()
+    local profileDropdown = CreateFrame("Frame", "CDMCPickerProfile", frame, "UIDropDownMenuTemplate")
+    profileDropdown:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", -6, 1)
+    UIDropDownMenu_SetWidth(profileDropdown, 118)
+
+    for _, piece in ipairs({ "Left", "Middle", "Right" }) do
+        local art = _G["CDMCPickerProfile" .. piece]
+        if art then art:Hide() end
+    end
+
+    local plateEdge = profileDropdown:CreateTexture(nil, "BACKGROUND")
+    plateEdge:SetPoint("TOPLEFT", 15, -5)
+    plateEdge:SetPoint("BOTTOMRIGHT", -13, 9)
+    plateEdge:SetColorTexture(0.35, 0.33, 0.28, 0.9)
+
+    local plate = profileDropdown:CreateTexture(nil, "BORDER")
+    plate:SetPoint("TOPLEFT", plateEdge, "TOPLEFT", 1, -1)
+    plate:SetPoint("BOTTOMRIGHT", plateEdge, "BOTTOMRIGHT", -1, 1)
+    plate:SetColorTexture(0.09, 0.09, 0.11, 0.95)
+
+    local profileText = _G["CDMCPickerProfileText"]
+    if profileText then profileText:SetTextColor(1, 0.82, 0) end
+    UIDropDownMenu_Initialize(profileDropdown, function()
+        for _, name in ipairs(ns.DB:ListProfiles()) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = name
+            info.checked = (name == ns.DB:GetCurrentProfileName())
+            info.func = function()
+                ns.DB:SetProfile(name)
+                CloseDropDownMenus()
+                SpellPicker:Refresh()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
     end)
-    frame.saveButton = save
+    frame.profileDropdown = profileDropdown
 
     local revert = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     revert:SetSize(100, 22)
-    revert:SetPoint("RIGHT", save, "LEFT", -6, 0)
+    revert:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 4)
     revert:SetText("Revert")
     revert:SetScript("OnClick", function()
         RestoreOpenSnapshot()
@@ -1166,23 +1396,9 @@ local function CreateFrameOnce()
     end)
     frame.revertButton = revert
 
-    local share = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    share:SetSize(100, 22)
-    share:SetPoint("RIGHT", revert, "LEFT", -6, 0)
-    share:SetText("Share Profile")
-    share:SetScript("OnClick", function()
-        ns.ProfileShare:ShowExport()
-    end)
-    frame.shareButton = share
-
-    -- Manual ID entry, for auras that appear nowhere the picker can find them.
-    local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    addLabel:SetPoint("TOPLEFT", search, "TOPRIGHT", 14, -2)
-    addLabel:SetText("Add ID:")
-
     local addBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-    addBox:SetSize(70, 18)
-    addBox:SetPoint("LEFT", addLabel, "RIGHT", 10, 0)
+    addBox:SetSize(56, 18)
+    addBox:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -35)
     addBox:SetAutoFocus(false)
     addBox:SetNumeric(true)
     addBox:SetScript("OnEnterPressed", function(self)
@@ -1196,16 +1412,16 @@ local function CreateFrameOnce()
     end)
     frame.addBox = addBox
 
-    -- Kept short: the bottom strip also carries three buttons.
-    frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 10)
-    frame.hint:SetText("Drag icons to move.")
+    local addLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    addLabel:SetPoint("RIGHT", addBox, "LEFT", -6, 0)
+    addLabel:SetText("Add ID:")
+    frame.addLabel = addLabel
+
+    search:SetPoint("RIGHT", addLabel, "LEFT", -8, 0)
 
     return frame
 end
 
--- Deliberately unvalidated against the spellbook: the point is to reach IDs the
--- picker cannot discover.
 function SpellPicker:AddByID(spellID)
     if not spellID or spellID <= 0 then
         ns.Print("|cffff5555Enter a numeric spell ID.|r")
@@ -1229,9 +1445,9 @@ function SpellPicker:AddByID(spellID)
     table.insert(working[target], {
         spellID = spellID,
         name = name,
-        -- Exact: a manually entered ID is the specific one the user wants, so
-        -- it must not be re-pointed at another rank by name.
         rankIndependent = false,
+        trackDebuff = Const.IsAuraSpell(spellID) or nil,
+        forms = Const.DefaultFormsFor(spellID),
     })
 
     CommitEdit()
@@ -1245,32 +1461,27 @@ end
 function SpellPicker:Refresh()
     if not frame or not frame:IsShown() then return end
 
-    -- Re-read every time, never the copy taken when the dialog opened. Import,
-    -- preset, profile switch and reset all replace the profile underneath an
-    -- open dialog, and the stale copy would be written back over the new one on
-    -- the next click. Edits commit as they happen, so nothing is lost here.
     LoadWorking()
 
     local tab = TABS[currentTab]
     SetDialogTitle(frame, tab.title)
 
-    -- Side tabs are CheckButtons, so the active one is shown checked rather
-    -- than disabled.
     for key, button in pairs(frame.tabButtons) do
         button:SetChecked(key == currentTab)
     end
 
     ReleaseSections()
 
-    -- Search and Save/Revert only mean anything on the spell tabs.
     local isPanel = PANEL_TABS[currentTab] or false
     frame.search:SetShown(not isPanel)
-    frame.saveButton:SetShown(not isPanel)
+    frame.addLabel:SetShown(not isPanel)
+    frame.addBox:SetShown(not isPanel)
     frame.revertButton:SetShown(not isPanel)
+
+    UIDropDownMenu_SetText(frame.profileDropdown, ns.DB:GetCurrentProfileName() or "Default")
 
     if currentTab == "profiles" then
         HideOptions()
-        frame.hint:SetText("Each character remembers its own profile.")
         frame.content:SetHeight(math.max(ShowProfiles(frame.content), 350))
         return
     end
@@ -1278,13 +1489,11 @@ function SpellPicker:Refresh()
     HideProfiles()
 
     if currentTab == "options" then
-        frame.hint:SetText("Changes apply immediately.")
         frame.content:SetHeight(math.max(ShowOptions(frame.content), 350))
         return
     end
 
     HideOptions()
-    frame.hint:SetText("Drag icons to move.")
 
     local yOffset = 0
     for _, definition in ipairs(tab.sections) do
@@ -1297,6 +1506,8 @@ end
 
 function SpellPicker:Show(tabKey)
     CreateFrameOnce()
+    ApplyClassPortrait(frame)
+    CloseEntryMenu()
     if tabKey and TABS[tabKey] then currentTab = tabKey end
     LoadWorking()
     TakeOpenSnapshot()
@@ -1305,6 +1516,7 @@ function SpellPicker:Show(tabKey)
 end
 
 function SpellPicker:Hide()
+    CloseEntryMenu()
     if frame then frame:Hide() end
 end
 

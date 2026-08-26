@@ -3,7 +3,8 @@
 # Packages the addon and unzips it into a local WoW AddOns folder.
 #
 #   ./ci/scripts/deploy.sh era           # Classic Era (and Season of Discovery)
-#   ./ci/scripts/deploy.sh anniversary   # Anniversary realms
+#   ./ci/scripts/deploy.sh anniversary   # Anniversary realms (TBC 2.5.6)
+#   ./ci/scripts/deploy.sh mop           # Mists of Pandaria Classic (5.5.x)
 #   ./ci/scripts/deploy.sh ptr
 
 # Load .env file for all environments
@@ -37,7 +38,7 @@ fi
 
 # The AddOns folder name must match the .toc basename, so that is what we use
 # for both the zip and the destination directory. ## Title is display-only.
-addon_name=$(basename "$toc_file" .toc)
+addon_name=$(basename "$toc_file" .toc | sed -E 's/_(Vanilla|TBC|Wrath|Cata|Mists|Mainline)$//')
 # awk rather than `grep -oP`: PCRE mode is unavailable in some Git Bash locales
 # ("-P supports only unibyte and UTF-8 locales") and silently yields nothing.
 title=$(awk -F': ' '/^## Title:/{print $2}' "$toc_file" | tr -d '\r')
@@ -82,11 +83,14 @@ case "$1" in
     anniversary|anniv|tbc)
         deploy_to "$wow_addons_dir_anniversary" "anniversary"
         ;;
+    mop|mists|classic)
+        deploy_to "$wow_addons_dir_mop" "mop"
+        ;;
     ptr)
         deploy_to "$wow_addons_dir_ptr" "ptr"
         ;;
     *)
-        echo "Error: Invalid argument. Use 'era' (or 'local'), 'anniversary', or 'ptr'."
+        echo "Error: Invalid argument. Use 'era' (or 'local'), 'anniversary', 'mop', or 'ptr'."
         exit 1
         ;;
 esac

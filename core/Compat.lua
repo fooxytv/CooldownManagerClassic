@@ -33,17 +33,81 @@ end
 
 Compat.interfaceVersion = select(4, GetBuildInfo()) or 0
 
--- A missing atlas renders nothing and raises no error, so the art has to be
--- probed rather than assumed: Blizzard_CooldownViewer's Lua ships on Era but is
--- gated to the `standard` game type, and the atlases may not be there.
 function Compat.AtlasExists(name)
     if not name or not C_Texture or not C_Texture.GetAtlasInfo then return false end
     local ok, info = pcall(C_Texture.GetAtlasInfo, name)
     return ok and info ~= nil
 end
 
--- C_Engraving exists on every Era client, SoD or not, so the table's presence
--- proves nothing -- IsEngravingEnabled is the real test.
+Compat.backdropTemplate = _G.BackdropTemplateMixin and "BackdropTemplate" or nil
+
+function Compat.SetBorderTexture(frame, edgeFile, edgeSize, r, g, b, a)
+    if not frame or not edgeFile or not frame.SetBackdrop then return false end
+
+    local ok = pcall(frame.SetBackdrop, frame, {
+        edgeFile = edgeFile,
+        edgeSize = math.max(edgeSize or 8, 1),
+    })
+    if not ok then return false end
+
+    if frame.SetBackdropBorderColor then
+        frame:SetBackdropBorderColor(r or 0, g or 0, b or 0, a or 1)
+    end
+
+    frame:Show()
+    return true
+end
+
+function Compat.ClearBorderTexture(frame)
+    if not frame then return end
+    if frame.SetBackdrop then pcall(frame.SetBackdrop, frame, nil) end
+    frame:Hide()
+end
+
+function Compat.ShowColorPicker(r, g, b, a, hasOpacity, onChange, onCancel)
+    local picker = _G.ColorPickerFrame
+    if not picker or not picker.SetColorRGB then return false end
+
+    local function Read()
+        local nr, ng, nb = picker:GetColorRGB()
+        local na = 1
+        if hasOpacity then
+            if picker.GetColorAlpha then
+                na = picker:GetColorAlpha()
+            elseif _G.OpacitySliderFrame then
+                na = 1 - (OpacitySliderFrame:GetValue() or 0)
+            end
+        end
+        onChange(nr or r, ng or g, nb or b, na)
+    end
+
+    local function Cancel()
+        if onCancel then onCancel() end
+    end
+
+    if picker.SetupColorPickerAndShow then
+        picker:SetupColorPickerAndShow({
+            r = r, g = g, b = b,
+            opacity = a,
+            hasOpacity = hasOpacity and true or false,
+            swatchFunc = Read,
+            opacityFunc = Read,
+            cancelFunc = Cancel,
+        })
+        return true
+    end
+
+    local transparency = 1 - (a or 1)
+    picker.func, picker.opacityFunc, picker.cancelFunc = Read, Read, Cancel
+    picker.hasOpacity = hasOpacity and true or false
+    picker.opacity = transparency
+    picker.previousValues = { r = r, g = g, b = b, opacity = transparency }
+    picker:SetColorRGB(r, g, b)
+    picker:Hide()
+    picker:Show()
+    return true
+end
+
 Compat.isSoD = false
 if Compat.flavor == "era" and _G.C_Engraving and C_Engraving.IsEngravingEnabled then
     local ok, enabled = pcall(C_Engraving.IsEngravingEnabled)
@@ -74,8 +138,6 @@ end
 function Compat.IsSpellKnown(spellID)
     if not spellID then return false end
 
-    -- Not an early return: some builds have the namespace but not these
-    -- functions, and committing to it there reports every spell as unknown.
     if C_SpellBook_ then
         if C_SpellBook_.IsSpellKnown and C_SpellBook_.IsSpellKnown(spellID) then
             return true
@@ -124,6 +186,27 @@ function Compat.GetSpellCharges(spellID)
     return nil
 end
 
+function Compat.IsSpellQueued(spellID)
+    if not spellID then return false end
+    if _G.IsCurrentSpell and IsCurrentSpell(spellID) then return true end
+    return false
+end
+
+function Compat.GetSpellCastTime(spellID)
+    if not spellID then return nil end
+
+    if C_Spell_ and C_Spell_.GetSpellInfo then
+        local info = C_Spell_.GetSpellInfo(spellID)
+        return info and info.castTime
+    end
+
+    if _G.GetSpellInfo then
+        return (select(4, GetSpellInfo(spellID)))
+    end
+
+    return nil
+end
+
 function Compat.IsSpellUsable(spellID)
     if not spellID then return true, false end
 
@@ -140,9 +223,6 @@ function Compat.IsSpellUsable(spellID)
     return true, false
 end
 
--- Not Era's 32-buff cap: the C_UnitAuras path has no such limit and this addon
--- reaches the other Classic flavours, where a lower bound truncates the scan.
--- Every loop stops at the first nil index, so the ceiling costs nothing.
 local MAX_AURA_INDEX = 255
 
 local function ScanPlayerAura(spellID, filter)
@@ -209,8 +289,6 @@ local function ScanPlayerAuraByName(auraName, filter)
     return nil
 end
 
--- Passes full aura data. Not merged with GetPlayerAuras, which projects down to
--- spellID/name/icon and would silently drop duration, expiration and stacks.
 function Compat.ForEachPlayerAura(callback)
     local function Walk(filter)
         for i = 1, MAX_AURA_INDEX do
@@ -244,10 +322,6 @@ function Compat.ForEachPlayerAura(callback)
     Walk("HARMFUL")
 end
 
--- Walks the harmful auras `unit` carries that the player applied, passing full
--- aura data. The player-source filter is load-bearing for DoT tracking: two
--- players' Moonfires on the same target must not read each other's. Reads
--- nothing when the unit does not exist (no target, dead target).
 function Compat.ForEachPlayerDebuffOn(unit, callback)
     if not UnitExists(unit) then return end
 
@@ -280,15 +354,6 @@ function Compat.ForEachPlayerDebuffOn(unit, callback)
     end
 end
 
--- The player's current Druid form as a canonical key (see Const.DRUID_FORMS):
--- "cat", "bear", "moonkin", or "caster". Returns "caster" for every non-Druid
--- and for a Druid in no form, travel, aquatic or flight.
---
--- Read from reliable signals rather than GetShapeshiftForm's stance index or
--- GetShapeshiftFormInfo's flavour-dependent return shape (the reasoning #26 used
--- for the resource bars): the active power names cat and bear outright, and
--- moonkin is the one Mana form that carries a self-buff, so it is told apart from
--- caster by that aura.
 function Compat.GetShapeshiftForm()
     local _, class = UnitClass("player")
     if class ~= "DRUID" then return "caster" end
@@ -310,23 +375,17 @@ function Compat.GetPlayerAura(spellID)
     if C_UnitAuras_ and C_UnitAuras_.GetPlayerAuraBySpellID then
         local data = C_UnitAuras_.GetPlayerAuraBySpellID(spellID)
         if data then return data end
-        -- Deliberately falls through: this only matches the exact ID, and a
-        -- lower-rank application of the same spell has a different one.
     end
 
     local byID = ScanPlayerAura(spellID, "HELPFUL") or ScanPlayerAura(spellID, "HARMFUL")
     if byID then return byID end
 
-    -- The aura a spell applies often has a different ID from the spell cast --
-    -- true of most SoD runes -- so an ID-only match tracks nothing.
     local name = Compat.GetSpellInfo(spellID)
     if not name then return nil end
 
     return ScanPlayerAuraByName(name, "HELPFUL") or ScanPlayerAuraByName(name, "HARMFUL")
 end
 
--- Total count of an item across the player's bags. Used for resources that are
--- physical items in Classic -- soul shards above all -- rather than a power.
 function Compat.GetItemCount(itemID)
     if not itemID then return 0 end
 
@@ -339,9 +398,6 @@ function Compat.GetItemCount(itemID)
     return 0
 end
 
--- Defaults to 0 rather than treating a missing enum as "no modern API": a build
--- can expose the C_SpellBook functions without the enum, and refusing the modern
--- path there falls back to globals that are gone -- empty spellbook, no error.
 local PLAYER_BANK = (_G.Enum and _G.Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
 local LEGACY_BOOKTYPE = _G.BOOKTYPE_SPELL or "spell"
 
@@ -352,8 +408,6 @@ Compat.hasModernSpellBook = C_SpellBook_ ~= nil
 Compat.hasLegacySpellBook = _G.GetNumSpellTabs ~= nil
     and _G.GetSpellBookItemInfo ~= nil
 
--- One flag drives every spellbook call: skill-line offsets and per-slot lookups
--- must index the same space, or a modern offset reads the wrong legacy slots.
 local useModernSpellBook = Compat.hasModernSpellBook
 
 local function DescribePath()
@@ -478,9 +532,6 @@ function Compat.PickupSpellBookItem(index)
     end
 end
 
--- Populates the buff picker from what is on the player right now, which
--- sidesteps discovery: an aura whose spell is not in the spellbook, or whose
--- buff ID differs from the ability that applied it, is still pickable while up.
 function Compat.GetPlayerAuras(includeHarmful)
     local results, seen = {}, {}
 
@@ -519,15 +570,10 @@ function Compat.GetPlayerAuras(includeHarmful)
     return results
 end
 
--- GetWeaponEnchantInfo gained the enchantID returns partway through WoW's
--- history, so the arity is counted rather than assumed: destructuring the modern
--- layout on an old client reads the off-hand flag as an enchant ID.
 function Compat.GetWeaponEnchant(hand)
     if not _G.GetWeaponEnchantInfo then return false, 0, 0 end
 
     local count = select("#", GetWeaponEnchantInfo())
-    -- Declared local: a bare `_` here would write the global of that name on
-    -- every call. The enchant ID itself is genuinely unwanted.
     local _
     local hasMain, mainExpiration, mainCharges,
           hasOff, offExpiration, offCharges
@@ -541,24 +587,17 @@ function Compat.GetWeaponEnchant(hand)
     end
 
     if hand == "off" then
-        -- Expiration is milliseconds.
         return hasOff and true or false, (offExpiration or 0) / 1000, offCharges or 0
     end
 
     return hasMain and true or false, (mainExpiration or 0) / 1000, mainCharges or 0
 end
 
--- Every rune-capable slot. Cheaper than tracking which phase unlocked what.
 local RUNE_SLOTS = { 1, 3, 5, 6, 7, 8, 9, 10, 15 }
 
--- Runes sit in the spellbook as placeholders ("Legs Rune Ability") whose IDs
--- never carry a cooldown, so the real ability has to come from C_Engraving.
 function Compat.GetEngravedRuneAbilities()
     local results = {}
 
-    -- Not redundant with the C_Engraving check below: the table is present on
-    -- plain Era too, and without this gate a non-SoD character was offered rune
-    -- abilities in the picker that it can never cast.
     if not Compat.isSoD then
         return results
     end
@@ -567,8 +606,6 @@ function Compat.GetEngravedRuneAbilities()
         return results
     end
 
-    -- The rune list is lazily populated; without this the per-slot lookups
-    -- return nothing on a fresh login.
     if C_Engraving.RefreshRunesList then
         pcall(C_Engraving.RefreshRunesList)
     end
@@ -602,8 +639,6 @@ function Compat.GetEngravedRuneAbilities()
     return results
 end
 
--- Weapon enchants use reserved negative IDs, which SetSpellByID rejects with
--- "Invalid spell ID", so they route to the weapon's own item tooltip.
 function Compat.SetTooltipForTracked(tooltip, spellID)
     if not tooltip or type(spellID) ~= "number" then return end
 
@@ -623,7 +658,6 @@ end
 function Compat.SetTooltipSpellByID(tooltip, spellID)
     if not tooltip or type(spellID) ~= "number" then return end
 
-    -- Negative and zero IDs are our own pseudo-spells; the API errors on them.
     if spellID <= 0 then return end
 
     if tooltip.SetSpellByID then
