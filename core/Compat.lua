@@ -639,6 +639,31 @@ function Compat.GetEngravedRuneAbilities()
     return results
 end
 
+-- "Default Position" hands off to Blizzard's own anchor, so the tooltip lands
+-- where the player expects every other tooltip to appear -- and keeps working
+-- if something else has moved it.
+function Compat.AnchorTooltip(tooltip, owner, anchor)
+    if not tooltip or not tooltip.SetOwner then return end
+
+    if anchor == "Attached" then
+        tooltip:SetOwner(owner, "ANCHOR_RIGHT")
+        return
+    end
+
+    if anchor == "Cursor" then
+        tooltip:SetOwner(owner, "ANCHOR_CURSOR")
+        return
+    end
+
+    if _G.GameTooltip_SetDefaultAnchor then
+        tooltip:SetOwner(owner, "ANCHOR_NONE")
+        GameTooltip_SetDefaultAnchor(tooltip, owner)
+        return
+    end
+
+    tooltip:SetOwner(owner, "ANCHOR_RIGHT")
+end
+
 function Compat.SetTooltipForTracked(tooltip, spellID)
     if not tooltip or type(spellID) ~= "number" then return end
 

@@ -66,7 +66,7 @@ local function OnEnter(self)
     local group = ns.DB:GetGroup(self.groupKey)
     if group and group.appearance.showTooltips == false then return end
 
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    Compat.AnchorTooltip(GameTooltip, self, group and group.appearance.tooltipAnchor)
     Compat.SetTooltipForTracked(GameTooltip, self.spellID)
     GameTooltip:Show()
 end

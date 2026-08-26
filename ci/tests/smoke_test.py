@@ -905,6 +905,31 @@ local left = {}
 for _, item in ipairs(feralAgain) do left[#left + 1] = item.text end
 R.addSkipsTracked = table.concat(left, ",")
 
+-- Tooltips: anchoring is a per-group choice, and the default hands off to
+-- Blizzard's own anchor rather than pinning the tooltip onto the icon.
+-- Reuse the icon already on screen: creating another group here would replace
+-- ns.groups.essential and orphan the one the overlay checks below rely on.
+local ttGroup = ns.DB:GetGroup("essential")
+local ttIcon = sbIcon
+ttIcon.groupKey = "essential"
+local ttEnter = ttIcon:GetScript("OnEnter")
+
+ttGroup.appearance.tooltipAnchor = nil
+_G.__tooltipAnchor = nil
+ttEnter(ttIcon)
+R.ttDefault = tostring(_G.__tooltipAnchor)
+
+ttGroup.appearance.tooltipAnchor = "Attached"
+_G.__tooltipAnchor = nil
+ttEnter(ttIcon)
+R.ttAttached = tostring(_G.__tooltipAnchor)
+
+ttGroup.appearance.tooltipAnchor = "Cursor"
+_G.__tooltipAnchor = nil
+ttEnter(ttIcon)
+R.ttCursor = tostring(_G.__tooltipAnchor)
+ttGroup.appearance.tooltipAnchor = nil
+
 -- Overlay source: the game's own activation glow lights the matching tracked
 -- icon by resolving the fired spell ID to its name. The aura is cleared and no
 -- rule is active here, so only the overlay can be lighting sbIcon.
@@ -1443,6 +1468,9 @@ def run(with_art):
     check("highlight off when disabled", results["glowDisabled"], False)
     check("overlay glow on icon", results["overlayGlowOn"], True)
     check("overlay glow clears on icon", results["overlayGlowOff"], False)
+    check("tooltip defaults to the standard anchor", results["ttDefault"], "DEFAULT")
+    check("tooltip can attach to the icon", results["ttAttached"], "ANCHOR_RIGHT")
+    check("tooltip can follow the cursor", results["ttCursor"], "ANCHOR_CURSOR")
     check("animation follows a changed max", results["animSparkMax"], 200)
     check("queued ability indicates", results["queuedOn"], True)
     check("queued does not use the proc glow", results["queuedNotGlowing"], False)

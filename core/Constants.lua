@@ -339,6 +339,8 @@ Const.DEFAULT_APPEARANCE = {
 
 Const.ORIENTATIONS = { "Horizontal", "Vertical" }
 
+Const.TOOLTIP_ANCHORS = { "Default Position", "Attached", "Cursor" }
+
 Const.ICON_DIRECTIONS = {
     Horizontal = { "Down", "Up" },
     Vertical   = { "Right", "Left" },
