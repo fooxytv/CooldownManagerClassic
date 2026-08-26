@@ -229,6 +229,7 @@ function Group:Layout()
 
     self:ApplyPosition()
     self:UpdateVisibility()
+    self:ApplyMouse()
 end
 
 local function InCombat()
@@ -336,11 +337,37 @@ local function OnDragStop(frame)
     end
 end
 
+local function OnGroupMouseUp(self, button)
+    local group = self.cdmcGroup
+    if button ~= "RightButton" or not group or not ns.EntryMenu then return end
+
+    local settings = group:GetSettings()
+    if not settings or settings.appearance.rightClickMenu ~= true then return end
+
+    ns.EntryMenu.Show("cursor", {
+        groupKey = group.key,
+        allowAdd = true,
+        onChanged = function() ns.Core:RefreshAll() end,
+    })
+end
+
+-- Clicks stay off unless the group opted in, so the block keeps passing them
+-- through to the world as it always has.
+function Group:ApplyMouse()
+    local settings = self:GetSettings()
+    local wants = settings and settings.appearance.rightClickMenu == true
+    local frame = self.frame
+
+    frame:EnableMouse(self.unlocked or wants or false)
+    frame:SetScript("OnMouseUp", (not self.unlocked and wants) and OnGroupMouseUp or nil)
+end
+
 function Group:SetUnlocked(unlocked)
     self.unlocked = unlocked
 
     local frame = self.frame
     frame:EnableMouse(unlocked)
+    frame:SetScript("OnMouseUp", nil)
     if unlocked then
         frame:RegisterForDrag("LeftButton")
     else

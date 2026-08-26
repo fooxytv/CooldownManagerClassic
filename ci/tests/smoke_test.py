@@ -861,6 +861,50 @@ local tick = animBar.statusBar:GetScript("OnUpdate")
 tick(animBar.statusBar, 0.016)
 R.animSparkMax = sparkMax
 
+-- Adding from the game UI. The stub's spellbook scan finds nothing, so stand
+-- one in: the menu reads Spellbook:GetPickableSpells, grouped by tab.
+ns.Spellbook.spells = {
+    { spellID = 1082, name = "Claw",  icon = "i", tab = "Feral" },
+    { spellID = 6807, name = "Maul",  icon = "i", tab = "Feral" },
+    { spellID = 5176, name = "Wrath", icon = "i", tab = "Balance" },
+}
+ns.Spellbook.bestRankByName = {}
+ns.Spellbook.knownIDs = { [1082] = true, [6807] = true, [5176] = true }
+
+local addGroup = ns.DB:GetGroup("utility")
+addGroup.spells = {}
+
+local addCtx = { groupKey = "utility", allowAdd = true, onChanged = function() end }
+local top = _G.__buildDropdown2(addCtx)
+local tabRows, pickerRow = {}, nil
+for _, item in ipairs(top) do
+    if item.menuList and tostring(item.menuList):sub(1, 4) == "add:" then
+        tabRows[#tabRows + 1] = item.text
+    end
+    if item.text == "Open the spell picker" then pickerRow = item end
+end
+table.sort(tabRows)
+R.addTabs = table.concat(tabRows, ",")
+R.addHasPicker = pickerRow ~= nil
+
+-- The submenu lists that tab's spells, and picking one adds it.
+local feral = _G.__buildDropdown2(addCtx, 2, "add:Feral")
+local names = {}
+for _, item in ipairs(feral) do names[#names + 1] = item.text end
+table.sort(names)
+R.addFeralSpells = table.concat(names, ",")
+
+for _, item in ipairs(feral) do
+    if item.text == "Maul" then item.func() end
+end
+R.addedToGroup = ns.DB:GroupContains("utility", 6807) ~= nil
+
+-- Already-tracked spells drop out of the list rather than offering a duplicate.
+local feralAgain = _G.__buildDropdown2(addCtx, 2, "add:Feral")
+local left = {}
+for _, item in ipairs(feralAgain) do left[#left + 1] = item.text end
+R.addSkipsTracked = table.concat(left, ",")
+
 -- Overlay source: the game's own activation glow lights the matching tracked
 -- icon by resolving the fired spell ID to its name. The aura is cleared and no
 -- rule is active here, so only the overlay can be lighting sbIcon.
@@ -1436,6 +1480,11 @@ def run(with_art):
     check("one click picks a single form", results["formPresetIsCatOnly"], True)
     check("submenu offers each form", results["submenuHasForms"], True)
     check("submenu builds combinations", results["formComboKeepsBoth"], True)
+    check("add menu groups by spellbook tab", results["addTabs"], "Balance,Feral")
+    check("add menu offers the picker", results["addHasPicker"], True)
+    check("add submenu lists that tab", results["addFeralSpells"], "Claw,Maul")
+    check("picking a spell adds it", results["addedToGroup"], True)
+    check("tracked spells drop out", results["addSkipsTracked"], "Claw")
     check("closing the picker closes the menu", results["menuClosedWithPicker"], False)
     check("section has a header bar", results["sectionHasHeader"], True)
     check("expanded section is full height", results["sectionExpandedHeight"], True)

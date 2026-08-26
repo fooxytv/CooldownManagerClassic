@@ -114,13 +114,35 @@ end
 -- context = { entry (table or getter), groupKey, onChanged, allowMove }
 function EntryMenu.Build(context, level, menuList)
     local entry = ResolveEntry(context)
-    if not entry then return end
+    -- A group with nothing in it still has a menu: that is where "add" lives.
+    if not entry and not context.allowAdd then return end
 
     local function changed()
         if context.onChanged then context.onChanged() end
     end
 
+    if type(menuList) == "string" and menuList:sub(1, 4) == "add:" then
+        local tab = menuList:sub(5)
+        local target = context.groupKey
+        for _, spell in ipairs(ns.Spellbook:GetPickableSpells()) do
+            if (spell.tab or "") == tab and not ns.DB:GroupContains(target, spell.spellID) then
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = spell.name
+                info.icon = spell.icon
+                info.notCheckable = true
+                info.func = function()
+                    ns.DB:AddSpell(target, spell.spellID)
+                    if context.onChanged then context.onChanged() end
+                    EntryMenu.Close()
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end
+        return
+    end
+
     if menuList == "forms" then
+        if not entry then return end
         for _, opt in ipairs(Const.FORM_TAG_OPTIONS) do
             local info = UIDropDownMenu_CreateInfo()
             info.text = opt.label
@@ -138,60 +160,94 @@ function EntryMenu.Build(context, level, menuList)
         return
     end
 
-    local dot = UIDropDownMenu_CreateInfo()
-    dot.text = "Track its aura (buff or DoT)"
-    dot.isNotRadio = true
-    dot.checked = entry.trackDebuff and true or false
-    dot.func = function()
-        local live = ResolveEntry(context)
-        if not live then return end
-        live.trackDebuff = not live.trackDebuff or nil
-        changed()
-        EntryMenu.Close()
-    end
-    UIDropDownMenu_AddButton(dot)
+    if entry then
+        local dot = UIDropDownMenu_CreateInfo()
+        dot.text = "Track its aura (buff or DoT)"
+        dot.isNotRadio = true
+        dot.checked = entry.trackDebuff and true or false
+        dot.func = function()
+            local live = ResolveEntry(context)
+            if not live then return end
+            live.trackDebuff = not live.trackDebuff or nil
+            changed()
+            EntryMenu.Close()
+        end
+        UIDropDownMenu_AddButton(dot)
 
-    local rank = UIDropDownMenu_CreateInfo()
-    rank.text = "Follow the highest rank I know"
-    rank.isNotRadio = true
-    rank.checked = entry.rankIndependent ~= false
-    rank.func = function()
-        local live = ResolveEntry(context)
-        if not live then return end
-        live.rankIndependent = live.rankIndependent == false
-        changed()
-        EntryMenu.Close()
-    end
-    UIDropDownMenu_AddButton(rank)
+        local rank = UIDropDownMenu_CreateInfo()
+        rank.text = "Follow the highest rank I know"
+        rank.isNotRadio = true
+        rank.checked = entry.rankIndependent ~= false
+        rank.func = function()
+            local live = ResolveEntry(context)
+            if not live then return end
+            live.rankIndependent = live.rankIndependent == false
+            changed()
+            EntryMenu.Close()
+        end
+        UIDropDownMenu_AddButton(rank)
 
-    if IsDruid() then
-        AddTitle("Track in forms")
+        if IsDruid() then
+            AddTitle("Track in forms")
 
-        -- One click for the cases people actually want. Ticking four checkboxes
-        -- to say "this is a cat ability" was the wrong shape for the job.
-        for _, preset in ipairs(EntryMenu.FORM_PRESETS) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = preset.label
-            info.checked = EntryMenu.MatchesPreset(entry, preset)
-            info.func = function()
-                EntryMenu.ApplyPreset(ResolveEntry(context), preset)
-                changed()
-                EntryMenu.Close()
+            -- One click for the cases people actually want. Ticking four checkboxes
+            -- to say "this is a cat ability" was the wrong shape for the job.
+            for _, preset in ipairs(EntryMenu.FORM_PRESETS) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = preset.label
+                info.checked = EntryMenu.MatchesPreset(entry, preset)
+                info.func = function()
+                    EntryMenu.ApplyPreset(ResolveEntry(context), preset)
+                    changed()
+                    EntryMenu.Close()
+                end
+                UIDropDownMenu_AddButton(info)
             end
-            UIDropDownMenu_AddButton(info)
+
+            -- Anything the presets do not cover.
+            local custom = UIDropDownMenu_CreateInfo()
+            custom.text = "Choose forms"
+            custom.notCheckable = true
+            custom.hasArrow = true
+            custom.menuList = "forms"
+            custom.func = nil
+            UIDropDownMenu_AddButton(custom)
+        end
+    end
+
+    if context.groupKey and context.allowAdd then
+        local tabs, seen = {}, {}
+        for _, spell in ipairs(ns.Spellbook:GetPickableSpells()) do
+            local tab = spell.tab or ""
+            if not seen[tab] and not ns.DB:GroupContains(context.groupKey, spell.spellID) then
+                seen[tab] = true
+                tabs[#tabs + 1] = tab
+            end
         end
 
-        -- Anything the presets do not cover.
-        local custom = UIDropDownMenu_CreateInfo()
-        custom.text = "Choose forms"
-        custom.notCheckable = true
-        custom.hasArrow = true
-        custom.menuList = "forms"
-        custom.func = nil
-        UIDropDownMenu_AddButton(custom)
+        if #tabs > 0 then
+            AddTitle("Add to this group")
+            for _, tab in ipairs(tabs) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = tab ~= "" and tab or "Other"
+                info.notCheckable = true
+                info.hasArrow = true
+                info.menuList = "add:" .. tab
+                UIDropDownMenu_AddButton(info)
+            end
+        end
+
+        local picker = UIDropDownMenu_CreateInfo()
+        picker.text = "Open the spell picker"
+        picker.notCheckable = true
+        picker.func = function()
+            EntryMenu.Close()
+            if ns.SpellPicker then ns.SpellPicker:Show("cooldowns") end
+        end
+        UIDropDownMenu_AddButton(picker)
     end
 
-    if context.groupKey and context.allowMove then
+    if entry and context.groupKey and context.allowMove then
         AddTitle("Move to")
 
         for _, key in ipairs(Const.GROUP_ORDER) do

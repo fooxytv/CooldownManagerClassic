@@ -56,6 +56,7 @@ local function OnMouseUp(self, button)
         entry = self.entry,
         groupKey = self.groupKey,
         allowMove = true,
+        allowAdd = true,
         onChanged = function() ns.Core:RefreshAll() end,
     })
 end

@@ -374,6 +374,13 @@ _G.UIDropDownMenu_SetText = function() end
 _G.UIDropDownMenu_Refresh = function() _G.__dropdownRefreshed = _G.__dropdownRefreshed + 1 end
 
 -- Runs a menu's initialiser, as opening it would, and hands back the items.
+-- Build the shared entry menu for a context, without going through a frame.
+_G.__buildDropdown2 = function(context, level, menuList)
+    _G.__dropdownButtons = {}
+    __ns.EntryMenu.Build(context, level or 1, menuList)
+    return _G.__dropdownButtons
+end
+
 _G.__buildDropdown = function(frame, level, menuList)
     _G.__dropdownButtons = {}
     if frame and frame.__initializer then frame.__initializer(frame, level or 1, menuList) end
