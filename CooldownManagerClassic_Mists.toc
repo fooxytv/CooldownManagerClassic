@@ -4,7 +4,7 @@
 ## Author: Simon
 ## Version: 0.6.0-alpha.8a95fc4
 ## SavedVariables: CooldownManagerClassicDB
-## IconTexture: Interface\Icons\INV_Misc_PocketWatch_01
+## IconTexture: Interface\AddOns\CooldownManagerClassic\media\logo.tga
 ## DefaultState: enabled
 
 # Libraries
@@ -38,6 +38,7 @@ tracking\Highlights.lua
 tracking\Keybinds.lua
 
 # UI
+ui\EntryMenu.lua
 ui\Icon.lua
 ui\BuffBar.lua
 ui\Group.lua

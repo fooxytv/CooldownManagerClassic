@@ -499,28 +499,50 @@ R.menuIconFound = menuIcon ~= nil
 menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
 R.menuOpens = _G.__dropdownOpen
 
-local items = _G.__buildDropdown(_G.CDMCFormMenu)
-local auraItem, catItem
+local items = _G.__buildDropdown(_G.CDMCEntryMenu)
+local auraItem, catOnly, allForms, chooseForms
 for _, item in ipairs(items) do
     if item.text and item.text:find("Track its aura", 1, true) then auraItem = item end
-    if item.text == "Cat" then catItem = item end
+    if item.text == "Cat only" then catOnly = item end
+    if item.text == "All forms" then allForms = item end
+    if item.text == "Choose forms" then chooseForms = item end
 end
 R.menuHasAura = auraItem ~= nil
-R.menuHasForms = catItem ~= nil
+R.menuHasForms = catOnly ~= nil
+
+-- All forms is the default, and shows as the selected row rather than as four
+-- ticks nobody set.
+R.menuDefaultIsAllForms = allForms ~= nil and allForms.checked == true
 
 -- The aura toggle is a single decision: it applies and the menu closes.
 auraItem.func()
 R.menuAuraApplied = ns.DB:GetGroup("essential").spells[1].trackDebuff == true
 R.menuClosesAfterAura = _G.__dropdownOpen
 
--- Form ticks are picked in combination, so that one stays open -- and repaints,
--- since toggling one form changes what the others show.
+-- Picking a form is one click, and it selects rather than deselects. This is
+-- the whole point: ticking four boxes to say "cat ability" was the wrong shape.
 menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
-_G.__buildDropdown(_G.CDMCFormMenu)
+_G.__buildDropdown(_G.CDMCEntryMenu)
+catOnly.func()
+local picked = ns.DB:GetGroup("essential").spells[1].forms
+R.formPresetIsCatOnly = type(picked) == "table" and picked.cat == true
+    and picked.bear == nil and picked.moonkin == nil and picked.caster == nil
+
+-- Combinations still reachable, through the submenu, which stays open and
+-- repaints because each tick changes what the others read.
+menuIcon:GetScript("OnClick")(menuIcon, "RightButton")
+local sub = _G.__buildDropdown(_G.CDMCEntryMenu, 2, chooseForms and chooseForms.menuList)
+local bearTick
+for _, item in ipairs(sub) do
+    if item.text == "Bear" then bearTick = item end
+end
+R.submenuHasForms = bearTick ~= nil
 local before = _G.__dropdownRefreshed
-catItem.func()
+if bearTick then bearTick.func() end
 R.menuStaysOpenForForms = _G.__dropdownOpen
 R.menuRepaintsForms = _G.__dropdownRefreshed > before
+local combo = ns.DB:GetGroup("essential").spells[1].forms
+R.formComboKeepsBoth = type(combo) == "table" and combo.cat == true and combo.bear == true
 
 -- Nothing else closes it, so the picker has to: hiding the window must not
 -- leave a menu floating over the game world.
@@ -838,6 +860,50 @@ sparkMax = nil
 local tick = animBar.statusBar:GetScript("OnUpdate")
 tick(animBar.statusBar, 0.016)
 R.animSparkMax = sparkMax
+
+-- Adding from the game UI. The stub's spellbook scan finds nothing, so stand
+-- one in: the menu reads Spellbook:GetPickableSpells, grouped by tab.
+ns.Spellbook.spells = {
+    { spellID = 1082, name = "Claw",  icon = "i", tab = "Feral" },
+    { spellID = 6807, name = "Maul",  icon = "i", tab = "Feral" },
+    { spellID = 5176, name = "Wrath", icon = "i", tab = "Balance" },
+}
+ns.Spellbook.bestRankByName = {}
+ns.Spellbook.knownIDs = { [1082] = true, [6807] = true, [5176] = true }
+
+local addGroup = ns.DB:GetGroup("utility")
+addGroup.spells = {}
+
+local addCtx = { groupKey = "utility", allowAdd = true, onChanged = function() end }
+local top = _G.__buildDropdown2(addCtx)
+local tabRows, pickerRow = {}, nil
+for _, item in ipairs(top) do
+    if item.menuList and tostring(item.menuList):sub(1, 4) == "add:" then
+        tabRows[#tabRows + 1] = item.text
+    end
+    if item.text == "Open the spell picker" then pickerRow = item end
+end
+table.sort(tabRows)
+R.addTabs = table.concat(tabRows, ",")
+R.addHasPicker = pickerRow ~= nil
+
+-- The submenu lists that tab's spells, and picking one adds it.
+local feral = _G.__buildDropdown2(addCtx, 2, "add:Feral")
+local names = {}
+for _, item in ipairs(feral) do names[#names + 1] = item.text end
+table.sort(names)
+R.addFeralSpells = table.concat(names, ",")
+
+for _, item in ipairs(feral) do
+    if item.text == "Maul" then item.func() end
+end
+R.addedToGroup = ns.DB:GroupContains("utility", 6807) ~= nil
+
+-- Already-tracked spells drop out of the list rather than offering a duplicate.
+local feralAgain = _G.__buildDropdown2(addCtx, 2, "add:Feral")
+local left = {}
+for _, item in ipairs(feralAgain) do left[#left + 1] = item.text end
+R.addSkipsTracked = table.concat(left, ",")
 
 -- Tooltips: anchoring is a per-group choice, and the default hands off to
 -- Blizzard's own anchor rather than pinning the tooltip onto the icon.
@@ -1438,6 +1504,15 @@ def run(with_art):
     check("menu closes after the aura toggle", results["menuClosesAfterAura"], False)
     check("menu stays open for form ticks", results["menuStaysOpenForForms"], True)
     check("form ticks repaint the menu", results["menuRepaintsForms"], True)
+    check("all forms is the default row", results["menuDefaultIsAllForms"], True)
+    check("one click picks a single form", results["formPresetIsCatOnly"], True)
+    check("submenu offers each form", results["submenuHasForms"], True)
+    check("submenu builds combinations", results["formComboKeepsBoth"], True)
+    check("add menu groups by spellbook tab", results["addTabs"], "Balance,Feral")
+    check("add menu offers the picker", results["addHasPicker"], True)
+    check("add submenu lists that tab", results["addFeralSpells"], "Claw,Maul")
+    check("picking a spell adds it", results["addedToGroup"], True)
+    check("tracked spells drop out", results["addSkipsTracked"], "Claw")
     check("closing the picker closes the menu", results["menuClosedWithPicker"], False)
     check("section has a header bar", results["sectionHasHeader"], True)
     check("expanded section is full height", results["sectionExpandedHeight"], True)
