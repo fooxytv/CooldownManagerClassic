@@ -109,8 +109,8 @@ local function ResolveWarlockResource()
         return nil
     end
 
-    for _, source in ipairs(Const.WARLOCK_RESOURCE_ORDER) do
-        if WarlockPowerMax(source) > 0 then return source end
+    for _, candidate in ipairs(Const.WARLOCK_RESOURCE_ORDER) do
+        if WarlockPowerMax(candidate) > 0 then return candidate end
     end
     return nil
 end
