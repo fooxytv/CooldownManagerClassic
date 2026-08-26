@@ -41,6 +41,7 @@ if command -v zip &> /dev/null; then
            "dist/*" \
            "ci/*" \
            "README.md" \
+           "docs/*" \
            ".vscode/*" \
            ".env*" \
            "code/*" \
@@ -53,7 +54,7 @@ elif command -v python &> /dev/null; then
 import fnmatch, os, sys, zipfile
 
 EXCLUDE = [
-    "*.git*", "dist/*", "ci/*", "README.md", ".vscode/*",
+    "*.git*", "dist/*", "ci/*", "README.md", "docs/*", ".vscode/*",
     ".env*", "code/*", ".claude/*", "CLAUDE.md", ".luacheckrc",
 ]
 
