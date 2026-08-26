@@ -319,6 +319,9 @@ function Bar:SavePosition()
     settings.position.y = math.floor(y + 0.5)
 end
 
+-- Edge art below this reads as a scratch rather than a border, so the border
+-- size doubles as a floor for it: the default size of 1 is a hairline for the
+-- solid border and a visible frame for a texture.
 local MIN_EDGE_SIZE = 6
 
 function Bar:ApplyChrome(appearance)
@@ -434,21 +437,25 @@ function Bar:SetFill(current, max, appearance)
 
     if appearance.animate then
         self._target = current
+        self._max = max
+        self._appearance = appearance
         if not self._animating then
             self._animating = true
             self.statusBar:SetScript("OnUpdate", function(bar, elapsed)
                 local cur = bar:GetValue() or 0
                 local target = self._target or cur
+                local scale = self._max or max
+                local look = self._appearance or appearance
                 local step = target - cur
                 if math.abs(step) <= 0.5 then
                     bar:SetValue(target)
                     bar:SetScript("OnUpdate", nil)
                     self._animating = false
-                    self:ApplySpark(target, max, appearance)
+                    self:ApplySpark(target, scale, look)
                 else
                     local moved = cur + step * math.min(1, (elapsed or 0) * 8)
                     bar:SetValue(moved)
-                    self:ApplySpark(moved, max, appearance)
+                    self:ApplySpark(moved, scale, look)
                 end
             end)
         end

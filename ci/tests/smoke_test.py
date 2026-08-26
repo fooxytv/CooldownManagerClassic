@@ -820,6 +820,25 @@ _G.__queued = nil
 ns.DB:SetHighlightsEnabled(true)
 eGroup.icons = { sbIcon }
 
+-- An animated bar keeps ticking through its own OnUpdate, which outlives the
+-- SetFill call that installed it. A later SetFill with a different max must
+-- reach that handler, or the spark is placed against a stale scale.
+local animBar = ns.ResourceBar.Create("health")
+local animSettings = animBar:GetSettings()
+animSettings.enabled = true
+animSettings.appearance.animate = true
+animSettings.appearance.spark = true
+
+local sparkMax
+animBar.ApplySpark = function(_, _, maxValue) sparkMax = maxValue end
+
+animBar:SetFill(10, 100, animSettings.appearance)
+animBar:SetFill(90, 200, animSettings.appearance)
+sparkMax = nil
+local tick = animBar.statusBar:GetScript("OnUpdate")
+tick(animBar.statusBar, 0.016)
+R.animSparkMax = sparkMax
+
 -- Overlay source: the game's own activation glow lights the matching tracked
 -- icon by resolving the fired spell ID to its name. The aura is cleared and no
 -- rule is active here, so only the overlay can be lighting sbIcon.
@@ -1358,6 +1377,7 @@ def run(with_art):
     check("highlight off when disabled", results["glowDisabled"], False)
     check("overlay glow on icon", results["overlayGlowOn"], True)
     check("overlay glow clears on icon", results["overlayGlowOff"], False)
+    check("animation follows a changed max", results["animSparkMax"], 200)
     check("queued ability indicates", results["queuedOn"], True)
     check("queued does not use the proc glow", results["queuedNotGlowing"], False)
     check("queued clears when unqueued", results["queuedOff"], False)
