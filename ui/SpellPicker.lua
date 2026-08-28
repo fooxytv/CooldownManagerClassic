@@ -13,6 +13,43 @@ local SECTION_HEADER_HEIGHT = 24
 local SECTION_GAP = 8
 local CONTENT_WIDTH = ICONS_PER_ROW * (ICON_SIZE + ICON_GAP)
 
+-- The picker's icons are drawn the way the live ones are: the Cooldown Manager
+-- mask and bezel where the client ships them, the plain crop where it does not,
+-- off the same Compat.AtlasExists probe ui/Icon.lua makes at load. The insets
+-- are Icon:Configure's own defaults, scaled from the 40px icon they are written
+-- for down to the picker's smaller cell.
+--
+-- Deliberately no fallback bezel for clients missing the atlas: the live icons
+-- have none either, so adding one here alone would put the picker out of step
+-- with the game. A border for those clients is #22, where it is configurable.
+local ICON_OVERLAY_INSET_X = 8
+local ICON_OVERLAY_INSET_Y = 7
+
+local function ApplyIconArt(frame, texture, size)
+    if ns.Icon.art.mask and frame.CreateMaskTexture then
+        local mask = frame:CreateMaskTexture()
+        mask:SetAllPoints()
+        mask:SetAtlas(Const.ART.mask)
+        if texture.AddMaskTexture then
+            texture:AddMaskTexture(mask)
+            frame.iconMask = mask
+        end
+    end
+
+    if not frame.iconMask then
+        texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    end
+
+    if not ns.Icon.art.iconOverlay then return end
+
+    local scale = size / (Const.DEFAULT_APPEARANCE.iconSize or 40)
+    local overlay = frame:CreateTexture(nil, "OVERLAY")
+    overlay:SetAtlas(Const.ART.iconOverlay)
+    overlay:SetPoint("TOPLEFT", -ICON_OVERLAY_INSET_X * scale, ICON_OVERLAY_INSET_Y * scale)
+    overlay:SetPoint("BOTTOMRIGHT", ICON_OVERLAY_INSET_X * scale, -ICON_OVERLAY_INSET_Y * scale)
+    frame.iconOverlay = overlay
+end
+
 local COLLAPSE_TEXTURES = {
     expanded  = "Interface\\Buttons\\UI-MinusButton-Up",
     collapsed = "Interface\\Buttons\\UI-PlusButton-Up",
@@ -179,7 +216,7 @@ local function EnsureDragVisual()
 
     dragVisual.texture = dragVisual:CreateTexture(nil, "ARTWORK")
     dragVisual.texture:SetAllPoints()
-    dragVisual.texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    ApplyIconArt(dragVisual, dragVisual.texture, ICON_SIZE)
 
     dragVisual:SetScript("OnUpdate", function(self)
         local x, y = GetCursorPosition()
@@ -282,13 +319,15 @@ end
 local buttonPool = {}
 
 local function OnIconEnter(self)
+    if self.highlight then self.highlight:Show() end
     if not self.spellID then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     Compat.SetTooltipForTracked(GameTooltip, self.spellID)
     GameTooltip:Show()
 end
 
-local function OnIconLeave()
+local function OnIconLeave(self)
+    if self and self.highlight then self.highlight:Hide() end
     GameTooltip:Hide()
 end
 
@@ -421,6 +460,50 @@ local function ShowEntryMenu(button)
     ToggleDropDownMenu(1, nil, formMenu, "cursor", 0, 0)
 end
 
+-- Bar entries preview the widget the game actually builds rather than a
+-- stand-in, configured from the group's own appearance, so a bar texture or
+-- content mode picked in Edit Mode shows up in the picker for free.
+--
+-- Part-filled rather than full: it shows the pip and the fill edge, and does
+-- not read as "this spell is on cooldown right now". suppressText keeps the
+-- countdown off, there being no real timer behind it.
+local PREVIEW_STATE = {
+    phase = "active",
+    swipeDuration = 1,
+    remaining = 0.6,
+    suppressText = true,
+}
+
+local function PreviewAppearance(appearance, width, height)
+    local copy = {}
+    for key, value in pairs(appearance) do copy[key] = value end
+    copy.barWidth = width
+    copy.barHeight = height
+    copy.showTooltips = false
+    -- The picker button owns the clicks on this row. Left on, BuffBar:Configure
+    -- would make the preview click-enabled and its own OnMouseUp would open the
+    -- live group's entry menu from inside the picker.
+    copy.rightClickMenu = false
+    return copy
+end
+
+-- A child of its button, so it follows the button wherever the pool sends it.
+-- Parenting it to the section instead meant tracking a parent that could go
+-- stale the moment a pooled button moved between sections.
+--
+-- Never handed back to BuffBar's shared pool. It lives on this pooled picker
+-- button instead, so the count stays bounded by the rows on screen rather than
+-- interleaving with the bars the live groups are drawing.
+local function EnsureBarPreview(button)
+    if not button.barPreview then
+        local preview = ns.BuffBar:Acquire(button, nil)
+        preview:SetPoint("TOPLEFT", button, "TOPLEFT")
+        ns.SetTooltipsShown(preview, false)
+        button.barPreview = preview
+    end
+    return button.barPreview
+end
+
 local function CreateIconButton(parent)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(ICON_SIZE, ICON_SIZE)
@@ -429,28 +512,25 @@ local function CreateIconButton(parent)
 
     button.icon = button:CreateTexture(nil, "ARTWORK")
     button.icon:SetAllPoints()
-    button.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    ApplyIconArt(button, button.icon, ICON_SIZE)
 
-    button.highlight = button:CreateTexture(nil, "HIGHLIGHT")
+    -- Above the bar preview rather than on the button itself: a HIGHLIGHT-layer
+    -- texture is covered by any child frame, and the preview is one. Toggled by
+    -- hand in OnIconEnter/OnIconLeave, since only a Button's own HIGHLIGHT layer
+    -- responds to the mouse on its own.
+    button.hoverLayer = CreateFrame("Frame", nil, button)
+    button.hoverLayer:SetAllPoints()
+    button.hoverLayer:SetFrameLevel(button:GetFrameLevel() + 20)
+
+    button.highlight = button.hoverLayer:CreateTexture(nil, "OVERLAY")
     button.highlight:SetAllPoints()
     button.highlight:SetColorTexture(1, 1, 1, 0.25)
+    button.highlight:Hide()
 
     button.formText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     button.formText:SetPoint("BOTTOMLEFT", 1, 1)
     button.formText:SetTextColor(0.4, 0.8, 1)
     button.formText:Hide()
-
-    button.plate = button:CreateTexture(nil, "BACKGROUND")
-    button.plate:SetPoint("TOPLEFT", button, "TOPRIGHT", ICON_GAP, -2)
-    button.plate:SetHeight(ICON_SIZE - 4)
-    button.plate:SetColorTexture(0.85, 0.45, 0.15, 0.85)
-    button.plate:Hide()
-
-    button.plateText = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    button.plateText:SetPoint("LEFT", button.plate, "LEFT", 6, 0)
-    button.plateText:SetPoint("RIGHT", button.plate, "RIGHT", -6, 0)
-    button.plateText:SetJustifyH("LEFT")
-    button.plateText:Hide()
 
     button.dotText = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     button.dotText:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -509,8 +589,8 @@ local function ReleaseButton(button)
     button.entry = nil
     if button.formText then button.formText:Hide() end
     if button.dotText then button.dotText:Hide() end
-    if button.plate then button.plate:Hide() end
-    if button.plateText then button.plateText:Hide() end
+    if button.barPreview then button.barPreview:Hide() end
+    if button.highlight then button.highlight:Hide() end
     buttonPool[#buttonPool + 1] = button
 end
 
@@ -668,26 +748,51 @@ local function BuildSection(parent, definition, entries, yOffset)
             ICON_GAP / 2 + column * (ICON_SIZE + ICON_GAP),
             -(SECTION_HEADER_HEIGHT + ICON_GAP / 2 + row * (ICON_SIZE + ICON_GAP)))
 
-        if isBarSection then
-            button.plate:SetWidth(CONTENT_WIDTH - ICON_SIZE - ICON_GAP * 2)
-            button.plateText:SetText(name or "")
-            button.plate:Show()
-            button.plateText:Show()
-        else
-            button.plate:Hide()
-            button.plateText:Hide()
-        end
-
         local matches = MatchesSearch(name)
-        button.icon:SetAlpha(matches and 1 or 0.25)
-        if button.icon.SetDesaturated then
-            button.icon:SetDesaturated(not matches)
-        end
 
-        if not resolvedID then
-            button.icon:SetVertexColor(1, 0.4, 0.4)
+        if isBarSection then
+            -- The row spans the section, so the whole bar is draggable and
+            -- clickable. The old plate sat outside the button's own rect, which
+            -- left everything but the icon inert.
+            local rowWidth = CONTENT_WIDTH - ICON_GAP
+            button:SetSize(rowWidth, ICON_SIZE)
+            button.icon:Hide()
+            if button.iconOverlay then button.iconOverlay:Hide() end
+
+            local group = ns.DB:GetGroup(definition.key)
+            local appearance = PreviewAppearance(group.appearance, rowWidth, ICON_SIZE)
+            local preview = EnsureBarPreview(button)
+
+            ns.BuffBar:Configure(preview, entry, resolvedID or entry.spellID,
+                appearance, definition.key)
+            ns.BuffBar:Update(preview, PREVIEW_STATE, appearance)
+
+            preview:Show()
+
+            -- Applied after Update, which resets the icon's tint and saturation.
+            preview:SetAlpha(matches and 1 or 0.35)
+            if preview.texture.SetDesaturated then
+                preview.texture:SetDesaturated(not matches)
+            end
+            if not resolvedID then
+                preview.texture:SetVertexColor(1, 0.4, 0.4)
+            end
         else
-            button.icon:SetVertexColor(1, 1, 1)
+            button:SetSize(ICON_SIZE, ICON_SIZE)
+            button.icon:Show()
+            if button.iconOverlay then button.iconOverlay:Show() end
+            if button.barPreview then button.barPreview:Hide() end
+
+            button.icon:SetAlpha(matches and 1 or 0.25)
+            if button.icon.SetDesaturated then
+                button.icon:SetDesaturated(not matches)
+            end
+
+            if not resolvedID then
+                button.icon:SetVertexColor(1, 0.4, 0.4)
+            else
+                button.icon:SetVertexColor(1, 1, 1)
+            end
         end
 
         section.buttons[#section.buttons + 1] = button

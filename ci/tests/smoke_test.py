@@ -588,18 +588,89 @@ collapsedSection = SectionByLabel("Essential Cooldowns")
 collapsedSection.header:GetScript("OnClick")(collapsedSection.header)
 R.headerClickExpands = ns.DB:GetGlobal().collapsedSections["cooldowns:essential"] == nil
 
--- The bar section previews its entries as bars rather than as a grid of icons.
+-- The bar section previews its entries with the widget the game actually
+-- builds, not a stand-in: same StatusBar, same fill texture, same name string.
 local barSection = SectionByLabel("Cooldown Bars")
 R.barSectionFound = barSection ~= nil
 local barButton = barSection.buttons[1]
-R.barPreviewShown = barButton ~= nil and barButton.plate:IsShown() or false
-R.barPreviewName = barButton and barButton.plateText:GetText() or ""
+local barPreview = barButton and barButton.barPreview
+R.barPreviewShown = barPreview ~= nil and barPreview:IsShown() or false
+R.barPreviewName = barPreview and barPreview.nameText:GetText() or ""
+-- A colour-block stand-in would satisfy "shown" and "named" too, so assert the
+-- structure only the real BuffBar has.
+R.barPreviewIsRealWidget = barPreview ~= nil
+    and barPreview.bar ~= nil
+    and barPreview.fillTexture ~= nil
+    and barPreview.pip ~= nil
+-- Part-filled, with the pip riding the fill edge.
+R.barPreviewFill = barPreview and barPreview.bar:GetValue() or 0
+R.barPreviewPipShown = barPreview ~= nil and barPreview.pip:IsShown() or false
+-- The row spans the section, so the whole bar drags and clicks. The old plate
+-- sat outside the button's own rect, leaving all but the icon inert.
+R.barRowSpansSection = barButton and barButton:GetWidth() or 0
+
+-- Appearance picked in Edit Mode reaches the preview: switching the group to
+-- Name Only drops the icon from the previewed bar.
+ns.DB:GetGroup("cooldownbars").appearance.barContent = "Name Only"
+ns.SpellPicker:Refresh()
+local nameOnly = SectionByLabel("Cooldown Bars").buttons[1].barPreview
+R.barPreviewFollowsContent = not nameOnly.iconFrame:IsShown()
+ns.DB:GetGroup("cooldownbars").appearance.barContent = "Icon and Name"
+ns.SpellPicker:Refresh()
+R.barPreviewRestoresContent =
+    SectionByLabel("Cooldown Bars").buttons[1].barPreview.iconFrame:IsShown()
+
 -- Essential is a grid section and has an entry by this point, so it is the
--- comparison: same button pool, no plate.
+-- comparison: same button pool, icon-sized, no bar preview.
 local iconSection = SectionByLabel("Essential Cooldowns")
 local iconButton = iconSection.buttons[1]
 R.gridSectionHasEntries = iconButton ~= nil
-R.gridHasNoPlate = iconButton ~= nil and not iconButton.plate:IsShown()
+R.gridHasNoPreview = iconButton ~= nil
+    and (iconButton.barPreview == nil or not iconButton.barPreview:IsShown())
+R.gridRowStaysIconSized = iconButton and iconButton:GetWidth() or 0
+
+-- The picker's icons carry the same bezel the live ones do, and lose it on a
+-- client without the atlas exactly as the live ones do -- the point being that
+-- the two stay in step, not that the bezel is unconditionally present.
+R.pickerIconHasBezel = iconButton ~= nil and iconButton.iconOverlay ~= nil
+R.pickerIconMasked = iconButton ~= nil and iconButton.iconMask ~= nil
+R.liveIconHasBezel = ns.Icon.art.iconOverlay and true or false
+-- A bar row draws BuffBar's own icon and bezel, so the button's must go with
+-- the button's icon rather than floating over the bar.
+R.barRowHidesIconBezel = barButton ~= nil
+    and (barButton.iconOverlay == nil or not barButton.iconOverlay:IsShown())
+
+-- One button pool serves every section, so a button that drew a bar row can be
+-- handed to a different section on the next render. The preview is a child of
+-- its button precisely so it cannot be stranded under a section the button has
+-- since left -- parent it to the section instead and this fails.
+ns.SpellPicker:Show("buffs")
+ns.SpellPicker:Show("cooldowns")
+local barRow = SectionByLabel("Cooldown Bars").buttons[1]
+R.previewParentedToButton = barRow ~= nil
+    and barRow.barPreview ~= nil
+    and barRow.barPreview:GetParent() == barRow
+    and barRow.barPreview:IsShown()
+
+-- A group with the right-click menu turned on must not make the preview take
+-- clicks: BuffBar wires its own OnMouseUp for the live bars, and the picker
+-- button owns this row.
+ns.DB:GetGroup("cooldownbars").appearance.rightClickMenu = true
+ns.SpellPicker:Refresh()
+local clickable = SectionByLabel("Cooldown Bars").buttons[1].barPreview
+R.previewIgnoresClicks = clickable.__mouseClick == false
+ns.DB:GetGroup("cooldownbars").appearance.rightClickMenu = nil
+ns.SpellPicker:Refresh()
+
+-- The hover highlight has to outrank the preview: a HIGHLIGHT-layer texture on
+-- the button is covered by any child frame, and BuffBar raises its own bar two
+-- levels above the frame it is handed.
+R.highlightAbovePreview = barRow.hoverLayer:GetFrameLevel()
+    > barRow.barPreview.bar:GetFrameLevel()
+barRow:GetScript("OnEnter")(barRow)
+R.highlightOnHover = barRow.highlight:IsShown()
+barRow:GetScript("OnLeave")(barRow)
+R.highlightOffHover = barRow.highlight:IsShown()
 
 -- The ID box sits beside the search on the spell tabs, and neither belongs on a
 -- panel tab.
@@ -1538,8 +1609,25 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("bar section found", results["barSectionFound"], True)
     check("bar section previews a bar", results["barPreviewShown"], True)
     check("bar preview is named", results["barPreviewName"], "Maelstrom Weapon")
+    check("bar preview is the real widget", results["barPreviewIsRealWidget"], True)
+    check("bar preview is part-filled", results["barPreviewFill"], 0.6)
+    check("bar preview shows the pip", results["barPreviewPipShown"], True)
+    check("bar row spans the section", results["barRowSpansSection"], 288)
+    check("preview follows the group's bar content", results["barPreviewFollowsContent"], True)
+    check("preview restores on change back", results["barPreviewRestoresContent"], True)
     check("grid section has an entry to compare", results["gridSectionHasEntries"], True)
-    check("grid sections have no bar plate", results["gridHasNoPlate"], True)
+    check("grid sections have no bar preview", results["gridHasNoPreview"], True)
+    check("grid rows stay icon-sized", results["gridRowStaysIconSized"], 36)
+    check("picker icons carry the bezel", results["pickerIconHasBezel"], with_art)
+    check("picker icons are masked", results["pickerIconMasked"], with_art)
+    check("picker bezel matches the live icons", results["pickerIconHasBezel"],
+          results["liveIconHasBezel"])
+    check("bar rows hide the button bezel", results["barRowHidesIconBezel"], True)
+    check("preview is a child of its button", results["previewParentedToButton"], True)
+    check("preview never takes clicks", results["previewIgnoresClicks"], True)
+    check("hover highlight outranks the preview", results["highlightAbovePreview"], True)
+    check("highlight shows on hover", results["highlightOnHover"], True)
+    check("highlight clears on leave", results["highlightOffHover"], False)
     check("ID box sits on the spell tabs", results["addBoxShownOnSpellTab"], True)
     check("ID box hidden on panel tabs", results["addBoxHiddenOnPanelTab"], False)
     check("title reads Cooldown Settings", results["titleOnCooldowns"], "Cooldown Settings")
