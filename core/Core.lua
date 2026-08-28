@@ -500,6 +500,30 @@ function Core:PrintUIProbe()
     out(("colour picker: frame %s  modern setup %s")
         :format(yes(picker ~= nil), yes(picker ~= nil and picker.SetupColorPickerAndShow ~= nil)))
 
+    -- Every atlas in Const.ART, probed against this client. This is the only
+    -- way to answer whether a given flavour ships a piece of Cooldown Manager
+    -- art: the UI source cannot say, because the Blizzard addon that uses it is
+    -- gated to retail, and atlas existence lives in the client's texture
+    -- database rather than in any Lua. Entries carrying a path separator are
+    -- plain textures, not atlases, so they are skipped -- probing them would
+    -- report "no" and read as missing art.
+    local atlasKeys = {}
+    for key, value in pairs(Const.ART) do
+        if type(value) == "string" and not value:find("\\", 1, true) then
+            atlasKeys[#atlasKeys + 1] = key
+        end
+    end
+    table.sort(atlasKeys)
+
+    local atlasLine, label = {}, "atlases:"
+    for index, key in ipairs(atlasKeys) do
+        atlasLine[#atlasLine + 1] = ("%s %s"):format(key, yes(ns.Compat.AtlasExists(Const.ART[key])))
+        if #atlasLine == 3 or index == #atlasKeys then
+            out(("%s %s"):format(label, table.concat(atlasLine, "  ")))
+            atlasLine, label = {}, "        "
+        end
+    end
+
     out(("shared media: library %s  borders |cffffff00%d|r  bar textures |cffffff00%d|r  fonts |cffffff00%d|r")
         :format(yes(ns.Media.lib ~= nil), #ns.Media.List("border"),
                 #ns.Media.List("statusbar"), #ns.Media.List("font")))
