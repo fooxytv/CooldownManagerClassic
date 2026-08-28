@@ -1388,42 +1388,87 @@ local function CreateFrameOnce()
         frame.Inset:SetPoint("BOTTOMRIGHT", -6, 30)
     end
 
+    -- Blizzard draws these tabs as flat glyphs on a side-tab plate rather than
+    -- as ability icons; the names come from its own Cooldown Viewer settings
+    -- panel. Only Cooldowns and Buffs have a counterpart there -- Profiles is
+    -- ours -- so it keeps an ability icon, desaturated so it does not sit as a
+    -- full-colour outlier beside two monochrome glyphs.
     local TABS_META = {
-        cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
-        buffs     = { label = "Buffs",     icon = "Interface\\Icons\\Spell_Holy_WordFortitude" },
+        cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01",
+                      atlas = Const.ART.tabCooldowns },
+        buffs     = { label = "Buffs",     icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
+                      atlas = Const.ART.tabBuffs },
         options   = { label = "Options",   icon = "Interface\\Icons\\Trade_Engineering" },
         profiles  = { label = "Profiles",  icon = "Interface\\Icons\\INV_Misc_Book_09" },
     }
+
+    -- All three plate atlases or none: a plate without its selected and hover
+    -- states would leave the tabs with no pressed or hover feedback at all.
+    local platedTabs = Compat.AtlasExists(Const.ART.sideTab)
+        and Compat.AtlasExists(Const.ART.sideTabOn)
+        and Compat.AtlasExists(Const.ART.sideTabHover)
+
+    local anyGlyph = false
+    for _, tabKey in ipairs(TAB_ORDER) do
+        local meta = TABS_META[tabKey]
+        if meta.atlas and Compat.AtlasExists(meta.atlas) then anyGlyph = true end
+    end
 
     frame.tabButtons = {}
     local previousTab
     for _, tabKey in ipairs(TAB_ORDER) do
         local meta = TABS_META[tabKey]
+        local glyph = meta.atlas and Compat.AtlasExists(meta.atlas)
 
         local tab = CreateFrame("CheckButton", nil, frame)
-        tab:SetSize(32, 32)
+        -- 43x55 and a 3px gap are LargeSideTabButtonTemplate's own numbers; the
+        -- 32x32 and 17px gap are what the SpellBook tab art was tuned for.
+        tab:SetSize(platedTabs and 43 or 32, platedTabs and 55 or 32)
         if previousTab then
-            tab:SetPoint("TOPLEFT", previousTab, "BOTTOMLEFT", 0, -17)
+            tab:SetPoint("TOPLEFT", previousTab, "BOTTOMLEFT", 0, platedTabs and -3 or -17)
         else
             tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -1, -36)
         end
 
         local background = tab:CreateTexture(nil, "BACKGROUND")
-        background:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
-        background:SetSize(64, 64)
-        background:SetPoint("TOPLEFT", -3, 11)
+        if platedTabs then
+            background:SetAtlas(Const.ART.sideTab, true)
+            background:SetPoint("CENTER")
+        else
+            background:SetTexture("Interface\\SpellBook\\SpellBook-SkillLineTab")
+            background:SetSize(64, 64)
+            background:SetPoint("TOPLEFT", -3, 11)
+        end
 
         local icon = tab:CreateTexture(nil, "ARTWORK")
-        icon:SetTexture(meta.icon)
-        icon:SetAllPoints()
+        if glyph then
+            icon:SetAtlas(meta.atlas, true)
+            icon:SetPoint("CENTER", platedTabs and -2 or 0, 0)
+        else
+            icon:SetTexture(meta.icon)
+            icon:SetAllPoints()
+            if anyGlyph and icon.SetDesaturated then icon:SetDesaturated(true) end
+        end
         tab.icon = icon
 
-        tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        local checked = tab:CreateTexture(nil, "BORDER")
-        checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
-        checked:SetBlendMode("ADD")
-        checked:SetAllPoints()
-        tab:SetCheckedTexture(checked)
+        if platedTabs then
+            local hover = tab:CreateTexture(nil, "HIGHLIGHT")
+            hover:SetAtlas(Const.ART.sideTabHover, true)
+            hover:SetPoint("CENTER")
+            tab:SetHighlightTexture(hover)
+
+            local checked = tab:CreateTexture(nil, "OVERLAY")
+            checked:SetAtlas(Const.ART.sideTabOn, true)
+            checked:SetPoint("CENTER")
+            tab:SetCheckedTexture(checked)
+        else
+            tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+            local checked = tab:CreateTexture(nil, "BORDER")
+            checked:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+            checked:SetBlendMode("ADD")
+            checked:SetAllPoints()
+            tab:SetCheckedTexture(checked)
+        end
 
         tab.tooltipText = meta.label
         tab:SetScript("OnEnter", function(self)

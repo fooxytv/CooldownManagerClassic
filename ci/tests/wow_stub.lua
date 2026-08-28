@@ -421,6 +421,14 @@ local atlases = {
     ["UI-HUD-CoolDownManager-Bar"] = true,
     ["UI-HUD-CoolDownManager-Bar-BG"] = true,
     ["UI-HUD-CoolDownManager-Bar-Pip"] = true,
+    -- The settings panel's tab art. Present here so the plated path is
+    -- exercised at all; whether a Classic client really ships it is a runtime
+    -- question the UI source cannot answer, which is why the code probes.
+    ["icon_cooldownmanager"] = true,
+    ["icon_trackedbuffs"] = true,
+    ["common-sidetab"] = true,
+    ["common-sidetab-selected"] = true,
+    ["common-sidetab-hover"] = true,
 }
 _G.__setAtlasesPresent = function(present)
     if present then return end

@@ -672,6 +672,16 @@ R.highlightOnHover = barRow.highlight:IsShown()
 barRow:GetScript("OnLeave")(barRow)
 R.highlightOffHover = barRow.highlight:IsShown()
 
+-- Tabs: Blizzard's own glyphs on its side-tab plate where the client has that
+-- art, the ability icons on the SpellBook plate where it does not.
+local tabs = _G.CDMCSettingsFrame.tabButtons
+R.tabGlyph = tabs.cooldowns.icon.__atlas or ""
+R.tabWidth = tabs.cooldowns:GetWidth()
+-- Profiles has no counterpart in Blizzard's panel, so it keeps an ability icon
+-- either way, flattened only when it would otherwise sit beside real glyphs.
+R.tabFallbackTexture = tabs.profiles.icon:GetTexture() or ""
+R.tabFallbackFlattened = tabs.profiles.icon.__desaturated and true or false
+
 -- The ID box sits beside the search on the spell tabs, and neither belongs on a
 -- panel tab.
 R.addBoxShownOnSpellTab = pickerFrame.addBox:IsShown()
@@ -1628,6 +1638,12 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("hover highlight outranks the preview", results["highlightAbovePreview"], True)
     check("highlight shows on hover", results["highlightOnHover"], True)
     check("highlight clears on leave", results["highlightOffHover"], False)
+    check("tab uses Blizzard's glyph", results["tabGlyph"],
+          "icon_cooldownmanager" if with_art else "")
+    check("tab takes the side-tab plate size", results["tabWidth"], 43 if with_art else 32)
+    check("profiles tab keeps an ability icon", results["tabFallbackTexture"],
+          "Interface\\Icons\\INV_Misc_Book_09")
+    check("profiles icon flattened beside glyphs", results["tabFallbackFlattened"], with_art)
     check("ID box sits on the spell tabs", results["addBoxShownOnSpellTab"], True)
     check("ID box hidden on panel tabs", results["addBoxHiddenOnPanelTab"], False)
     check("title reads Cooldown Settings", results["titleOnCooldowns"], "Cooldown Settings")

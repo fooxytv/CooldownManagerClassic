@@ -444,6 +444,19 @@ Const.ART = {
     bar         = "UI-HUD-CoolDownManager-Bar",
     barBG       = "UI-HUD-CoolDownManager-Bar-BG",
     barPip      = "UI-HUD-CoolDownManager-Bar-Pip",
+
+    -- The settings panel's own art, read out of Blizzard's UI source:
+    -- Blizzard_CooldownViewer/CooldownViewerSettings.xml names the two tab
+    -- glyphs, and they sit on LargeSideTabButtonTemplate (SharedUIPanelTemplates
+    -- .xml), a 43x55 plate over the three common-sidetab atlases. Every one is
+    -- probed rather than assumed: whether they resolve on a Classic client is
+    -- not knowable from the source, since the addon that uses them there is
+    -- gated `AllowLoadGameType: standard`.
+    tabCooldowns = "icon_cooldownmanager",
+    tabBuffs     = "icon_trackedbuffs",
+    sideTab      = "common-sidetab",
+    sideTabOn    = "common-sidetab-selected",
+    sideTabHover = "common-sidetab-hover",
 }
 
 Const.FALLBACK_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
