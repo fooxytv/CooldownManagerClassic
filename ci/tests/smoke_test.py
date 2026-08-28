@@ -76,6 +76,8 @@ local R = {}
 ns.DB:Initialize()
 ns.Core.initialized = true
 
+R.flavor = ns.Compat.flavor
+
 -- Icons: a tracked buff renders and counts down.
 local buffs = ns.DB:GetGroup("buffs")
 buffs.spells = { { spellID = 187880, name = "Maelstrom Weapon", rankIndependent = true } }
@@ -1301,6 +1303,11 @@ ns.Core:PrintUIProbe()
 R.uiProbeRan = true
 
 R.artMask = ns.Icon.art.mask and true or false
+
+R.legacyAuraCalls = _G.__legacyCalls.unitAura
+R.legacySpellInfoCalls = _G.__legacyCalls.spellInfo
+R.legacyCooldownCalls = _G.__legacyCalls.cooldown
+
 return R
 """
 
@@ -1384,17 +1391,24 @@ return R
 """
 
 
-def run(with_art):
-    label = "atlases present" if with_art else "atlases absent"
+def run(with_art, env=None, label=None, flavor="era", legacy=False):
+    if label is None:
+        label = "atlases present" if with_art else "atlases absent"
     print(f"\nsmoke_test [{label}]")
     try:
-        lua = load_addon(with_art)
+        lua = load_addon(with_art, env=env)
         results = dict(lua.execute(SCRIPT))
     except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
         failures.append(f"[{label}] {exc}")
         print(f"  FAIL {exc}")
         return
 
+    check("flavour resolves", results["flavor"], flavor)
+    # A run that swapped the APIs but still resolved through C_* would pass every
+    # assertion below while testing nothing. These say which engine actually ran.
+    check("legacy aura path taken", results["legacyAuraCalls"] > 0, legacy)
+    check("legacy spell-info path taken", results["legacySpellInfoCalls"] > 0, legacy)
+    check("legacy cooldown path taken", results["legacyCooldownCalls"] > 0, legacy)
     check("icon widget", results["iconKind"], "icons")
     check("icon count", results["iconCount"], 1)
     check("icon timer", results["iconTimer"], "12")
@@ -1652,6 +1666,22 @@ def run_profiles():
     check("lone Default not flagged", results["soloNotRepaired"], True)
 
 
+# TBC runs on the pre-C_* engine, so the whole suite is re-run with the modern
+# namespaces removed. Compat caches C_Spell / C_SpellBook / C_UnitAuras into
+# locals at load time, so clearing them here -- before the addon loads -- is what
+# forces every legacy branch to be the one that executes. Those branches were
+# present but never once run in CI before this: the stub defined the modern and
+# legacy calls side by side and the modern one always won.
+TBC_ENV = """
+_G.WOW_PROJECT_BURNING_CRUSADE_CLASSIC = 5
+_G.WOW_PROJECT_ID = 5
+_G.GetBuildInfo = function() return "2.5.6", "44061", "Aug 2026", 20506 end
+_G.C_Spell = nil
+_G.C_SpellBook = nil
+_G.C_UnitAuras = nil
+"""
+
+
 MOP_ENV = """
 _G.WOW_PROJECT_MISTS_CLASSIC = 19
 _G.WOW_PROJECT_ID = 19
@@ -1743,6 +1773,14 @@ def run_mop():
 
 run(with_art=True)
 run(with_art=False)
+# Same suite, same assertions, legacy APIs underneath. Twice, because the two
+# runs answer different questions: with atlases present nothing differs from the
+# known-green Era baseline except the API engine, so a failure can only be the
+# API swap; with them absent it matches a real 2.5.6 client, which ships none of
+# the Cooldown Manager art.
+run(with_art=True, env=TBC_ENV, label="TBC legacy APIs", flavor="tbc", legacy=True)
+run(with_art=False, env=TBC_ENV, label="TBC legacy APIs, no atlases",
+    flavor="tbc", legacy=True)
 run_profiles()
 run_mop()
 
