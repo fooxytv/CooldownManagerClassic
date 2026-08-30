@@ -1351,6 +1351,67 @@ ns.Core:UpdateAll()
 R.rangeInRange = ns.Range:IsOutOfRange(5176)
 R.rangeInRangeTint = TintOf(5176)
 
+-- The same colour on the long bars. Cooldown Bars is a separate widget reading a
+-- separate state builder (GetBarState, not GetIconState), so proving the icon
+-- path says nothing about this one.
+local savedBarSpells = ns.DB:GetGroup("cooldownbars").spells
+ns.DB:GetGroup("cooldownbars").spells = {
+    { spellID = 5176, name = "Wrath", rankIndependent = true },
+}
+local rangeBars = ns.Group.Create("cooldownbars")
+rangeBars:Layout()
+R.rangeBarWidget = rangeBars.widgetKind
+
+local function BarTintOf(spellID)
+    for _, bar in ipairs(rangeBars.icons) do
+        if bar.spellID == spellID then
+            local c = bar.texture.__vertex
+            return ("%.2f/%.2f/%.2f"):format(c[1], c[2], c[3])
+        end
+    end
+end
+
+_G.__inRange = { Wrath = 0 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeBarTint = BarTintOf(5176)
+
+_G.__inRange = { Wrath = 1 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeBarInRangeTint = BarTintOf(5176)
+
+-- A tracked buff shown as a bar is an aura group: how far away the target
+-- stands says nothing about a buff already on you, so it stays untinted even
+-- with everything else red.
+local savedBuffDisplay = ns.DB:GetGroup("buffs").appearance.display
+ns.DB:GetGroup("buffs").appearance.display = "Bars"
+-- The group hides what is not up, so the buff has to actually be on the player
+-- for there to be a bar to inspect at all.
+_G.__aura = { spellId = 187880, name = "Maelstrom Weapon", icon = "x",
+              applications = 5, duration = 30, expirationTime = GetTime() + 12, timeMod = 1 }
+ns.Auras:ClearCache()
+local buffBars = ns.Group.Create("buffs")
+buffBars:Layout()
+_G.__inRange = { Wrath = 0, ["Maelstrom Weapon"] = 0 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeBuffBarWidget = buffBars.widgetKind
+R.rangeBuffBarDrawn = #buffBars.icons
+local buffTint = buffBars.icons[1].texture.__vertex
+R.rangeBuffBarUntinted = ("%.2f/%.2f/%.2f"):format(buffTint[1], buffTint[2], buffTint[3])
+ns.DB:GetGroup("buffs").appearance.display = savedBuffDisplay
+ns.DB:GetGroup("cooldownbars").spells = savedBarSpells
+
+-- Let the buff expire again. The ticker assertions further down are about the
+-- cadence range alone holds, and a running aura would animate the pass instead.
+_G.__aura = { spellId = 0, name = "None", duration = 0, expirationTime = 0 }
+ns.Auras:ClearCache()
+
+_G.__inRange = { Wrath = 0 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+
 -- Out of range outranks the no-power tint, as it does on Blizzard's action bars.
 local savedUsable = _G.C_Spell.IsSpellUsable
 _G.C_Spell.IsSpellUsable = function() return false, true end
@@ -1673,6 +1734,12 @@ def run(with_art):
     check("back in range clears the state", results["rangeInRange"], False)
     check("back in range clears the tint", results["rangeInRangeTint"], "1.00/1.00/1.00")
     check("out of range outranks no power", results["rangeBeatsNoPower"], "0.64/0.15/0.15")
+    check("cooldown bars render as bars", results["rangeBarWidget"], "bars")
+    check("out-of-range bar tints red", results["rangeBarTint"], "0.64/0.15/0.15")
+    check("in-range bar clears the tint", results["rangeBarInRangeTint"], "1.00/1.00/1.00")
+    check("buff bars render as bars", results["rangeBuffBarWidget"], "bars")
+    check("buff bar is actually drawn", results["rangeBuffBarDrawn"], 1)
+    check("aura bars are never range-tinted", results["rangeBuffBarUntinted"], "1.00/1.00/1.00")
     check("friendly target is not watched", results["rangeFriendlyIgnored"], False)
     check("friendly target leaves the tint alone", results["rangeFriendlyTint"], "1.00/1.00/1.00")
     check("no target is not watched", results["rangeNoTarget"], False)
