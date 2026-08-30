@@ -1124,6 +1124,58 @@ ns.Highlights:OnCombatLogEvent()
 R.overpowerGroupOff = opIcon.glowRequested and true or false
 ns.DB:SetGroupHighlightEnabled("essential", true)
 
+-- A partial block is SWING_DAMAGE carrying a blocked amount, not SWING_MISSED
+-- "BLOCK" -- only a full block is a miss. Reading misses alone dropped most of
+-- the blocks a shield user actually takes, so the glow fired far less often
+-- than the action bar. Positions after the eleven shared parameters: for a
+-- swing, amount 12 and blocked 16; for a spell, amount 15 and blocked 19.
+--
+-- Asserted on a Revenge icon, not the Overpower one above: a block arms
+-- player_avoided, which is Revenge's trigger. Checking Overpower here reads
+-- whatever its glow happened to be already and passes for the wrong reason.
+local revIcon = ns.Icon:Acquire(wGroup.frame, "essential")
+revIcon.entry = { name = "Revenge" }
+revIcon.spellID = 6572
+wGroup.icons = { opIcon, revIcon }
+
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+_G.__advance(6)
+ns.Highlights:Apply()
+R.revenceGlowStartsOff = revIcon.glowRequested and true or false
+
+_G.__clog = { 0, "SWING_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Player-Test", "Tester", 0, 0, 100, 0, 1, 0, 50, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowOnPartialBlock = revIcon.glowRequested and true or false
+
+-- Damage with nothing blocked must arm nothing, or every hit taken would light
+-- Revenge.
+_G.__advance(6)
+ns.Highlights:Apply()
+_G.__clog = { 0, "SWING_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Player-Test", "Tester", 0, 0, 100, 0, 1, 0, 0, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowOnUnblockedHit = revIcon.glowRequested and true or false
+
+-- The spell form of the same thing: blocked sits at 19 there, not 16.
+_G.__clog = { 0, "SPELL_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Player-Test", "Tester", 0, 0, 5176, "Wrath", 1, 100, 0, 1, 0, 50, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowOnBlockedSpell = revIcon.glowRequested and true or false
+
+-- A block against somebody else is not our trigger.
+_G.__advance(6)
+ns.Highlights:Apply()
+_G.__clog = { 0, "SWING_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Other-Test", "Someone", 0, 0, 100, 0, 1, 0, 50, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowIgnoresBlockOnOthers = revIcon.glowRequested and true or false
+
+_G.__advance(6)
+ns.Highlights:Apply()
+wGroup.icons = { opIcon }
+
 -- A glow means "press this now" (#76). Arming says only that the trigger
 -- happened: a Warrior gets parried in Battle Stance where Revenge cannot be
 -- cast, and again while it is still recharging. The action bar stays dark in
@@ -1926,6 +1978,11 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("overpower clears after window", results["overpowerGlowOff"], False)
     check("overpower respects group toggle", results["overpowerGroupOff"], False)
     check("reactive glow reaches the utility group", results["utilityGlowOn"], True)
+    check("revenge glow starts clear", results["revenceGlowStartsOff"], False)
+    check("a partial block arms the glow", results["glowOnPartialBlock"], True)
+    check("a block on someone else arms nothing", results["glowIgnoresBlockOnOthers"], False)
+    check("an unblocked hit arms nothing", results["glowOnUnblockedHit"], False)
+    check("a blocked spell arms the glow", results["glowOnBlockedSpell"], True)
     check("no glow while the ability is unusable", results["glowSuppressedWhenUnusable"], False)
     check("no glow while the ability is on cooldown", results["glowSuppressedOnCooldown"], False)
     check("the global cooldown does not suppress the glow", results["glowSurvivesGCD"], True)

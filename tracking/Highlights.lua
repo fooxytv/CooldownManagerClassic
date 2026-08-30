@@ -118,8 +118,14 @@ function Highlights:OnCombatLogEvent()
     if not activeCombatRules or #activeCombatRules == 0 then return end
     if not (ns.DB and ns.DB:AreHighlightsEnabled()) then return end
 
+    -- Positions, 1-indexed, after the eleven shared parameters:
+    --   SWING_MISSED   12 missType
+    --   SPELL_MISSED   12 spellId, 13 spellName, 14 school, 15 missType
+    --   SWING_DAMAGE   12 amount .. 16 blocked
+    --   SPELL_DAMAGE   12 spellId .. 15 amount .. 19 blocked
     local _, subevent, _, sourceGUID, _, _, _, destGUID,
-          _, _, _, arg12, arg13, _, arg15 = CombatLogGetCurrentEventInfo()
+          _, _, _, arg12, arg13, _, arg15, arg16, _, _, arg19
+          = CombatLogGetCurrentEventInfo()
 
     local playerGUID = UnitGUID("player")
 
@@ -132,11 +138,19 @@ function Highlights:OnCombatLogEvent()
         return
     end
 
+    -- Only a *full* block arrives as a miss. A partial one lands as damage
+    -- carrying a blocked amount, which is the common case for anyone holding a
+    -- shield -- so reading misses alone dropped most of the blocks a tank
+    -- actually gets, and the glow fired far less often than the action bar.
     local miss
     if subevent == "SWING_MISSED" then
         miss = arg12
     elseif subevent == "SPELL_MISSED" or subevent == "RANGE_MISSED" then
         miss = arg15
+    elseif subevent == "SWING_DAMAGE" then
+        if (arg16 or 0) > 0 then miss = "BLOCK" end
+    elseif subevent == "SPELL_DAMAGE" or subevent == "RANGE_DAMAGE" then
+        if (arg19 or 0) > 0 then miss = "BLOCK" end
     else
         return
     end
