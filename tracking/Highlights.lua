@@ -174,8 +174,15 @@ end
 
 -- A glow should mean "press this now", which is what the action bar means by
 -- lighting a button. Arming a rule only says the trigger happened: a Warrior
--- gets parried in Battle Stance, where Revenge cannot be cast, and is parried
--- again while it is still recharging. Without this the glow fires in both.
+-- can be parried in a stance the reactive ability cannot be used from, or
+-- parried again while it is still recharging. Without this the glow fires in
+-- both.
+--
+-- The client is asked rather than any stance or form rule being written down
+-- here. Season of Discovery already breaks such a rule -- Gladiator Stance
+-- makes Defensive Stance abilities castable where they otherwise are not -- and
+-- a rune added later would break it again. IsSpellUsable knows; a table here
+-- would only be a second, staler opinion.
 --
 -- state.available is deliberately true during the global cooldown -- every
 -- ability is briefly on cooldown each global, and dropping the glow for that
