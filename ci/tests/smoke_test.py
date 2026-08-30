@@ -1124,6 +1124,37 @@ ns.Highlights:OnCombatLogEvent()
 R.overpowerGroupOff = opIcon.glowRequested and true or false
 ns.DB:SetGroupHighlightEnabled("essential", true)
 
+-- The same reactive ability in Utility rather than Essential. Reported as not
+-- glowing there, and every assertion above only ever exercised essential, so the
+-- group loop was covered for exactly one group.
+--
+-- Enabled the way the Edit Mode checkbox does it -- writing appearance
+-- .highlightsEnabled directly -- rather than through SetGroupHighlightEnabled,
+-- so this covers the path a player actually takes.
+local uGroup = ns.Group.Create("utility")
+local uIcon = ns.Icon:Acquire(uGroup.frame, "utility")
+uIcon.entry = { name = "Overpower" }
+uIcon.spellID = 7384
+uGroup.icons = { uIcon }
+ns.groups["utility"] = uGroup
+
+ns.DB:GetGroup("utility").appearance.highlightsEnabled = true
+
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.utilityGlowOn = uIcon.glowRequested and true or false
+
+-- And that the flag is genuinely read for utility, not inherited from essential
+-- being on: with only utility off, a fresh dodge must leave it dark while
+-- essential still lights.
+ns.DB:GetGroup("utility").appearance.highlightsEnabled = false
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.utilityGlowOffWhenFlagOff = uIcon.glowRequested and true or false
+ns.DB:GetGroup("utility").appearance.highlightsEnabled = true
+
 -- Richer visibility: hide-when-full and with-target track the resource/target.
 local pbar = ns.bars.power
 pbar.unlocked = false
@@ -1826,6 +1857,8 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("overpower clears on cast", results["overpowerGlowClearedOnCast"], False)
     check("overpower clears after window", results["overpowerGlowOff"], False)
     check("overpower respects group toggle", results["overpowerGroupOff"], False)
+    check("reactive glow reaches the utility group", results["utilityGlowOn"], True)
+    check("utility respects its own highlight flag", results["utilityGlowOffWhenFlagOff"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
