@@ -13,6 +13,7 @@ ns.Compat = Compat
 local C_Spell_     = _G.C_Spell
 local C_SpellBook_ = _G.C_SpellBook
 local C_UnitAuras_ = _G.C_UnitAuras
+local C_AddOns_    = _G.C_AddOns
 local projectId = _G.WOW_PROJECT_ID or 0
 
 if projectId == (_G.WOW_PROJECT_CLASSIC or -1) then
@@ -32,6 +33,22 @@ else
 end
 
 Compat.interfaceVersion = select(4, GetBuildInfo()) or 0
+
+-- The version from the .toc. A local test build stamps its branch into that
+-- string (ci/scripts/deploy-branch.sh, Install-CooldownManager.ps1), so this is
+-- what tells one build from another -- worth surfacing rather than leaving to
+-- the addon list, which is a menu deep and easy to read off the wrong addon.
+function Compat.GetAddonVersion()
+    if C_AddOns_ and C_AddOns_.GetAddOnMetadata then
+        return C_AddOns_.GetAddOnMetadata(addonName, "Version") or "?"
+    end
+
+    if _G.GetAddOnMetadata then
+        return GetAddOnMetadata(addonName, "Version") or "?"
+    end
+
+    return "?"
+end
 
 function Compat.AtlasExists(name)
     if not name or not C_Texture or not C_Texture.GetAtlasInfo then return false end
@@ -221,6 +238,34 @@ function Compat.IsSpellUsable(spellID)
     end
 
     return true, false
+end
+
+-- Returns true (in range), false (out of range) or nil (the client will not
+-- answer for this pairing -- no range requirement, no valid unit, not a spell).
+-- nil is a real third state here, not a failure: callers must not fold it into
+-- "out of range".
+function Compat.IsSpellInRange(spellID, unit)
+    if not spellID or not unit then return nil end
+
+    if C_Spell_ and C_Spell_.IsSpellInRange then
+        local ok, result = pcall(C_Spell_.IsSpellInRange, spellID, unit)
+        if ok then
+            if result == nil then return nil end
+            return result and true or false
+        end
+    end
+
+    if _G.IsSpellInRange then
+        -- The legacy call takes a spell name or a spellbook index and never an
+        -- ID, so everything the addon holds has to be turned back into a name.
+        local name = ns.Spellbook and ns.Spellbook:GetName(spellID)
+        if not name then return nil end
+
+        local ok, result = pcall(_G.IsSpellInRange, name, unit)
+        if ok and result ~= nil then return result == 1 end
+    end
+
+    return nil
 end
 
 local MAX_AURA_INDEX = 255

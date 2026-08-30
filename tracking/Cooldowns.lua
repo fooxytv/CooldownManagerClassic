@@ -40,6 +40,7 @@ function Cooldowns:GetState(spellID, showGCD)
     end
 
     state.usable, state.notEnoughPower = Compat.IsSpellUsable(spellID)
+    state.outOfRange = ns.Range:IsOutOfRange(spellID)
 
     state.aura = nil
 
@@ -145,6 +146,7 @@ function Cooldowns:GetBarState(spellID, trackAura)
         state.available = true
         state.usable = true
         state.notEnoughPower = false
+        state.outOfRange = ns.Range:IsOutOfRange(spellID)
         state.charges = aura.charges
         state.isGCD = false
         state.suppressText = false
@@ -159,6 +161,7 @@ function Cooldowns:GetBarState(spellID, trackAura)
     state.available = cd.available
     state.usable = cd.usable
     state.notEnoughPower = cd.notEnoughPower
+    state.outOfRange = cd.outOfRange
     state.charges = cd.charges
     state.isGCD = cd.isGCD
     state.suppressText = cd.suppressText

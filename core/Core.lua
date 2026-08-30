@@ -73,6 +73,7 @@ function Core:UpdateAll()
     if not self.initialized then return end
 
     ns.Cooldowns:RefreshGlobalCooldown(CollectGCDCandidates())
+    ns.Range:Poll()
 
     local animating = false
     for _, key in ipairs(Const.GROUP_ORDER) do
@@ -86,6 +87,11 @@ function Core:UpdateAll()
 
     if animating then
         self:StartTicker(Const.UPDATE_INTERVAL)
+    elseif ns.Range:IsWatching() then
+        -- Nothing is counting down, but the player and the target can still walk
+        -- apart. Stopping here would leave the range colour frozen wherever it
+        -- last landed.
+        self:StartTicker(Const.RANGE_UPDATE_INTERVAL)
     elseif self:HasTrackedAuras() then
         self:StartTicker(Const.IDLE_UPDATE_INTERVAL)
     else
@@ -143,6 +149,9 @@ function Core:RescanSpellbook()
     ns.Spellbook:Scan()
     ns.Cooldowns:ClearCache()
     ns.Auras:ClearCache()
+    -- Range is memoised by spell ID but resolved through the spellbook, so a
+    -- newly learned rank changes the answer for an ID that has not moved.
+    ns.Range:Clear()
     self:RefreshAll()
 end
 
@@ -466,12 +475,7 @@ function Core:PrintUIProbe()
 
     ns.Print("ui probe")
 
-    local version = "?"
-    if _G.C_AddOns and C_AddOns.GetAddOnMetadata then
-        version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
-    elseif _G.GetAddOnMetadata then
-        version = GetAddOnMetadata(addonName, "Version") or "?"
-    end
+    local version = ns.Compat.GetAddonVersion()
 
     out(("addon |cffffff00%s|r  build has: border art %s  colour picker %s  bar styling %s")
         :format(version,
@@ -547,6 +551,10 @@ function Core:PrintStatus()
 
     ns.Print("status")
 
+    -- First line, because it is the question every other line depends on: a
+    -- report against the wrong build wastes both ends of the conversation.
+    out(("version: |cffffff00%s|r"):format(Compat.GetAddonVersion()))
+
     out(("initialized: |cffffff00%s|r  flavor: |cffffff00%s|r  interface: |cffffff00%d|r  db: |cffffff00v%s|r%s")
         :format(tostring(self.initialized), Compat.GetProfileFlavor(), Compat.interfaceVersion,
                 tostring(ns.DB.root and ns.DB.root.dbVersion),
@@ -595,6 +603,15 @@ function Core:PrintStatus()
     out(("UNIT_AURA registered: |cffffff00%s|r  ticker: |cffffff00%s|r  tracked auras: |cffffff00%s|r")
         :format(tostring(self.auraEventRegistered), tostring(ticker ~= nil),
                 tostring(self:HasTrackedAuras())))
+
+    -- Which range API answered matters more than the answer: "no range colour"
+    -- on a client where neither call exists looks identical to a target that is
+    -- simply in range.
+    local rangeAPI = (_G.C_Spell and C_Spell.IsSpellInRange and "C_SpellID")
+        or (_G.IsSpellInRange and "legacy name") or "|cffff5555absent|r"
+    out(("Range: API |cffffff00%s|r  watching: |cffffff00%s|r  hostile target: |cffffff00%s|r")
+        :format(rangeAPI, tostring(ns.Range:IsWatching()),
+                tostring(UnitExists("target") and UnitCanAttack("player", "target") or false)))
 
     out(("Edit Mode: |cffffff00%s|r  active: |cffffff00%s|r  profile: |cffffff00%s|r")
         :format(ns.EditMode:IsAvailable() and "available" or "absent",

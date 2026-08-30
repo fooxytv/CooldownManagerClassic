@@ -337,6 +337,16 @@ _G.CombatLogGetCurrentEventInfo = function()
 end
 _G.UnitAffectingCombat = function() return false end
 _G.UnitExists = function(unit) return _G.__hasTarget and true or false end
+-- Hostility is separate from existence: a friendly target must not be
+-- range-tinted, so the tests need to drive the two independently.
+_G.UnitCanAttack = function() return _G.__targetHostile ~= false end
+-- Driveable range: __inRange maps a spell name to 1 (in range) or 0 (out).
+-- A name that is absent returns nil, which is the "no range requirement"
+-- answer the live API gives for a self buff.
+_G.IsSpellInRange = function(name, unit)
+    if not _G.__inRange or unit ~= "target" then return nil end
+    return _G.__inRange[name]
+end
 _G.InCombatLockdown = function() return false end
 _G.UnitPowerType = function() return 0, "MANA" end
 _G.UnitHealth = function() return 100 end
@@ -349,6 +359,23 @@ _G.GetInventoryItemTexture = function() return nil end
 _G.GetItemInfo = function() return nil end
 _G.GetItemCount = function() return 0 end
 _G.RANGE_INDICATOR = "\226\128\162"
+-- Addon metadata. Absent until now, so every version read fell through to "?"
+-- and the modern/legacy split was never exercised. __modernAddOns switches
+-- between the C_AddOns namespace and the legacy global.
+_G.__addonVersion = "9.9.9-test-branch.abc1234"
+_G.__modernAddOns = true
+_G.GetAddOnMetadata = function(_, field)
+    if _G.__modernAddOns then return nil end
+    if field == "Version" then return _G.__addonVersion end
+    return nil
+end
+_G.C_AddOns = setmetatable({}, { __index = function(_, key)
+    if key ~= "GetAddOnMetadata" or not _G.__modernAddOns then return nil end
+    return function(_, field)
+        if field == "Version" then return _G.__addonVersion end
+        return nil
+    end
+end })
 -- One spell on the first action slot, bound to Shift-2, so the keybind reader
 -- has something to find.
 _G.GetActionInfo = function(slot) if slot == 1 then return "spell", 686 end return nil end
@@ -410,7 +437,15 @@ _G.GenerateClosure = function(fn, ...) local args = { ... } return function(...)
 
 _G.C_Timer = {
     After = function(_, fn) _G.__pendingTimers = _G.__pendingTimers or {}; table.insert(_G.__pendingTimers, fn) end,
-    NewTicker = function() return { Cancel = function() end } end,
+    -- The interval is recorded: which cadence Core settles on when nothing is
+    -- animating is behaviour now (range has to keep polling), not an
+    -- implementation detail, so a test has to be able to read it back.
+    NewTicker = function(interval)
+        _G.__tickerInterval = interval
+        return { Cancel = function()
+            if _G.__tickerInterval == interval then _G.__tickerInterval = nil end
+        end }
+    end,
 }
 
 -- The Cooldown Manager atlases, as they would be on a client that has them.

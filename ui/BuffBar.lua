@@ -370,6 +370,15 @@ function BuffBar:Update(frame, state, appearance)
         end
     end
 
+    -- Applied after the phase and usability chains rather than inside them: both
+    -- paths above land here, and out of range outranks whatever either picked.
+    -- Desaturation is left alone -- red over grey reads as muddy, not urgent.
+    if not Const.AURA_GROUPS[frame.groupKey]
+        and appearance.colorOutOfRange ~= false and state.outOfRange
+    then
+        iconTint = Const.ITEM_COLORS.notInRange
+    end
+
     if frame.texture.SetDesaturated then frame.texture:SetDesaturated(iconDesaturate) end
     if iconTint then
         frame.texture:SetVertexColor(iconTint[1], iconTint[2], iconTint[3])
