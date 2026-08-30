@@ -326,9 +326,24 @@ function BuffBar:Update(frame, state, appearance)
             iconTint = Const.ITEM_COLORS.notUsable
             timerRemaining = remaining
         else
+            -- Nothing is running, so the bar is empty unless asked otherwise.
+            -- It used to draw full whenever ready, which is indistinguishable
+            -- from a buff just cast at its full duration -- and for something
+            -- with no cooldown at all, like Battle Shout, the bar was at its
+            -- fullest exactly when the buff had dropped.
+            --
+            -- Readiness is not lost by defaulting to empty: the icon carries it,
+            -- staying bright here and dimming below. Fill When Ready is for
+            -- anyone who would rather the row read as charged than as idle,
+            -- which is a real preference rather than a knob for its own sake.
+            --
+            -- Only a *ready* ability can be filled by it. The other way into
+            -- this branch is a cooldown running in Effect Only mode, which is a
+            -- deliberate "do not show me the recharge" and must not reappear as
+            -- a full bar instead.
             local ready = state.phase == "ready"
             frame.bar:SetMinMaxValues(0, 1)
-            frame.bar:SetValue((ready and not effectOnly) and 1 or 0)
+            frame.bar:SetValue((ready and appearance.fillBarWhenReady) and 1 or 0)
             frame.pip:Hide()
             if not ready then
                 iconDesaturate = appearance.desaturateUnavailable ~= false

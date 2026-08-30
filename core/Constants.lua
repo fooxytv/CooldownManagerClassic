@@ -409,6 +409,7 @@ Const.GROUP_APPEARANCE = {
         barContent = "Icon and Name",
         showGCD = false,
         barMode = "Effect + Cooldown",
+        fillBarWhenReady = false,
         hideWhenInactive = false,
     },
 }

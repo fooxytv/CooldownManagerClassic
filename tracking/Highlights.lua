@@ -118,8 +118,14 @@ function Highlights:OnCombatLogEvent()
     if not activeCombatRules or #activeCombatRules == 0 then return end
     if not (ns.DB and ns.DB:AreHighlightsEnabled()) then return end
 
+    -- Positions, 1-indexed, after the eleven shared parameters:
+    --   SWING_MISSED   12 missType
+    --   SPELL_MISSED   12 spellId, 13 spellName, 14 school, 15 missType
+    --   SWING_DAMAGE   12 amount .. 16 blocked
+    --   SPELL_DAMAGE   12 spellId .. 15 amount .. 19 blocked
     local _, subevent, _, sourceGUID, _, _, _, destGUID,
-          _, _, _, arg12, arg13, _, arg15 = CombatLogGetCurrentEventInfo()
+          _, _, _, arg12, arg13, _, arg15, arg16, _, _, arg19
+          = CombatLogGetCurrentEventInfo()
 
     local playerGUID = UnitGUID("player")
 
@@ -132,11 +138,19 @@ function Highlights:OnCombatLogEvent()
         return
     end
 
+    -- Only a *full* block arrives as a miss. A partial one lands as damage
+    -- carrying a blocked amount, which is the common case for anyone holding a
+    -- shield -- so reading misses alone dropped most of the blocks a tank
+    -- actually gets, and the glow fired far less often than the action bar.
     local miss
     if subevent == "SWING_MISSED" then
         miss = arg12
     elseif subevent == "SPELL_MISSED" or subevent == "RANGE_MISSED" then
         miss = arg15
+    elseif subevent == "SWING_DAMAGE" then
+        if (arg16 or 0) > 0 then miss = "BLOCK" end
+    elseif subevent == "SPELL_DAMAGE" or subevent == "RANGE_DAMAGE" then
+        if (arg19 or 0) > 0 then miss = "BLOCK" end
     else
         return
     end
@@ -170,6 +184,27 @@ local function IsQueued(spellID)
     -- IsCurrentSpell is also true while a spell is being cast, which is not a
     -- queued swing.
     return (ns.Compat.GetSpellCastTime(spellID) or 0) <= 0
+end
+
+-- A glow should mean "press this now", which is what the action bar means by
+-- lighting a button. Arming a rule only says the trigger happened: a Warrior
+-- can be parried in a stance the reactive ability cannot be used from, or
+-- parried again while it is still recharging. Without this the glow fires in
+-- both.
+--
+-- The client is asked rather than any stance or form rule being written down
+-- here. Season of Discovery already breaks such a rule -- Gladiator Stance
+-- makes Defensive Stance abilities castable where they otherwise are not -- and
+-- a rune added later would break it again. IsSpellUsable knows; a table here
+-- would only be a second, staler opinion.
+--
+-- state.available is deliberately true during the global cooldown -- every
+-- ability is briefly on cooldown each global, and dropping the glow for that
+-- would flicker it off and on continuously through a rotation.
+local function Castable(spellID)
+    if not spellID then return false end
+    if not ns.Compat.IsSpellUsable(spellID) then return false end
+    return ns.Cooldowns:GetState(spellID, false).available and true or false
 end
 
 function Highlights:Apply()
@@ -217,7 +252,12 @@ function Highlights:Apply()
                 local widget = group.widget == ns.BuffBar and ns.BuffBar or ns.Icon
                 for _, item in ipairs(group.icons) do
                     local name = item.entry and item.entry.name
-                    widget:SetGlow(item, on and name ~= nil and glowNames[name] == true)
+                    -- Castable is only asked once a rule already wants this
+                    -- icon lit, which is almost never more than one of them:
+                    -- Lua stops at the first false, so the cooldown lookup does
+                    -- not run for every tracked spell on every pass.
+                    local wanted = on and name ~= nil and glowNames[name] == true
+                    widget:SetGlow(item, wanted and Castable(item.spellID))
                     widget:SetQueued(item, on and IsQueued(item.spellID))
                 end
             end

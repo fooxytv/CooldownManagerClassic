@@ -105,6 +105,66 @@ cdgroup:Layout(); cdgroup:Update()
 R.cooldownBarKind = cdgroup.widgetKind
 R.cooldownBarPhase = ns.Cooldowns:GetBarState(187880).phase
 
+-- A ready ability draws an EMPTY bar (#75). It used to draw full, which is
+-- indistinguishable from a buff just cast at full duration -- and for something
+-- with no cooldown, like Battle Shout, the bar was at its fullest exactly when
+-- the buff had dropped. Readiness is carried by the icon instead.
+local function CdBarValue()
+    cdgroup:Layout(); cdgroup:Update()
+    return cdgroup.icons[1].bar:GetValue()
+end
+
+-- Effect running: the bar carries the remaining time, so it is not empty.
+R.cdBarActiveFill = CdBarValue() > 0
+
+-- Effect gone, nothing recharging: empty, and the icon stays bright because the
+-- ability is castable.
+local savedAura = _G.__aura
+_G.__aura = { spellId = 0, name = "None", duration = 0, expirationTime = 0 }
+_G.__cd = nil
+ns.Auras:ClearCache(); ns.Cooldowns:ClearCache()
+R.cdBarReadyEmpty = CdBarValue()
+R.cdBarReadyIconBright = cdgroup.icons[1].texture.__vertex == nil
+    or cdgroup.icons[1].texture.__vertex[1] == 1
+
+-- Recharging still draws the cooldown draining, so the middle state is intact
+-- rather than having been flattened along with ready.
+_G.__cd = { start = GetTime(), duration = 30 }
+ns.Cooldowns:ClearCache()
+R.cdBarCooldownFill = CdBarValue() > 0
+
+-- Fill When Ready puts the old behaviour back for anyone who wants the row to
+-- read as charged rather than idle.
+-- Back to ready first: the step above left a cooldown running, and asking a
+-- recharging bar about the ready state measures the wrong thing.
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+ns.DB:GetGroup("cooldownbars").appearance.fillBarWhenReady = true
+R.cdBarReadyFilledByOption = CdBarValue()
+
+-- But only for a READY ability. The other way into that branch is a cooldown
+-- running in Effect Only mode, which is a deliberate "do not show me the
+-- recharge" -- it must not come back as a full bar instead.
+ns.DB:GetGroup("cooldownbars").appearance.barMode = "Effect Only"
+_G.__cd = { start = GetTime(), duration = 30 }
+ns.Cooldowns:ClearCache()
+R.cdBarEffectOnlyCooldownStaysEmpty = CdBarValue()
+ns.DB:GetGroup("cooldownbars").appearance.barMode = nil
+ns.DB:GetGroup("cooldownbars").appearance.fillBarWhenReady = nil
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+
+-- Effect Only mode was already empty when ready; it must stay that way.
+ns.DB:GetGroup("cooldownbars").appearance.barMode = "Effect Only"
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+R.cdBarEffectOnlyReady = CdBarValue()
+ns.DB:GetGroup("cooldownbars").appearance.barMode = nil
+
+_G.__aura = savedAura
+_G.__cd = nil
+ns.Auras:ClearCache(); ns.Cooldowns:ClearCache()
+
 -- Resource bars. Disabled is the default, and a disabled bar must still become
 -- visible and draggable when unlocked -- otherwise the only setting that can
 -- enable it sits behind a frame nobody can click.
@@ -1124,6 +1184,105 @@ ns.Highlights:OnCombatLogEvent()
 R.overpowerGroupOff = opIcon.glowRequested and true or false
 ns.DB:SetGroupHighlightEnabled("essential", true)
 
+-- A partial block is SWING_DAMAGE carrying a blocked amount, not SWING_MISSED
+-- "BLOCK" -- only a full block is a miss. Reading misses alone dropped most of
+-- the blocks a shield user actually takes, so the glow fired far less often
+-- than the action bar. Positions after the eleven shared parameters: for a
+-- swing, amount 12 and blocked 16; for a spell, amount 15 and blocked 19.
+--
+-- Asserted on a Revenge icon, not the Overpower one above: a block arms
+-- player_avoided, which is Revenge's trigger. Checking Overpower here reads
+-- whatever its glow happened to be already and passes for the wrong reason.
+local revIcon = ns.Icon:Acquire(wGroup.frame, "essential")
+revIcon.entry = { name = "Revenge" }
+revIcon.spellID = 6572
+wGroup.icons = { opIcon, revIcon }
+
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+_G.__advance(6)
+ns.Highlights:Apply()
+R.revenceGlowStartsOff = revIcon.glowRequested and true or false
+
+_G.__clog = { 0, "SWING_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Player-Test", "Tester", 0, 0, 100, 0, 1, 0, 50, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowOnPartialBlock = revIcon.glowRequested and true or false
+
+-- Damage with nothing blocked must arm nothing, or every hit taken would light
+-- Revenge.
+_G.__advance(6)
+ns.Highlights:Apply()
+_G.__clog = { 0, "SWING_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Player-Test", "Tester", 0, 0, 100, 0, 1, 0, 0, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowOnUnblockedHit = revIcon.glowRequested and true or false
+
+-- The spell form of the same thing: blocked sits at 19 there, not 16.
+_G.__clog = { 0, "SPELL_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Player-Test", "Tester", 0, 0, 5176, "Wrath", 1, 100, 0, 1, 0, 50, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowOnBlockedSpell = revIcon.glowRequested and true or false
+
+-- A block against somebody else is not our trigger.
+_G.__advance(6)
+ns.Highlights:Apply()
+_G.__clog = { 0, "SWING_DAMAGE", false, "Target-Test", "Mob", 0, 0,
+              "Other-Test", "Someone", 0, 0, 100, 0, 1, 0, 50, 0, false }
+ns.Highlights:OnCombatLogEvent()
+R.glowIgnoresBlockOnOthers = revIcon.glowRequested and true or false
+
+_G.__advance(6)
+ns.Highlights:Apply()
+wGroup.icons = { opIcon }
+
+-- A glow means "press this now" (#76). Arming says only that the trigger
+-- happened: a Warrior gets parried in Battle Stance where Revenge cannot be
+-- cast, and again while it is still recharging. The action bar stays dark in
+-- both, and so must this.
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+
+-- Unusable for a reason that is not a cooldown -- wrong stance, or no rage.
+-- Driven through whichever engine this run is on: the TBC run has no C_Spell
+-- at all, and reaching for it there is an error rather than a no-op.
+local savedModernUsable, savedLegacyUsable
+if _G.C_Spell then
+    savedModernUsable = _G.C_Spell.IsSpellUsable
+    _G.C_Spell.IsSpellUsable = function() return false, false end
+else
+    savedLegacyUsable = _G.IsUsableSpell
+    _G.IsUsableSpell = function() return false, false end
+end
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowSuppressedWhenUnusable = opIcon.glowRequested and true or false
+if _G.C_Spell then
+    _G.C_Spell.IsSpellUsable = savedModernUsable
+else
+    _G.IsUsableSpell = savedLegacyUsable
+end
+
+-- On a real cooldown: armed, castable in every other sense, still not pressable.
+_G.__cd = { start = GetTime(), duration = 10 }
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowSuppressedOnCooldown = opIcon.glowRequested and true or false
+
+-- The global cooldown must NOT suppress it, or the glow flickers off and on
+-- through every rotation.
+_G.__cd = { start = GetTime(), duration = 1.5 }
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowSurvivesGCD = opIcon.glowRequested and true or false
+
+-- Castable again, and the glow returns -- so the suppression is conditional
+-- rather than the rule having been consumed.
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowReturnsWhenCastable = opIcon.glowRequested and true or false
+
 -- Proc overlays are counted so /cdmc status can answer whether a Classic client
 -- fires them at all (#76). Zero events and a fired event have to be
 -- distinguishable, or the diagnostic cannot tell "never fires" from "not
@@ -1796,6 +1955,14 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("back to icons", results["backToIcons"], "icons")
     check("cooldown bar widget", results["cooldownBarKind"], "bars")
     check("cooldown bar phase", results["cooldownBarPhase"], "active")
+    check("a running effect fills the bar", results["cdBarActiveFill"], True)
+    check("a ready ability draws an empty bar", results["cdBarReadyEmpty"], 0)
+    check("a ready ability keeps a bright icon", results["cdBarReadyIconBright"], True)
+    check("recharging still draws the cooldown", results["cdBarCooldownFill"], True)
+    check("effect-only ready stays empty", results["cdBarEffectOnlyReady"], 0)
+    check("fill-when-ready restores the full bar", results["cdBarReadyFilledByOption"], 1)
+    check("fill-when-ready leaves an effect-only cooldown empty",
+          results["cdBarEffectOnlyCooldownStaysEmpty"], 0)
     check("bar hidden when disabled", results["barHiddenWhenDisabled"], False)
     check("bar shown when unlocked", results["barShownWhenUnlocked"], True)
     check("bar draggable when unlocked", results["barDraggable"], True)
@@ -1879,6 +2046,15 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("overpower clears after window", results["overpowerGlowOff"], False)
     check("overpower respects group toggle", results["overpowerGroupOff"], False)
     check("reactive glow reaches the utility group", results["utilityGlowOn"], True)
+    check("revenge glow starts clear", results["revenceGlowStartsOff"], False)
+    check("a partial block arms the glow", results["glowOnPartialBlock"], True)
+    check("a block on someone else arms nothing", results["glowIgnoresBlockOnOthers"], False)
+    check("an unblocked hit arms nothing", results["glowOnUnblockedHit"], False)
+    check("a blocked spell arms the glow", results["glowOnBlockedSpell"], True)
+    check("no glow while the ability is unusable", results["glowSuppressedWhenUnusable"], False)
+    check("no glow while the ability is on cooldown", results["glowSuppressedOnCooldown"], False)
+    check("the global cooldown does not suppress the glow", results["glowSurvivesGCD"], True)
+    check("glow returns once castable again", results["glowReturnsWhenCastable"], True)
     check("proc overlay counts a fired event", results["overlayCounted"], 1)
     check("proc overlay records the spell", results["overlayLastSpell"], "Wrath")
     check("unnameable spell still records an id", results["overlayUnnamedSpell"], "999999")
