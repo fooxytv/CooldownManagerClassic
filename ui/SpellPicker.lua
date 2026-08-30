@@ -58,6 +58,7 @@ local OPTION_TOGGLES = {
     { option = "hideWhenInactive",    label = "Only show while active (buffs)" },
     { option = "showGCD",             label = "Show global cooldown" },
     { option = "colorByUsability",    label = "Tint when unusable (blue = no power)" },
+    { option = "colorOutOfRange",     label = "Tint when out of range (red)" },
     { option = "showCountdownText",   label = "Show timer" },
     { option = "showTooltips",        label = "Show tooltips" },
     { option = "desaturateUnavailable", label = "Desaturate while on cooldown" },
@@ -1282,6 +1283,15 @@ local function CreateFrameOnce()
         frame.Inset:SetPoint("TOPLEFT", 4, -62)
         frame.Inset:SetPoint("BOTTOMRIGHT", -6, 30)
     end
+
+    -- The build, in the strip the Inset leaves free at the bottom. The addon
+    -- list carries the same string, but it is a menu deep and sits next to
+    -- everything else installed -- easy to read off the wrong row. A local test
+    -- build stamps its branch in here, so this is what says which one is loaded.
+    frame.versionText = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    frame.versionText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 10)
+    frame.versionText:SetJustifyH("LEFT")
+    frame.versionText:SetText("v" .. ns.Compat.GetAddonVersion())
 
     local TABS_META = {
         cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
