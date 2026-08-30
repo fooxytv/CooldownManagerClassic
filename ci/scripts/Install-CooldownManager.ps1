@@ -25,21 +25,37 @@
 .PARAMETER AddOnsPath
     The Interface\AddOns folder to install into. Omit it and the script looks
     for one, asking if there is more than one candidate, and remembers the
-    answer for next time.
+    answer. Passing it once also teaches the script where this machine keeps
+    WoW, so the clients installed beside it are found from then on.
+
+.PARAMETER Flavour
+    Install to the client whose folder matches this, e.g. era, classic, ptr.
+    Matched loosely against the folder name, so it also finds a client this
+    script has no name for.
+
+.PARAMETER All
+    Install to every WoW client found. The addon supports three game versions,
+    and leaving them on different builds is how you end up testing the wrong
+    one.
 
 .PARAMETER Forget
-    Discard the remembered AddOns folder and pick again.
+    Ignore the remembered folder and pick again.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Install-CooldownManager.ps1
 
-    Installs develop, asking once where the AddOns folder is.
+    Installs develop, asking once which client if there is more than one.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File .\Install-CooldownManager.ps1 -Branch claude/cooldown-manager-range-indicator-3aog48
+    .\Install-CooldownManager.ps1 -Branch claude/my-feature -All
 
-    Installs a feature branch. The addon list will read
-    0.6.0-cooldown-manager-range-indicator-3aog48.<sha>
+    Installs a feature branch to every client at once. The addon list will read
+    0.6.0-my-feature.<sha> in each.
+
+.EXAMPLE
+    .\Install-CooldownManager.ps1 -Flavour era
+
+    Installs develop to the Classic Era client only.
 
 .NOTES
     Windows blocks scripts downloaded from the internet, hence the
@@ -51,6 +67,8 @@
 param(
     [string] $Branch = 'develop',
     [string] $AddOnsPath,
+    [string] $Flavour,
+    [switch] $All,
     [switch] $Forget
 )
 
@@ -97,73 +115,162 @@ function Get-RememberedAddOnsPath {
     return $null
 }
 
-function Save-AddOnsPath([string] $Path) {
+function Get-RememberedRoots {
+    $file = Get-SettingsPath
+    if (-not (Test-Path -LiteralPath $file)) { return @() }
+    try {
+        return @((Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).Roots)
+    } catch {
+        return @()
+    }
+}
+
+function Save-Settings([string] $Path) {
     $file = Get-SettingsPath
     $dir = Split-Path -Parent $file
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    [pscustomobject]@{ AddOnsPath = $Path } | ConvertTo-Json | Set-Content -LiteralPath $file -Encoding UTF8
-    Write-Host "Remembered this AddOns folder. Re-run with -Forget to change it." -ForegroundColor DarkGray
+
+    # An AddOns path is <root>\<flavour>\Interface\AddOns, so its WoW root is
+    # three levels up. Remembering the root rather than only the leaf is what
+    # lets a later -All find the other clients installed beside it.
+    $root = $null
+    try { $root = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $Path)) } catch { }
+
+    $roots = @(Get-RememberedRoots)
+    if ($root -and $roots -notcontains $root) { $roots += $root }
+
+    [pscustomobject]@{ AddOnsPath = $Path; Roots = @($roots) } |
+        ConvertTo-Json | Set-Content -LiteralPath $file -Encoding UTF8
+}
+
+function Get-FlavourLabel([string] $Folder) {
+    # Only the folders whose meaning is certain get a friendly name. Anything
+    # else keeps its own -- a confident-sounding wrong label is worse than the
+    # raw folder, which is at least what the player sees in the launcher.
+    switch -Regex ($Folder) {
+        '^_classic_era_ptr_$' { 'Classic Era PTR' ; break }
+        '^_classic_era_$'     { 'Classic Era (incl. Season of Discovery, Hardcore)' ; break }
+        '^_classic_ptr_$'     { 'Classic progression PTR' ; break }
+        '^_classic_beta_$'    { 'Classic beta' ; break }
+        '^_classic_$'         { 'Classic progression' ; break }
+        '^_retail_$'          { 'Retail' ; break }
+        '^_ptr_$'             { 'Retail PTR' ; break }
+        '^_beta_$'            { 'Retail beta' ; break }
+        default               { $Folder }
+    }
 }
 
 function Find-AddOnsCandidates {
     # Flavour folders are enumerated rather than hardcoded: Blizzard has added
     # and renamed them over the years (_classic_era_, _classic_, _retail_, the
-    # _ptr_ variants), and a wrong guess here is a silent no-match.
-    $roots = @(
-        (Join-Path ${env:ProgramFiles(x86)} 'World of Warcraft'),
-        (Join-Path $env:ProgramFiles 'World of Warcraft'),
+    # _ptr_ variants), and a wrong guess here is a silent no-match. Enumerating
+    # also means a client this script has never heard of -- an Anniversary or
+    # seasonal install under whatever folder Blizzard gave it -- is found anyway.
+    # Join-Path throws on a null base, and an environment variable that is not
+    # set is null rather than empty -- so the Program Files roots are built only
+    # when there is something to build them from.
+    $roots = @()
+    foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+        if ($base) { $roots += (Join-Path $base 'World of Warcraft') }
+    }
+    $roots += @(
         'C:\World of Warcraft',
         'D:\World of Warcraft',
         'C:\Games\World of Warcraft',
         'D:\Games\World of Warcraft'
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    )
+
+    # Roots learned from an explicit -AddOnsPath. Point the script at one client
+    # by hand once and its siblings are found from then on, which is what makes
+    # -All work on an install that lives somewhere unusual.
+    $roots += @(Get-RememberedRoots)
+
+    $roots = $roots | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique
 
     $found = foreach ($root in $roots) {
         Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
             ForEach-Object {
-                $addons = Join-Path $_.FullName 'Interface\AddOns'
-                if (Test-Path -LiteralPath $addons) { $addons }
+                # Nested rather than 'Interface\AddOns': a literal backslash is
+                # not a separator everywhere, and Join-Path only takes a third
+                # segment on PowerShell 7, which Windows PowerShell 5.1 is not.
+                $addons = Join-Path (Join-Path $_.FullName 'Interface') 'AddOns'
+                if (Test-Path -LiteralPath $addons) {
+                    [pscustomobject]@{
+                        Path    = $addons
+                        Flavour = $_.Name
+                        Label   = Get-FlavourLabel $_.Name
+                    }
+                }
             }
     }
-    return @($found | Sort-Object -Unique)
+    return @($found | Sort-Object -Property Path -Unique)
 }
 
-function Resolve-AddOnsPath {
+function Resolve-Targets {
+    # An explicit path wins outright, and teaches the script where this machine
+    # keeps WoW so -All can find the rest later.
     if ($AddOnsPath) {
         if (-not (Test-Path -LiteralPath $AddOnsPath)) {
             throw "AddOns folder not found: $AddOnsPath"
         }
-        return (Resolve-Path -LiteralPath $AddOnsPath).Path
+        $resolved = (Resolve-Path -LiteralPath $AddOnsPath).Path
+        Save-Settings $resolved
+        return @([pscustomobject]@{ Path = $resolved; Flavour = 'explicit'; Label = 'the folder you gave' })
+    }
+
+    $candidates = Find-AddOnsCandidates
+
+    if ($candidates.Count -eq 0) {
+        throw ("Could not find a WoW AddOns folder. Pass one explicitly, e.g.`n" +
+               "  -AddOnsPath 'C:\Program Files (x86)\World of Warcraft\_classic_era_\Interface\AddOns'`n" +
+               "It is remembered, and the other clients installed beside it are found from then on.")
+    }
+
+    # Every client at once. The reason this exists: the addon supports three
+    # game versions, and keeping them on different builds is how you end up
+    # testing the wrong one.
+    if ($All) { return $candidates }
+
+    if ($Flavour) {
+        $matched = @($candidates | Where-Object { $_.Flavour -like "*$Flavour*" -or $_.Label -like "*$Flavour*" })
+        if ($matched.Count -eq 0) {
+            $known = ($candidates | ForEach-Object { $_.Flavour }) -join ', '
+            throw "No installed client matches '$Flavour'. Found: $known"
+        }
+        return $matched
     }
 
     if (-not $Forget) {
         $remembered = Get-RememberedAddOnsPath
-        if ($remembered) { return $remembered }
-    }
-
-    $candidates = Find-AddOnsCandidates
-    if ($candidates.Count -eq 0) {
-        throw ("Could not find a WoW AddOns folder. Pass one explicitly, e.g.`n" +
-               "  -AddOnsPath 'C:\Program Files (x86)\World of Warcraft\_classic_era_\Interface\AddOns'")
-    }
-
-    $chosen = if ($candidates.Count -eq 1) {
-        $candidates[0]
-    } else {
-        Write-Host "`nFound more than one WoW install:`n"
-        for ($i = 0; $i -lt $candidates.Count; $i++) {
-            Write-Host ("  [{0}] {1}" -f ($i + 1), $candidates[$i])
+        if ($remembered) {
+            $match = $candidates | Where-Object { $_.Path -eq $remembered } | Select-Object -First 1
+            if ($match) { return @($match) }
+            return @([pscustomobject]@{ Path = $remembered; Flavour = 'remembered'; Label = 'remembered folder' })
         }
-        $answer = Read-Host "`nWhich one? (1-$($candidates.Count))"
-        $index = 0
-        if (-not [int]::TryParse($answer, [ref] $index) -or $index -lt 1 -or $index -gt $candidates.Count) {
-            throw "Not a valid choice: '$answer'"
-        }
-        $candidates[$index - 1]
     }
 
-    Save-AddOnsPath $chosen
-    return $chosen
+    if ($candidates.Count -eq 1) {
+        Save-Settings $candidates[0].Path
+        return @($candidates[0])
+    }
+
+    Write-Host "`nFound more than one WoW client:`n"
+    for ($i = 0; $i -lt $candidates.Count; $i++) {
+        Write-Host ("  [{0}] {1}" -f ($i + 1), $candidates[$i].Flavour) -NoNewline
+        Write-Host ("  -- {0}" -f $candidates[$i].Label) -ForegroundColor DarkGray
+    }
+    Write-Host ("  [A] all of them" ) -ForegroundColor DarkGray
+    $answer = Read-Host "`nWhich one? (1-$($candidates.Count), or A)"
+
+    if ($answer -match '^[Aa]$') { return $candidates }
+
+    $index = 0
+    if (-not [int]::TryParse($answer, [ref] $index) -or $index -lt 1 -or $index -gt $candidates.Count) {
+        throw "Not a valid choice: '$answer'"
+    }
+    Save-Settings $candidates[$index - 1].Path
+    Write-Host "Remembered. Use -Flavour, -All or -Forget to install elsewhere." -ForegroundColor DarkGray
+    return @($candidates[$index - 1])
 }
 
 function Get-CommitSha([string] $Ref) {
@@ -197,13 +304,12 @@ function Get-BranchSlug([string] $Name) {
 # This is run by someone who wants to play the game, not debug a script.
 try {
 
-$destinationRoot = Resolve-AddOnsPath
-$destination = Join-Path $destinationRoot $AddonName
+$targets = Resolve-Targets
 
 Write-Host ""
 Write-Host "Repo:    $Owner/$Repo"
 Write-Host "Branch:  $Branch"
-Write-Host "Install: $destination"
+Write-Host ("Clients: {0}" -f (($targets | ForEach-Object { $_.Flavour }) -join ', '))
 Write-Host ""
 
 $sha = Get-CommitSha $Branch
@@ -250,14 +356,20 @@ try {
 
     Write-Host "Version: $stamped"
 
-    if ($PSCmdlet.ShouldProcess($destination, "Replace addon install")) {
+    # One download, installed to each client. Downloading per client would risk
+    # them ending up on different commits if the branch moved mid-run, which is
+    # the exact confusion the version stamp exists to prevent.
+    $installed = 0
+    foreach ($target in $targets) {
+        $destination = Join-Path $target.Path $AddonName
+
+        if (-not $PSCmdlet.ShouldProcess($destination, "Replace addon install")) { continue }
+
         if (Test-Path -LiteralPath $destination) {
-            Write-Host "Removing the previous install..."
             Remove-Item -LiteralPath $destination -Recurse -Force
         }
         New-Item -ItemType Directory -Path $destination -Force | Out-Null
 
-        $copied = 0
         foreach ($item in Get-ChildItem -LiteralPath $extracted.FullName -Force) {
             if ($item.PSIsContainer) {
                 if ($ExcludeDirs -contains $item.Name) { continue }
@@ -266,11 +378,15 @@ try {
                 if ($item.Name -like '.env*') { continue }
             }
             Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -Force
-            $copied++
         }
 
+        $installed++
+        Write-Host ("  installed to {0}  ({1})" -f $target.Flavour, $target.Path) -ForegroundColor Green
+    }
+
+    if ($installed -gt 0) {
         Write-Host ""
-        Write-Host "Installed $copied top-level items to $destination" -ForegroundColor Green
+        Write-Host "Installed to $installed client(s)." -ForegroundColor Green
         Write-Host "Type /reload in game (or restart it if the addon was not loaded before)."
         Write-Host "The addon list should show version $stamped."
     }
