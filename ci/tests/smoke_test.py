@@ -76,6 +76,8 @@ local R = {}
 ns.DB:Initialize()
 ns.Core.initialized = true
 
+R.flavor = ns.Compat.flavor
+
 -- Icons: a tracked buff renders and counts down.
 local buffs = ns.DB:GetGroup("buffs")
 buffs.spells = { { spellID = 187880, name = "Maelstrom Weapon", rankIndependent = true } }
@@ -608,18 +610,99 @@ collapsedSection = SectionByLabel("Essential Cooldowns")
 collapsedSection.header:GetScript("OnClick")(collapsedSection.header)
 R.headerClickExpands = ns.DB:GetGlobal().collapsedSections["cooldowns:essential"] == nil
 
--- The bar section previews its entries as bars rather than as a grid of icons.
+-- The bar section previews its entries with the widget the game actually
+-- builds, not a stand-in: same StatusBar, same fill texture, same name string.
 local barSection = SectionByLabel("Cooldown Bars")
 R.barSectionFound = barSection ~= nil
 local barButton = barSection.buttons[1]
-R.barPreviewShown = barButton ~= nil and barButton.plate:IsShown() or false
-R.barPreviewName = barButton and barButton.plateText:GetText() or ""
+local barPreview = barButton and barButton.barPreview
+R.barPreviewShown = barPreview ~= nil and barPreview:IsShown() or false
+R.barPreviewName = barPreview and barPreview.nameText:GetText() or ""
+-- A colour-block stand-in would satisfy "shown" and "named" too, so assert the
+-- structure only the real BuffBar has.
+R.barPreviewIsRealWidget = barPreview ~= nil
+    and barPreview.bar ~= nil
+    and barPreview.fillTexture ~= nil
+    and barPreview.pip ~= nil
+-- Part-filled, with the pip riding the fill edge.
+R.barPreviewFill = barPreview and barPreview.bar:GetValue() or 0
+R.barPreviewPipShown = barPreview ~= nil and barPreview.pip:IsShown() or false
+-- The row spans the section, so the whole bar drags and clicks. The old plate
+-- sat outside the button's own rect, leaving all but the icon inert.
+R.barRowSpansSection = barButton and barButton:GetWidth() or 0
+
+-- Appearance picked in Edit Mode reaches the preview: switching the group to
+-- Name Only drops the icon from the previewed bar.
+ns.DB:GetGroup("cooldownbars").appearance.barContent = "Name Only"
+ns.SpellPicker:Refresh()
+local nameOnly = SectionByLabel("Cooldown Bars").buttons[1].barPreview
+R.barPreviewFollowsContent = not nameOnly.iconFrame:IsShown()
+ns.DB:GetGroup("cooldownbars").appearance.barContent = "Icon and Name"
+ns.SpellPicker:Refresh()
+R.barPreviewRestoresContent =
+    SectionByLabel("Cooldown Bars").buttons[1].barPreview.iconFrame:IsShown()
+
 -- Essential is a grid section and has an entry by this point, so it is the
--- comparison: same button pool, no plate.
+-- comparison: same button pool, icon-sized, no bar preview.
 local iconSection = SectionByLabel("Essential Cooldowns")
 local iconButton = iconSection.buttons[1]
 R.gridSectionHasEntries = iconButton ~= nil
-R.gridHasNoPlate = iconButton ~= nil and not iconButton.plate:IsShown()
+R.gridHasNoPreview = iconButton ~= nil
+    and (iconButton.barPreview == nil or not iconButton.barPreview:IsShown())
+R.gridRowStaysIconSized = iconButton and iconButton:GetWidth() or 0
+
+-- The picker's icons carry the same bezel the live ones do, and lose it on a
+-- client without the atlas exactly as the live ones do -- the point being that
+-- the two stay in step, not that the bezel is unconditionally present.
+R.pickerIconHasBezel = iconButton ~= nil and iconButton.iconOverlay ~= nil
+R.pickerIconMasked = iconButton ~= nil and iconButton.iconMask ~= nil
+R.liveIconHasBezel = ns.Icon.art.iconOverlay and true or false
+-- A bar row draws BuffBar's own icon and bezel, so the button's must go with
+-- the button's icon rather than floating over the bar.
+R.barRowHidesIconBezel = barButton ~= nil
+    and (barButton.iconOverlay == nil or not barButton.iconOverlay:IsShown())
+
+-- One button pool serves every section, so a button that drew a bar row can be
+-- handed to a different section on the next render. The preview is a child of
+-- its button precisely so it cannot be stranded under a section the button has
+-- since left -- parent it to the section instead and this fails.
+ns.SpellPicker:Show("buffs")
+ns.SpellPicker:Show("cooldowns")
+local barRow = SectionByLabel("Cooldown Bars").buttons[1]
+R.previewParentedToButton = barRow ~= nil
+    and barRow.barPreview ~= nil
+    and barRow.barPreview:GetParent() == barRow
+    and barRow.barPreview:IsShown()
+
+-- A group with the right-click menu turned on must not make the preview take
+-- clicks: BuffBar wires its own OnMouseUp for the live bars, and the picker
+-- button owns this row.
+ns.DB:GetGroup("cooldownbars").appearance.rightClickMenu = true
+ns.SpellPicker:Refresh()
+local clickable = SectionByLabel("Cooldown Bars").buttons[1].barPreview
+R.previewIgnoresClicks = clickable.__mouseClick == false
+ns.DB:GetGroup("cooldownbars").appearance.rightClickMenu = nil
+ns.SpellPicker:Refresh()
+
+-- The hover highlight has to outrank the preview: a HIGHLIGHT-layer texture on
+-- the button is covered by any child frame, and BuffBar raises its own bar two
+-- levels above the frame it is handed.
+R.highlightAbovePreview = barRow.hoverLayer:GetFrameLevel()
+    > barRow.barPreview.bar:GetFrameLevel()
+barRow:GetScript("OnEnter")(barRow)
+R.highlightOnHover = barRow.highlight:IsShown()
+barRow:GetScript("OnLeave")(barRow)
+R.highlightOffHover = barRow.highlight:IsShown()
+
+-- Tabs: Blizzard's own glyphs on its side-tab plate where the client has that
+-- art, the ability icons on the SpellBook plate where it does not.
+local tabs = _G.CDMCSettingsFrame.tabButtons
+R.tabGlyph = tabs.cooldowns.icon.__atlas or ""
+R.tabWidth = tabs.cooldowns:GetWidth()
+-- Profiles has no counterpart in Blizzard's panel, so it keeps an ability icon
+-- either way, flattened only when it would otherwise sit beside real glyphs.
+R.tabFallbackTexture = tabs.profiles.icon:GetTexture() or ""
+R.tabFallbackFlattened = tabs.profiles.icon.__desaturated and true or false
 
 -- The ID box sits beside the search on the spell tabs, and neither belongs on a
 -- panel tab.
@@ -1547,6 +1630,11 @@ _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 ns.Cooldowns:ClearCache()
 
 R.artMask = ns.Icon.art.mask and true or false
+
+R.legacyAuraCalls = _G.__legacyCalls.unitAura
+R.legacySpellInfoCalls = _G.__legacyCalls.spellInfo
+R.legacyCooldownCalls = _G.__legacyCalls.cooldown
+
 return R
 """
 
@@ -1630,17 +1718,24 @@ return R
 """
 
 
-def run(with_art):
-    label = "atlases present" if with_art else "atlases absent"
+def run(with_art, env=None, label=None, flavor="era", legacy=False):
+    if label is None:
+        label = "atlases present" if with_art else "atlases absent"
     print(f"\nsmoke_test [{label}]")
     try:
-        lua = load_addon(with_art)
+        lua = load_addon(with_art, env=env)
         results = dict(lua.execute(SCRIPT))
     except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
         failures.append(f"[{label}] {exc}")
         print(f"  FAIL {exc}")
         return
 
+    check("flavour resolves", results["flavor"], flavor)
+    # A run that swapped the APIs but still resolved through C_* would pass every
+    # assertion below while testing nothing. These say which engine actually ran.
+    check("legacy aura path taken", results["legacyAuraCalls"] > 0, legacy)
+    check("legacy spell-info path taken", results["legacySpellInfoCalls"] > 0, legacy)
+    check("legacy cooldown path taken", results["legacyCooldownCalls"] > 0, legacy)
     check("icon widget", results["iconKind"], "icons")
     check("icon count", results["iconCount"], 1)
     check("icon timer", results["iconTimer"], "12")
@@ -1777,8 +1872,31 @@ def run(with_art):
     check("bar section found", results["barSectionFound"], True)
     check("bar section previews a bar", results["barPreviewShown"], True)
     check("bar preview is named", results["barPreviewName"], "Maelstrom Weapon")
+    check("bar preview is the real widget", results["barPreviewIsRealWidget"], True)
+    check("bar preview is part-filled", results["barPreviewFill"], 0.6)
+    check("bar preview shows the pip", results["barPreviewPipShown"], True)
+    check("bar row spans the section", results["barRowSpansSection"], 288)
+    check("preview follows the group's bar content", results["barPreviewFollowsContent"], True)
+    check("preview restores on change back", results["barPreviewRestoresContent"], True)
     check("grid section has an entry to compare", results["gridSectionHasEntries"], True)
-    check("grid sections have no bar plate", results["gridHasNoPlate"], True)
+    check("grid sections have no bar preview", results["gridHasNoPreview"], True)
+    check("grid rows stay icon-sized", results["gridRowStaysIconSized"], 36)
+    check("picker icons carry the bezel", results["pickerIconHasBezel"], with_art)
+    check("picker icons are masked", results["pickerIconMasked"], with_art)
+    check("picker bezel matches the live icons", results["pickerIconHasBezel"],
+          results["liveIconHasBezel"])
+    check("bar rows hide the button bezel", results["barRowHidesIconBezel"], True)
+    check("preview is a child of its button", results["previewParentedToButton"], True)
+    check("preview never takes clicks", results["previewIgnoresClicks"], True)
+    check("hover highlight outranks the preview", results["highlightAbovePreview"], True)
+    check("highlight shows on hover", results["highlightOnHover"], True)
+    check("highlight clears on leave", results["highlightOffHover"], False)
+    check("tab uses Blizzard's glyph", results["tabGlyph"],
+          "icon_cooldownmanager" if with_art else "")
+    check("tab takes the side-tab plate size", results["tabWidth"], 43 if with_art else 32)
+    check("profiles tab keeps an ability icon", results["tabFallbackTexture"],
+          "Interface\\Icons\\INV_Misc_Book_09")
+    check("profiles icon flattened beside glyphs", results["tabFallbackFlattened"], with_art)
     check("ID box sits on the spell tabs", results["addBoxShownOnSpellTab"], True)
     check("ID box hidden on panel tabs", results["addBoxHiddenOnPanelTab"], False)
     check("title reads Cooldown Settings", results["titleOnCooldowns"], "Cooldown Settings")
@@ -1938,6 +2056,22 @@ def run_profiles():
     check("lone Default not flagged", results["soloNotRepaired"], True)
 
 
+# TBC runs on the pre-C_* engine, so the whole suite is re-run with the modern
+# namespaces removed. Compat caches C_Spell / C_SpellBook / C_UnitAuras into
+# locals at load time, so clearing them here -- before the addon loads -- is what
+# forces every legacy branch to be the one that executes. Those branches were
+# present but never once run in CI before this: the stub defined the modern and
+# legacy calls side by side and the modern one always won.
+TBC_ENV = """
+_G.WOW_PROJECT_BURNING_CRUSADE_CLASSIC = 5
+_G.WOW_PROJECT_ID = 5
+_G.GetBuildInfo = function() return "2.5.6", "44061", "Aug 2026", 20506 end
+_G.C_Spell = nil
+_G.C_SpellBook = nil
+_G.C_UnitAuras = nil
+"""
+
+
 MOP_ENV = """
 _G.WOW_PROJECT_MISTS_CLASSIC = 19
 _G.WOW_PROJECT_ID = 19
@@ -2029,6 +2163,14 @@ def run_mop():
 
 run(with_art=True)
 run(with_art=False)
+# Same suite, same assertions, legacy APIs underneath. Twice, because the two
+# runs answer different questions: with atlases present nothing differs from the
+# known-green Era baseline except the API engine, so a failure can only be the
+# API swap; with them absent it matches a real 2.5.6 client, which ships none of
+# the Cooldown Manager art.
+run(with_art=True, env=TBC_ENV, label="TBC legacy APIs", flavor="tbc", legacy=True)
+run(with_art=False, env=TBC_ENV, label="TBC legacy APIs, no atlases",
+    flavor="tbc", legacy=True)
 run_profiles()
 run_mop()
 

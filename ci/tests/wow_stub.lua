@@ -456,6 +456,14 @@ local atlases = {
     ["UI-HUD-CoolDownManager-Bar"] = true,
     ["UI-HUD-CoolDownManager-Bar-BG"] = true,
     ["UI-HUD-CoolDownManager-Bar-Pip"] = true,
+    -- The settings panel's tab art. Present here so the plated path is
+    -- exercised at all; whether a Classic client really ships it is a runtime
+    -- question the UI source cannot answer, which is why the code probes.
+    ["icon_cooldownmanager"] = true,
+    ["icon_trackedbuffs"] = true,
+    ["common-sidetab"] = true,
+    ["common-sidetab-selected"] = true,
+    ["common-sidetab-hover"] = true,
 }
 _G.__setAtlasesPresent = function(present)
     if present then return end
@@ -550,7 +558,18 @@ _G.C_UnitAuras = {
     end,
 }
 
+-- Proof that a run took the legacy path rather than silently falling through to
+-- the modern one. A flavour run that swaps the APIs but still resolves through
+-- C_* would pass every assertion while testing nothing, so the counters are
+-- asserted both ways: they climb on TBC and stay at zero everywhere else.
+_G.__legacyCalls = { unitAura = 0, spellInfo = 0, cooldown = 0 }
+
+-- The pre-10.0 aura API, which is what TBC actually runs on. Returns the full
+-- fifteen values in the live order rather than a convenient prefix: Compat
+-- destructures as far as timeMod at position 15, so a short return silently
+-- reads nil for a field the modern path supplies.
 _G.UnitAura = function(unit, index, filter)
+    _G.__legacyCalls.unitAura = _G.__legacyCalls.unitAura + 1
     if index ~= 1 then return nil end
     local a
     if unit == "target" then
@@ -560,19 +579,33 @@ _G.UnitAura = function(unit, index, filter)
     end
     if not a then return nil end
     return a.name, a.icon, a.applications, nil, a.duration, a.expirationTime,
-        a.sourceUnit, nil, nil, a.spellId
+        a.sourceUnit, nil, nil, a.spellId, nil, nil, nil, nil, a.timeMod
 end
 
+-- Seven returns, as the live legacy call has: the spellID at position 7 is the
+-- one Compat reads, and it is what lets a name lookup resolve back to an ID.
 _G.GetSpellInfo = function(id)
+    _G.__legacyCalls.spellInfo = _G.__legacyCalls.spellInfo + 1
     local spell = SPELLS[id]
     if not spell then return nil end
-    return spell.name, nil, spell.icon, spell.castTime or 0
+    return spell.name, nil, spell.icon, spell.castTime or 0, nil, nil, id
 end
 
 -- Which spell is armed for the next swing. Set to a spellID to queue it.
 _G.__queued = nil
 _G.IsCurrentSpell = function(id) return _G.__queued == id end
-_G.GetSpellCooldown = function() return 0, 0, 1 end
+-- Driven from the same __cd the modern C_Spell stub reads, so a cooldown test
+-- means the same thing on either path. `enabled` is the legacy 1/0, not a bool.
+_G.GetSpellCooldown = function()
+    _G.__legacyCalls.cooldown = _G.__legacyCalls.cooldown + 1
+    local cd = _G.__cd or {}
+    return cd.start or 0, cd.duration or 0, 1
+end
+-- TBC has no charges at all, so nil here is the honest answer rather than a gap.
 _G.GetSpellCharges = function() return nil end
 _G.GetSpellTexture = function(id) return SPELLS[id] and SPELLS[id].icon end
-_G.IsUsableSpell = function() return true, false end
+_G.IsUsableSpell = function()
+    local cd = _G.__cd or {}
+    if (cd.duration or 0) > 1.6 then return false, false end
+    return true, false
+end

@@ -448,7 +448,11 @@ Const.QUEUED_GLOW_COLOR = { 0.30, 0.85, 1.00, 1 }
 --
 -- Measured on Classic Era 1.15.9 via /cdmc ui, 2026-08-30:
 --   present -- mask, bar (and the bar art beside it)
---   absent  -- oorShadow
+--   absent  -- oorShadow, and all five settings-panel atlases below
+-- So the icon mask and the bar art land on Era, while the tab glyphs fall back
+-- to the ability icons they replaced and produce no visible change there. They
+-- are kept as insurance for a client that ships the art, not for an effect
+-- today.
 -- Do not treat that as permanent; re-run /cdmc ui rather than trusting this
 -- list, which is a record of one client on one day, not a contract.
 Const.ART = {
@@ -463,6 +467,19 @@ Const.ART = {
     bar         = "UI-HUD-CoolDownManager-Bar",
     barBG       = "UI-HUD-CoolDownManager-Bar-BG",
     barPip      = "UI-HUD-CoolDownManager-Bar-Pip",
+
+    -- The settings panel's own art, read out of Blizzard's UI source:
+    -- Blizzard_CooldownViewer/CooldownViewerSettings.xml names the two tab
+    -- glyphs, and they sit on LargeSideTabButtonTemplate (SharedUIPanelTemplates
+    -- .xml), a 43x55 plate over the three common-sidetab atlases. Every one is
+    -- probed rather than assumed: whether they resolve on a Classic client is
+    -- not knowable from the source, since the addon that uses them there is
+    -- gated `AllowLoadGameType: standard`.
+    tabCooldowns = "icon_cooldownmanager",
+    tabBuffs     = "icon_trackedbuffs",
+    sideTab      = "common-sidetab",
+    sideTabOn    = "common-sidetab-selected",
+    sideTabHover = "common-sidetab-hover",
 }
 
 Const.FALLBACK_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
