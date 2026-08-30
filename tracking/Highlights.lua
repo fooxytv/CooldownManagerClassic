@@ -91,10 +91,21 @@ function Highlights:RuleActive(rule)
     return true
 end
 
+-- Whether a Classic client fires a proc overlay at all is the question behind
+-- #76: if it does, following it is how the glow stays in step with the action
+-- bar; if it never fires, the bar is lighting from plain usability and there is
+-- nothing here to follow. Counted rather than reasoned about, and reported by
+-- /cdmc status, because the answer differs per flavour and per ability.
+Highlights.overlayEventCount = 0
+Highlights.overlayLastSpell = nil
+
 function Highlights:OnOverlayShow(spellID)
     if not spellID then return end
     overlaySpells[spellID] = true
     overlayAny = true
+
+    self.overlayEventCount = (self.overlayEventCount or 0) + 1
+    self.overlayLastSpell = ns.Spellbook:GetName(spellID) or tostring(spellID)
 end
 
 function Highlights:OnOverlayHide(spellID)

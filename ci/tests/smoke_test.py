@@ -1124,6 +1124,27 @@ ns.Highlights:OnCombatLogEvent()
 R.overpowerGroupOff = opIcon.glowRequested and true or false
 ns.DB:SetGroupHighlightEnabled("essential", true)
 
+-- Proc overlays are counted so /cdmc status can answer whether a Classic client
+-- fires them at all (#76). Zero events and a fired event have to be
+-- distinguishable, or the diagnostic cannot tell "never fires" from "not
+-- counted".
+-- Measured as a delta: earlier sections of this script fire overlays too, and a
+-- diagnostic that only ever counts up should not be asserted against zero.
+local overlayBefore = ns.Highlights.overlayEventCount or 0
+ns.Highlights:OnOverlayShow(5176)          -- Wrath; a spell the stub can name
+R.overlayCounted = (ns.Highlights.overlayEventCount or 0) - overlayBefore
+R.overlayLastSpell = ns.Highlights.overlayLastSpell
+
+-- An ID the stub cannot name still records something usable, rather than
+-- leaving the line blank in a bug report.
+ns.Highlights:OnOverlayShow(999999)
+R.overlayUnnamedSpell = ns.Highlights.overlayLastSpell
+
+ns.Highlights:OnOverlayHide(5176)
+-- Hiding must not decrement: the count answers "has this client ever fired
+-- one", not "how many are live right now".
+R.overlayCountAfterHide = (ns.Highlights.overlayEventCount or 0) - overlayBefore
+
 -- The same reactive ability in Utility rather than Essential. Reported as not
 -- glowing there, and every assertion above only ever exercised essential, so the
 -- group loop was covered for exactly one group.
@@ -1858,6 +1879,10 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("overpower clears after window", results["overpowerGlowOff"], False)
     check("overpower respects group toggle", results["overpowerGroupOff"], False)
     check("reactive glow reaches the utility group", results["utilityGlowOn"], True)
+    check("proc overlay counts a fired event", results["overlayCounted"], 1)
+    check("proc overlay records the spell", results["overlayLastSpell"], "Wrath")
+    check("unnameable spell still records an id", results["overlayUnnamedSpell"], "999999")
+    check("hiding an overlay does not decrement", results["overlayCountAfterHide"], 2)
     check("utility respects its own highlight flag", results["utilityGlowOffWhenFlagOff"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)

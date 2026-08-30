@@ -402,7 +402,13 @@ function Core:Initialize()
     self:RefreshAll()
 
     for _, event in ipairs(EVENTS) do
-        RegisterIfValid(event)
+        local registered = RegisterIfValid(event)
+        -- Kept, because an event the client rejects registers silently: without
+        -- this, "no proc glow" and "no such event on this flavour" look the same
+        -- from the outside, and they call for opposite fixes (#76).
+        if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
+            self.overlayEventRegistered = registered and true or false
+        end
     end
 
     for _, event in ipairs(UNIT_EVENTS) do
@@ -613,6 +619,16 @@ function Core:PrintStatus()
     out(("Range: API |cffffff00%s|r  watching: |cffffff00%s|r  hostile target: |cffffff00%s|r")
         :format(rangeAPI, tostring(ns.Range:IsWatching()),
                 tostring(UnitExists("target") and UnitCanAttack("player", "target") or false)))
+
+    -- Answers #76 without needing to reason about it: if the event never
+    -- registers, or registers and never fires, the action bar is lighting
+    -- reactive abilities from usability rather than a proc overlay, and there is
+    -- no Blizzard signal here for the highlights to follow.
+    out(("Proc overlay: event |cffffff00%s|r  seen: |cffffff00%d|r%s")
+        :format(self.overlayEventRegistered and "registered" or "|cffff5555not valid|r",
+                ns.Highlights.overlayEventCount or 0,
+                ns.Highlights.overlayLastSpell
+                    and ("  last: |cffffff00" .. ns.Highlights.overlayLastSpell .. "|r") or ""))
 
     out(("Edit Mode: |cffffff00%s|r  active: |cffffff00%s|r  profile: |cffffff00%s|r")
         :format(ns.EditMode:IsAvailable() and "available" or "absent",
