@@ -331,7 +331,11 @@ Write-Host ""
 
 $sha = Get-CommitSha $Branch
 $staging = Join-Path ([IO.Path]::GetTempPath()) ("$AddonName-" + [Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $staging -Force | Out-Null
+# -WhatIf:$false on every staging-directory operation from here down. These
+# write to a temp folder, not to the game install, so suppressing them under
+# -WhatIf does not protect anything -- it just leaves the download with nowhere
+# to land, and the dry run fails claiming the branch does not exist.
+New-Item -ItemType Directory -Path $staging -Force -WhatIf:$false | Out-Null
 
 try {
     $archive = Join-Path $staging 'source.zip'
@@ -347,7 +351,7 @@ try {
                "Underlying error: $($_.Exception.Message)")
     }
 
-    Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force
+    Expand-Archive -LiteralPath $archive -DestinationPath $staging -Force -WhatIf:$false
 
     # GitHub names the top folder after the ref with slashes flattened, which is
     # fiddly to predict; there is only ever one, so take whatever is there.
@@ -367,8 +371,11 @@ try {
 
     foreach ($toc in Get-ChildItem -LiteralPath $extracted.FullName -Filter '*.toc') {
         $text = Get-Content -LiteralPath $toc.FullName -Raw
-        $text = $text -replace '(?m)^## Version:.*$', "## Version: $stamped"
-        Set-Content -LiteralPath $toc.FullName -Value $text -NoNewline
+        # [^\r\n]* rather than .*$ -- .NET's `.` matches \r, so `.*$` consumed the
+        # carriage return too and rewrote a CRLF Version line as LF while every
+        # other line in the file kept its CRLF.
+        $text = $text -replace '(?m)^## Version:[^\r\n]*', "## Version: $stamped"
+        Set-Content -LiteralPath $toc.FullName -Value $text -NoNewline -WhatIf:$false
     }
 
     Write-Host "Version: $stamped"
@@ -408,7 +415,7 @@ try {
         Write-Host "The addon list should show version $stamped."
     }
 } finally {
-    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue -WhatIf:$false
 }
 
 } catch {
