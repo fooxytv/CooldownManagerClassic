@@ -307,12 +307,15 @@ function Icon:Update(frame, state, appearance)
 
         local colors = Const.ITEM_COLORS
         local tint
-        if appearance.colorOutOfRange ~= false and state.outOfRange then
+        if appearance.colorByUsability == false then
+            -- Available or not, nothing more. Out of range is a reason you
+            -- cannot cast something, so it belongs behind this switch with the
+            -- rest of them rather than surviving it as a third colour.
+            tint = state.available and colors.usable or colors.notUsable
+        elseif state.outOfRange then
             -- Ahead of the power tint, as it is on Blizzard's own action bars:
             -- being unable to reach the target is the blocker you act on first.
             tint = colors.notInRange
-        elseif appearance.colorByUsability == false then
-            tint = state.available and colors.usable or colors.notUsable
         elseif state.usable then
             tint = colors.usable
         elseif state.notEnoughPower then

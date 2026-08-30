@@ -244,6 +244,35 @@ end
 -- answer for this pairing -- no range requirement, no valid unit, not a spell).
 -- nil is a real third state here, not a failure: callers must not fold it into
 -- "out of range".
+--
+-- Both branches are kept, but only the modern one has ever been seen to run.
+-- /cdmc status reports C_SpellID on all three supported clients -- Classic Era
+-- 1.15.9, TBC 2.5.6 and MoP 5.5.4 -- so C_Spell.IsSpellInRange exists on every
+-- one of them and the name path below is reached by nothing but the test suite.
+--
+-- That contradicts the assumption this was written under, that Classic had only
+-- the name-based call and bridging ID to name was the work. It was not. Do not
+-- read the fallback as evidence that some supported client needs it.
+--
+-- It stays anyway, for what it costs: ten lines behind a branch that is never
+-- taken, against the alternative failure being no range colour at all on a
+-- client nobody anticipated -- a Classic re-release, a PTR build, or a future
+-- flavour. The pcall above also falls through to here if the modern call errors
+-- rather than merely being absent. The TBC test run keeps the path exercised,
+-- so it is insurance that is checked rather than code left to rot.
+-- Which branch IsSpellInRange below will take, derived from the same cached
+-- locals it uses. Deliberately not re-derived from _G by the caller: Compat
+-- caches the C_* namespaces at load like every other one, so a global read at
+-- report time can disagree with what the code actually does -- a namespace
+-- populated after we load reads as modern while every call takes the legacy
+-- path. A status line that can differ from the behaviour it describes is worse
+-- than none, because it is trusted.
+function Compat.DescribeRangeAPI()
+    if C_Spell_ and C_Spell_.IsSpellInRange then return "C_SpellID" end
+    if _G.IsSpellInRange then return "legacy name" end
+    return "absent"
+end
+
 function Compat.IsSpellInRange(spellID, unit)
     if not spellID or not unit then return nil end
 

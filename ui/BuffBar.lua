@@ -372,9 +372,12 @@ function BuffBar:Update(frame, state, appearance)
 
     -- Applied after the phase and usability chains rather than inside them: both
     -- paths above land here, and out of range outranks whatever either picked.
-    -- Desaturation is left alone -- red over grey reads as muddy, not urgent.
+    -- Behind colorByUsability with the rest of the state colours, and off for
+    -- aura groups -- how far away the target stands says nothing about a buff
+    -- already on you. Desaturation is left alone: red over grey reads as muddy
+    -- rather than urgent.
     if not Const.AURA_GROUPS[frame.groupKey]
-        and appearance.colorOutOfRange ~= false and state.outOfRange
+        and appearance.colorByUsability ~= false and state.outOfRange
     then
         iconTint = Const.ITEM_COLORS.notInRange
     end

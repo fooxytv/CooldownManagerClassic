@@ -23,13 +23,17 @@ local results = {}
 -- Only groups that show castable abilities. Aura groups track what is already
 -- on you, so how far away the target stands says nothing about them, and
 -- Icon/BuffBar short-circuit them to white regardless.
+--
+-- Gated on the same setting that draws the colour: with usability tinting off
+-- everywhere there is nothing for a poll to feed, and polling the client twice
+-- a second to compute a colour no one renders is pure waste.
 local function AnyGroupWantsRange()
     for _, key in ipairs(Const.GROUP_ORDER) do
         if not Const.AURA_GROUPS[key] then
             local settings = ns.DB:GetGroup(key)
             if settings and settings.enabled ~= false
                 and settings.appearance
-                and settings.appearance.colorOutOfRange ~= false
+                and settings.appearance.colorByUsability ~= false
                 and #settings.spells > 0
             then
                 return true

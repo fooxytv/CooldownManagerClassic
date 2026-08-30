@@ -321,7 +321,6 @@ Const.DEFAULT_APPEARANCE = {
     hideWhenEmpty = true,
     showGCD = true,
     colorByUsability = true,
-    colorOutOfRange = true,
 
     orientation = "Horizontal",
     rows = 1,
@@ -441,9 +440,27 @@ Const.BAR_COOLDOWN_COLOR = { 0.38, 0.40, 0.48 }
 
 Const.QUEUED_GLOW_COLOR = { 0.30, 0.85, 1.00, 1 }
 
+-- Which of these a Classic client actually ships cannot be reasoned about from
+-- Blizzard's UI source: the addon that references them is gated
+-- AllowLoadGameType: standard, so every reference there is retail-only, and
+-- atlas existence lives in the client's texture database rather than in any Lua.
+-- Every consumer probes with Compat.AtlasExists and falls back.
+--
+-- Measured on Classic Era 1.15.9 via /cdmc ui, 2026-08-30:
+--   present -- mask, bar (and the bar art beside it)
+--   absent  -- oorShadow, and all five settings-panel atlases below
+-- So the icon mask and the bar art land on Era, while the tab glyphs fall back
+-- to the ability icons they replaced and produce no visible change there. They
+-- are kept as insurance for a client that ships the art, not for an effect
+-- today.
+-- Do not treat that as permanent; re-run /cdmc ui rather than trusting this
+-- list, which is a record of one client on one day, not a contract.
 Const.ART = {
     mask        = "UI-HUD-CoolDownManager-Mask",
     iconOverlay = "UI-HUD-CoolDownManager-IconOverlay",
+    -- Absent on Era. The out-of-range work deliberately tints the icon rather
+    -- than drawing this, and that is why: using it would have drawn nothing at
+    -- all on the client the addon is mainly played on.
     oorShadow   = "UI-CooldownManager-OORshadow",
     swipe       = "Interface\\HUD\\UI-HUD-CoolDownManager-Icon-Swipe",
     edge        = "Interface\\Cooldown\\UI-HUD-ActionBar-SecondaryCooldown",

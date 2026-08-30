@@ -1124,6 +1124,58 @@ ns.Highlights:OnCombatLogEvent()
 R.overpowerGroupOff = opIcon.glowRequested and true or false
 ns.DB:SetGroupHighlightEnabled("essential", true)
 
+-- Proc overlays are counted so /cdmc status can answer whether a Classic client
+-- fires them at all (#76). Zero events and a fired event have to be
+-- distinguishable, or the diagnostic cannot tell "never fires" from "not
+-- counted".
+-- Measured as a delta: earlier sections of this script fire overlays too, and a
+-- diagnostic that only ever counts up should not be asserted against zero.
+local overlayBefore = ns.Highlights.overlayEventCount or 0
+ns.Highlights:OnOverlayShow(5176)          -- Wrath; a spell the stub can name
+R.overlayCounted = (ns.Highlights.overlayEventCount or 0) - overlayBefore
+R.overlayLastSpell = ns.Highlights.overlayLastSpell
+
+-- An ID the stub cannot name still records something usable, rather than
+-- leaving the line blank in a bug report.
+ns.Highlights:OnOverlayShow(999999)
+R.overlayUnnamedSpell = ns.Highlights.overlayLastSpell
+
+ns.Highlights:OnOverlayHide(5176)
+-- Hiding must not decrement: the count answers "has this client ever fired
+-- one", not "how many are live right now".
+R.overlayCountAfterHide = (ns.Highlights.overlayEventCount or 0) - overlayBefore
+
+-- The same reactive ability in Utility rather than Essential. Reported as not
+-- glowing there, and every assertion above only ever exercised essential, so the
+-- group loop was covered for exactly one group.
+--
+-- Enabled the way the Edit Mode checkbox does it -- writing appearance
+-- .highlightsEnabled directly -- rather than through SetGroupHighlightEnabled,
+-- so this covers the path a player actually takes.
+local uGroup = ns.Group.Create("utility")
+local uIcon = ns.Icon:Acquire(uGroup.frame, "utility")
+uIcon.entry = { name = "Overpower" }
+uIcon.spellID = 7384
+uGroup.icons = { uIcon }
+ns.groups["utility"] = uGroup
+
+ns.DB:GetGroup("utility").appearance.highlightsEnabled = true
+
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.utilityGlowOn = uIcon.glowRequested and true or false
+
+-- And that the flag is genuinely read for utility, not inherited from essential
+-- being on: with only utility off, a fresh dodge must leave it dark while
+-- essential still lights.
+ns.DB:GetGroup("utility").appearance.highlightsEnabled = false
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+ns.Highlights:OnCombatLogEvent()
+R.utilityGlowOffWhenFlagOff = uIcon.glowRequested and true or false
+ns.DB:GetGroup("utility").appearance.highlightsEnabled = true
+
 -- Richer visibility: hide-when-full and with-target track the resource/target.
 local pbar = ns.bars.power
 pbar.unlocked = false
@@ -1556,8 +1608,10 @@ R.rangeNoTarget = ns.Range:IsWatching()
 R.rangeNoTargetTint = TintOf(5176)
 _G.__hasTarget = true
 
--- The per-group toggle stops that group being painted...
-ns.DB:GetGroup("essential").appearance.colorOutOfRange = false
+-- Range has no switch of its own: it rides colorByUsability, because being out
+-- of reach is a reason you cannot cast something like any other. Turning that
+-- off for one group stops it being painted there...
+ns.DB:GetGroup("essential").appearance.colorByUsability = false
 ns.Cooldowns:ClearCache()
 ns.Core:UpdateAll()
 R.rangeToggledOffTint = TintOf(5176)
@@ -1565,10 +1619,11 @@ R.rangeToggledOffTint = TintOf(5176)
 -- cost is per pass and not per group.
 R.rangeOtherGroupKeepsPoll = ns.Range:IsWatching()
 
--- Off everywhere, and the poll shuts down entirely.
+-- Off everywhere, and the poll shuts down entirely rather than computing a
+-- colour nothing will draw.
 for _, key in ipairs(ns.Constants.GROUP_ORDER) do
     if not ns.Constants.AURA_GROUPS[key] then
-        ns.DB:GetGroup(key).appearance.colorOutOfRange = false
+        ns.DB:GetGroup(key).appearance.colorByUsability = false
     end
 end
 ns.Cooldowns:ClearCache()
@@ -1577,9 +1632,13 @@ R.rangeToggledOff = ns.Range:IsWatching()
 
 for _, key in ipairs(ns.Constants.GROUP_ORDER) do
     if not ns.Constants.AURA_GROUPS[key] then
-        ns.DB:GetGroup(key).appearance.colorOutOfRange = nil
+        ns.DB:GetGroup(key).appearance.colorByUsability = nil
     end
 end
+
+-- The setting is gone rather than merely unread: a stale profile carrying it
+-- must not resurrect a switch that no longer exists.
+R.rangeNoOwnSetting = ns.Constants.DEFAULT_APPEARANCE.colorOutOfRange == nil
 
 -- Ticker cadence: with nothing animating the pass used to stop the ticker
 -- outright, which would freeze the colour where it last landed. A watched target
@@ -1592,6 +1651,12 @@ R.rangeKeepsTicking = _G.__tickerInterval
 _G.__hasTarget = false
 ns.Core:UpdateAll()
 R.rangeStopsTicking = _G.__tickerInterval ~= 0.2
+
+-- What /cdmc status reports must be the branch the code takes, not a second
+-- opinion read off _G: the two can disagree on a client that populates a
+-- namespace after we load, and a status line trusted in a bug report is worse
+-- than none if it can lie.
+R.rangeAPIDescribed = ns.Compat.DescribeRangeAPI()
 
 -- The modern call wins where a client has one, without going through the name.
 -- Where none exists there is no preference to test: Compat caches the namespace
@@ -1813,6 +1878,12 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("overpower clears on cast", results["overpowerGlowClearedOnCast"], False)
     check("overpower clears after window", results["overpowerGlowOff"], False)
     check("overpower respects group toggle", results["overpowerGroupOff"], False)
+    check("reactive glow reaches the utility group", results["utilityGlowOn"], True)
+    check("proc overlay counts a fired event", results["overlayCounted"], 1)
+    check("proc overlay records the spell", results["overlayLastSpell"], "Wrath")
+    check("unnameable spell still records an id", results["overlayUnnamedSpell"], "999999")
+    check("hiding an overlay does not decrement", results["overlayCountAfterHide"], 2)
+    check("utility respects its own highlight flag", results["utilityGlowOffWhenFlagOff"], False)
     check("bar hidden again when locked", results["barHiddenAgain"], False)
     check("bar shown when enabled", results["barShownWhenEnabled"], True)
     check("bar position reverted", results["barPositionReverted"], 11)
@@ -1911,13 +1982,18 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("friendly target leaves the tint alone", results["rangeFriendlyTint"], "1.00/1.00/1.00")
     check("no target is not watched", results["rangeNoTarget"], False)
     check("no target leaves the tint alone", results["rangeNoTargetTint"], "1.00/1.00/1.00")
-    check("the toggle stops the tint for that group", results["rangeToggledOffTint"], "1.00/1.00/1.00")
+    check("usability off stops the tint for that group", results["rangeToggledOffTint"], "1.00/1.00/1.00")
+    check("range has no setting of its own", results["rangeNoOwnSetting"], True)
     check("another group still wanting range keeps the poll", results["rangeOtherGroupKeepsPoll"], True)
     check("off everywhere stops the poll", results["rangeToggledOff"], False)
     check("a watched target keeps the ticker alive", results["rangeKeepsTicking"], 0.2)
     check("dropping the target releases the range cadence", results["rangeStopsTicking"], True)
     # "false/nil" where the client has C_Spell; "legacy-only" on one that does
     # not, where every assertion above already ran through the name-based call.
+    # "C_SpellID" on a stubbed client with the namespace, "legacy name" on the
+    # TBC run that clears it. Never "absent": the stub always has one of them.
+    check("status reports the range path the code takes",
+          results["rangeAPIDescribed"] in ("C_SpellID", "legacy name"), True)
     check("modern range call is preferred where one exists",
           results["rangeModernPath"] in ("false/nil", "legacy-only"), True)
     check("bottom hint line is gone", results["noBottomHint"], True)
