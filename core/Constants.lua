@@ -321,7 +321,6 @@ Const.DEFAULT_APPEARANCE = {
     hideWhenEmpty = true,
     showGCD = true,
     colorByUsability = true,
-    colorOutOfRange = true,
 
     orientation = "Horizontal",
     rows = 1,

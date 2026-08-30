@@ -1473,8 +1473,10 @@ R.rangeNoTarget = ns.Range:IsWatching()
 R.rangeNoTargetTint = TintOf(5176)
 _G.__hasTarget = true
 
--- The per-group toggle stops that group being painted...
-ns.DB:GetGroup("essential").appearance.colorOutOfRange = false
+-- Range has no switch of its own: it rides colorByUsability, because being out
+-- of reach is a reason you cannot cast something like any other. Turning that
+-- off for one group stops it being painted there...
+ns.DB:GetGroup("essential").appearance.colorByUsability = false
 ns.Cooldowns:ClearCache()
 ns.Core:UpdateAll()
 R.rangeToggledOffTint = TintOf(5176)
@@ -1482,10 +1484,11 @@ R.rangeToggledOffTint = TintOf(5176)
 -- cost is per pass and not per group.
 R.rangeOtherGroupKeepsPoll = ns.Range:IsWatching()
 
--- Off everywhere, and the poll shuts down entirely.
+-- Off everywhere, and the poll shuts down entirely rather than computing a
+-- colour nothing will draw.
 for _, key in ipairs(ns.Constants.GROUP_ORDER) do
     if not ns.Constants.AURA_GROUPS[key] then
-        ns.DB:GetGroup(key).appearance.colorOutOfRange = false
+        ns.DB:GetGroup(key).appearance.colorByUsability = false
     end
 end
 ns.Cooldowns:ClearCache()
@@ -1494,9 +1497,13 @@ R.rangeToggledOff = ns.Range:IsWatching()
 
 for _, key in ipairs(ns.Constants.GROUP_ORDER) do
     if not ns.Constants.AURA_GROUPS[key] then
-        ns.DB:GetGroup(key).appearance.colorOutOfRange = nil
+        ns.DB:GetGroup(key).appearance.colorByUsability = nil
     end
 end
+
+-- The setting is gone rather than merely unread: a stale profile carrying it
+-- must not resurrect a switch that no longer exists.
+R.rangeNoOwnSetting = ns.Constants.DEFAULT_APPEARANCE.colorOutOfRange == nil
 
 -- Ticker cadence: with nothing animating the pass used to stop the ticker
 -- outright, which would freeze the colour where it last landed. A watched target
@@ -1793,7 +1800,8 @@ def run(with_art):
     check("friendly target leaves the tint alone", results["rangeFriendlyTint"], "1.00/1.00/1.00")
     check("no target is not watched", results["rangeNoTarget"], False)
     check("no target leaves the tint alone", results["rangeNoTargetTint"], "1.00/1.00/1.00")
-    check("the toggle stops the tint for that group", results["rangeToggledOffTint"], "1.00/1.00/1.00")
+    check("usability off stops the tint for that group", results["rangeToggledOffTint"], "1.00/1.00/1.00")
+    check("range has no setting of its own", results["rangeNoOwnSetting"], True)
     check("another group still wanting range keeps the poll", results["rangeOtherGroupKeepsPoll"], True)
     check("off everywhere stops the poll", results["rangeToggledOff"], False)
     check("a watched target keeps the ticker alive", results["rangeKeepsTicking"], 0.2)
