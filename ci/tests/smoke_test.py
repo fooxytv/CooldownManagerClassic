@@ -1300,6 +1300,136 @@ R.fillCheckOff = ns.DB:GetBar("power").appearance.fillColor
 ns.Core:PrintUIProbe()
 R.uiProbeRan = true
 
+-- Range tinting (#72): a hostile target that is too far away turns the icons of
+-- the abilities that cannot reach it red. The stub has no C_Spell.IsSpellInRange,
+-- so this exercises the Classic path -- spellID resolved back to a name for the
+-- legacy call -- which is the one that actually ships on Era and TBC.
+local savedRangeSpells = ns.DB:GetGroup("essential").spells
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
+ns.DB:GetGroup("essential").spells = {
+    { spellID = 5176, name = "Wrath", rankIndependent = true },
+    { spellID = 1126, name = "Mark of the Wild", rankIndependent = true },
+}
+local rangeGroup = ns.Group.Create("essential")
+rangeGroup:Layout()
+
+local function IconFor(spellID)
+    for _, icon in ipairs(rangeGroup.icons) do
+        if icon.spellID == spellID then return icon end
+    end
+end
+
+local function TintOf(spellID)
+    local c = IconFor(spellID).texture.__vertex
+    return ("%.2f/%.2f/%.2f"):format(c[1], c[2], c[3])
+end
+
+local NOT_IN_RANGE = ("%.2f/%.2f/%.2f"):format(unpack(ns.Constants.ITEM_COLORS.notInRange))
+local USABLE = ("%.2f/%.2f/%.2f"):format(unpack(ns.Constants.ITEM_COLORS.usable))
+R.rangeColourDiffers = NOT_IN_RANGE ~= USABLE
+
+-- Hostile target, Wrath out of reach. Mark of the Wild is absent from __inRange,
+-- so the client answers nil for it -- no range requirement.
+_G.__hasTarget = true
+_G.__targetHostile = true
+_G.__inRange = { Wrath = 0 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+
+R.rangeWatching = ns.Range:IsWatching()
+R.rangeOutOfRange = ns.Range:IsOutOfRange(5176)
+-- The whole point of the nil branch: a spell the client will not measure must
+-- not read as out of range.
+R.rangeNilIsNotOutOfRange = ns.Range:IsOutOfRange(1126)
+R.rangeTintApplied = TintOf(5176)
+R.rangeNilSpellUntinted = TintOf(1126)
+
+-- Walking back into range clears it.
+_G.__inRange = { Wrath = 1 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeInRange = ns.Range:IsOutOfRange(5176)
+R.rangeInRangeTint = TintOf(5176)
+
+-- Out of range outranks the no-power tint, as it does on Blizzard's action bars.
+local savedUsable = _G.C_Spell.IsSpellUsable
+_G.C_Spell.IsSpellUsable = function() return false, true end
+_G.__inRange = { Wrath = 0 }
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeBeatsNoPower = TintOf(5176)
+_G.C_Spell.IsSpellUsable = savedUsable
+
+-- A friendly target is not measured at all: an offensive spell reports out of
+-- range against an ally at any distance, and reddening the bar while healing
+-- somebody would be worse than saying nothing.
+_G.__targetHostile = false
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeFriendlyIgnored = ns.Range:IsWatching()
+R.rangeFriendlyTint = TintOf(5176)
+_G.__targetHostile = true
+
+-- No target, nothing to measure against.
+_G.__hasTarget = false
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeNoTarget = ns.Range:IsWatching()
+R.rangeNoTargetTint = TintOf(5176)
+_G.__hasTarget = true
+
+-- The per-group toggle stops that group being painted...
+ns.DB:GetGroup("essential").appearance.colorOutOfRange = false
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeToggledOffTint = TintOf(5176)
+-- ...while another group that still wants it keeps the poll alive, since the
+-- cost is per pass and not per group.
+R.rangeOtherGroupKeepsPoll = ns.Range:IsWatching()
+
+-- Off everywhere, and the poll shuts down entirely.
+for _, key in ipairs(ns.Constants.GROUP_ORDER) do
+    if not ns.Constants.AURA_GROUPS[key] then
+        ns.DB:GetGroup(key).appearance.colorOutOfRange = false
+    end
+end
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeToggledOff = ns.Range:IsWatching()
+
+for _, key in ipairs(ns.Constants.GROUP_ORDER) do
+    if not ns.Constants.AURA_GROUPS[key] then
+        ns.DB:GetGroup(key).appearance.colorOutOfRange = nil
+    end
+end
+
+-- Ticker cadence: with nothing animating the pass used to stop the ticker
+-- outright, which would freeze the colour where it last landed. A watched target
+-- has to keep it polling.
+ns.Cooldowns:ClearCache()
+ns.Core:UpdateAll()
+R.rangeKeepsTicking = _G.__tickerInterval
+
+-- ...and dropping the target lets it stop again, so an idle bar costs nothing.
+_G.__hasTarget = false
+ns.Core:UpdateAll()
+R.rangeStopsTicking = _G.__tickerInterval ~= 0.2
+
+-- The modern call wins where a client has one, without going through the name.
+_G.C_Spell.IsSpellInRange = function(id, unit)
+    if id == 5176 and unit == "target" then return false end
+    return nil
+end
+R.rangeModernPath = ns.Compat.IsSpellInRange(5176, "target")
+R.rangeModernNil = tostring(ns.Compat.IsSpellInRange(1126, "target"))
+_G.C_Spell.IsSpellInRange = nil
+
+_G.__inRange = nil
+_G.__hasTarget = false
+ns.DB:GetGroup("essential").spells = savedRangeSpells
+_G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
+ns.Cooldowns:ClearCache()
+
 R.artMask = ns.Icon.art.mask and true or false
 return R
 """
@@ -1534,6 +1664,26 @@ def run(with_art):
     check("unknown class falls back to the addon icon", results["portraitFallback"],
           "Interface\\Icons\\INV_Misc_PocketWatch_01")
     check("profile dropdown built", results["profileDropdownBuilt"], True)
+    check("range colour is distinct from usable", results["rangeColourDiffers"], True)
+    check("hostile target is watched", results["rangeWatching"], True)
+    check("out-of-range spell reads out of range", results["rangeOutOfRange"], True)
+    check("unmeasurable spell is not out of range", results["rangeNilIsNotOutOfRange"], False)
+    check("out-of-range icon tints red", results["rangeTintApplied"], "0.64/0.15/0.15")
+    check("unmeasurable spell stays untinted", results["rangeNilSpellUntinted"], "1.00/1.00/1.00")
+    check("back in range clears the state", results["rangeInRange"], False)
+    check("back in range clears the tint", results["rangeInRangeTint"], "1.00/1.00/1.00")
+    check("out of range outranks no power", results["rangeBeatsNoPower"], "0.64/0.15/0.15")
+    check("friendly target is not watched", results["rangeFriendlyIgnored"], False)
+    check("friendly target leaves the tint alone", results["rangeFriendlyTint"], "1.00/1.00/1.00")
+    check("no target is not watched", results["rangeNoTarget"], False)
+    check("no target leaves the tint alone", results["rangeNoTargetTint"], "1.00/1.00/1.00")
+    check("the toggle stops the tint for that group", results["rangeToggledOffTint"], "1.00/1.00/1.00")
+    check("another group still wanting range keeps the poll", results["rangeOtherGroupKeepsPoll"], True)
+    check("off everywhere stops the poll", results["rangeToggledOff"], False)
+    check("a watched target keeps the ticker alive", results["rangeKeepsTicking"], 0.2)
+    check("dropping the target releases the range cadence", results["rangeStopsTicking"], True)
+    check("modern range call is preferred", results["rangeModernPath"], False)
+    check("modern range call passes nil through", results["rangeModernNil"], "nil")
     check("bottom hint line is gone", results["noBottomHint"], True)
     check("ID box anchors to the frame edge", results["addBoxAnchorsToFrame"], "TOPRIGHT")
     check("druid offers three layouts", results["druidLayoutCount"], 3)

@@ -58,6 +58,7 @@ local OPTION_TOGGLES = {
     { option = "hideWhenInactive",    label = "Only show while active (buffs)" },
     { option = "showGCD",             label = "Show global cooldown" },
     { option = "colorByUsability",    label = "Tint when unusable (blue = no power)" },
+    { option = "colorOutOfRange",     label = "Tint when out of range (red)" },
     { option = "showCountdownText",   label = "Show timer" },
     { option = "showTooltips",        label = "Show tooltips" },
     { option = "desaturateUnavailable", label = "Desaturate while on cooldown" },

@@ -307,7 +307,11 @@ function Icon:Update(frame, state, appearance)
 
         local colors = Const.ITEM_COLORS
         local tint
-        if appearance.colorByUsability == false then
+        if appearance.colorOutOfRange ~= false and state.outOfRange then
+            -- Ahead of the power tint, as it is on Blizzard's own action bars:
+            -- being unable to reach the target is the blocker you act on first.
+            tint = colors.notInRange
+        elseif appearance.colorByUsability == false then
             tint = state.available and colors.usable or colors.notUsable
         elseif state.usable then
             tint = colors.usable

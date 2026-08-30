@@ -290,6 +290,11 @@ Const.GCD_THRESHOLD = 1.6
 
 Const.UPDATE_INTERVAL = 0.1
 
+-- Range moves with no event behind it, so it has to be polled. Faster than the
+-- idle rate because a colour that lags a step behind the player's own movement
+-- reads as broken; slower than the animation rate because nothing is drawing.
+Const.RANGE_UPDATE_INTERVAL = 0.2
+
 Const.IDLE_UPDATE_INTERVAL = 0.5
 
 Const.COLORS = {
@@ -316,6 +321,7 @@ Const.DEFAULT_APPEARANCE = {
     hideWhenEmpty = true,
     showGCD = true,
     colorByUsability = true,
+    colorOutOfRange = true,
 
     orientation = "Horizontal",
     rows = 1,

@@ -223,6 +223,34 @@ function Compat.IsSpellUsable(spellID)
     return true, false
 end
 
+-- Returns true (in range), false (out of range) or nil (the client will not
+-- answer for this pairing -- no range requirement, no valid unit, not a spell).
+-- nil is a real third state here, not a failure: callers must not fold it into
+-- "out of range".
+function Compat.IsSpellInRange(spellID, unit)
+    if not spellID or not unit then return nil end
+
+    if C_Spell_ and C_Spell_.IsSpellInRange then
+        local ok, result = pcall(C_Spell_.IsSpellInRange, spellID, unit)
+        if ok then
+            if result == nil then return nil end
+            return result and true or false
+        end
+    end
+
+    if _G.IsSpellInRange then
+        -- The legacy call takes a spell name or a spellbook index and never an
+        -- ID, so everything the addon holds has to be turned back into a name.
+        local name = ns.Spellbook and ns.Spellbook:GetName(spellID)
+        if not name then return nil end
+
+        local ok, result = pcall(_G.IsSpellInRange, name, unit)
+        if ok and result ~= nil then return result == 1 end
+    end
+
+    return nil
+end
+
 local MAX_AURA_INDEX = 255
 
 local function ScanPlayerAura(spellID, filter)

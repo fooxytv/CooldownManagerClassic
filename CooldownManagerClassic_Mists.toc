@@ -32,6 +32,7 @@ core\Spellbook.lua
 core\Tooltip.lua
 
 # Tracking
+tracking\Range.lua
 tracking\Cooldowns.lua
 tracking\Auras.lua
 tracking\Highlights.lua
