@@ -359,6 +359,23 @@ _G.GetInventoryItemTexture = function() return nil end
 _G.GetItemInfo = function() return nil end
 _G.GetItemCount = function() return 0 end
 _G.RANGE_INDICATOR = "\226\128\162"
+-- Addon metadata. Absent until now, so every version read fell through to "?"
+-- and the modern/legacy split was never exercised. __modernAddOns switches
+-- between the C_AddOns namespace and the legacy global.
+_G.__addonVersion = "9.9.9-test-branch.abc1234"
+_G.__modernAddOns = true
+_G.GetAddOnMetadata = function(_, field)
+    if _G.__modernAddOns then return nil end
+    if field == "Version" then return _G.__addonVersion end
+    return nil
+end
+_G.C_AddOns = setmetatable({}, { __index = function(_, key)
+    if key ~= "GetAddOnMetadata" or not _G.__modernAddOns then return nil end
+    return function(_, field)
+        if field == "Version" then return _G.__addonVersion end
+        return nil
+    end
+end })
 -- One spell on the first action slot, bound to Shift-2, so the keybind reader
 -- has something to find.
 _G.GetActionInfo = function(slot) if slot == 1 then return "spell", 686 end return nil end

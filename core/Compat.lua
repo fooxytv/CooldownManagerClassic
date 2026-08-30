@@ -13,6 +13,7 @@ ns.Compat = Compat
 local C_Spell_     = _G.C_Spell
 local C_SpellBook_ = _G.C_SpellBook
 local C_UnitAuras_ = _G.C_UnitAuras
+local C_AddOns_    = _G.C_AddOns
 local projectId = _G.WOW_PROJECT_ID or 0
 
 if projectId == (_G.WOW_PROJECT_CLASSIC or -1) then
@@ -32,6 +33,22 @@ else
 end
 
 Compat.interfaceVersion = select(4, GetBuildInfo()) or 0
+
+-- The version from the .toc. A local test build stamps its branch into that
+-- string (ci/scripts/deploy-branch.sh, Install-CooldownManager.ps1), so this is
+-- what tells one build from another -- worth surfacing rather than leaving to
+-- the addon list, which is a menu deep and easy to read off the wrong addon.
+function Compat.GetAddonVersion()
+    if C_AddOns_ and C_AddOns_.GetAddOnMetadata then
+        return C_AddOns_.GetAddOnMetadata(addonName, "Version") or "?"
+    end
+
+    if _G.GetAddOnMetadata then
+        return GetAddOnMetadata(addonName, "Version") or "?"
+    end
+
+    return "?"
+end
 
 function Compat.AtlasExists(name)
     if not name or not C_Texture or not C_Texture.GetAtlasInfo then return false end

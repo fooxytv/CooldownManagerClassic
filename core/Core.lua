@@ -475,12 +475,7 @@ function Core:PrintUIProbe()
 
     ns.Print("ui probe")
 
-    local version = "?"
-    if _G.C_AddOns and C_AddOns.GetAddOnMetadata then
-        version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
-    elseif _G.GetAddOnMetadata then
-        version = GetAddOnMetadata(addonName, "Version") or "?"
-    end
+    local version = ns.Compat.GetAddonVersion()
 
     out(("addon |cffffff00%s|r  build has: border art %s  colour picker %s  bar styling %s")
         :format(version,
@@ -531,6 +526,10 @@ function Core:PrintStatus()
     local out = function(line) DEFAULT_CHAT_FRAME:AddMessage("  " .. line) end
 
     ns.Print("status")
+
+    -- First line, because it is the question every other line depends on: a
+    -- report against the wrong build wastes both ends of the conversation.
+    out(("version: |cffffff00%s|r"):format(Compat.GetAddonVersion()))
 
     out(("initialized: |cffffff00%s|r  flavor: |cffffff00%s|r  interface: |cffffff00%d|r  db: |cffffff00v%s|r%s")
         :format(tostring(self.initialized), Compat.GetProfileFlavor(), Compat.interfaceVersion,

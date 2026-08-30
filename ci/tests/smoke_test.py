@@ -465,6 +465,28 @@ R.importedSpellName = imported.groups.buffs.spells[1].name
 -- The dialogs build and open.
 ns.SpellPicker:Show("cooldowns")
 R.pickerShown = _G.CDMCSettingsFrame:IsShown()
+
+-- The build is shown in the settings frame, not just in the addon list. A local
+-- test build stamps its branch into this string, so it is what says which one
+-- is loaded -- and a version reported against the wrong build wastes a report.
+R.versionShown = _G.CDMCSettingsFrame.versionText and _G.CDMCSettingsFrame.versionText:GetText()
+
+-- Both halves of the metadata split. Neither had ever run: the stub carried no
+-- addon metadata at all, so every read fell through to "?".
+R.versionModern = ns.Compat.GetAddonVersion()
+_G.__modernAddOns = false
+R.versionLegacy = ns.Compat.GetAddonVersion()
+_G.__modernAddOns = true
+
+-- A client that answers neither call must not error, just decline to answer.
+-- Driven by making both return nil rather than by deleting the namespaces:
+-- Compat caches those at load like every other C_*, so removing one at runtime
+-- would not reach the code under test.
+_G.__modernAddOns = false
+_G.__addonVersion = nil
+R.versionUnavailable = ns.Compat.GetAddonVersion()
+_G.__addonVersion = "9.9.9-test-branch.abc1234"
+_G.__modernAddOns = true
 ns.ProfileShare:ShowExport()
 R.shareShown = _G.CDMCProfileShare:IsShown()
 
@@ -1703,6 +1725,13 @@ def run(with_art):
     check("round-trip bar width", results["importedBarWidth"], 317)
     check("round-trip spell name", results["importedSpellName"], "Maelstrom Weapon")
     check("picker opens", results["pickerShown"], True)
+    check("settings frame shows the build", results["versionShown"],
+          "v9.9.9-test-branch.abc1234")
+    check("version reads through C_AddOns", results["versionModern"],
+          "9.9.9-test-branch.abc1234")
+    check("version reads through the legacy global", results["versionLegacy"],
+          "9.9.9-test-branch.abc1234")
+    check("no metadata API degrades quietly", results["versionUnavailable"], "?")
     check("share window opens", results["shareShown"], True)
     check("per-group highlight enables", results["highlightGroupOn"], True)
     check("per-group highlight leaves others off", results["highlightUtilityStaysOff"], False)
