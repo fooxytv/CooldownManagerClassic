@@ -105,6 +105,45 @@ cdgroup:Layout(); cdgroup:Update()
 R.cooldownBarKind = cdgroup.widgetKind
 R.cooldownBarPhase = ns.Cooldowns:GetBarState(187880).phase
 
+-- A ready ability draws an EMPTY bar (#75). It used to draw full, which is
+-- indistinguishable from a buff just cast at full duration -- and for something
+-- with no cooldown, like Battle Shout, the bar was at its fullest exactly when
+-- the buff had dropped. Readiness is carried by the icon instead.
+local function CdBarValue()
+    cdgroup:Layout(); cdgroup:Update()
+    return cdgroup.icons[1].bar:GetValue()
+end
+
+-- Effect running: the bar carries the remaining time, so it is not empty.
+R.cdBarActiveFill = CdBarValue() > 0
+
+-- Effect gone, nothing recharging: empty, and the icon stays bright because the
+-- ability is castable.
+local savedAura = _G.__aura
+_G.__aura = { spellId = 0, name = "None", duration = 0, expirationTime = 0 }
+_G.__cd = nil
+ns.Auras:ClearCache(); ns.Cooldowns:ClearCache()
+R.cdBarReadyEmpty = CdBarValue()
+R.cdBarReadyIconBright = cdgroup.icons[1].texture.__vertex == nil
+    or cdgroup.icons[1].texture.__vertex[1] == 1
+
+-- Recharging still draws the cooldown draining, so the middle state is intact
+-- rather than having been flattened along with ready.
+_G.__cd = { start = GetTime(), duration = 30 }
+ns.Cooldowns:ClearCache()
+R.cdBarCooldownFill = CdBarValue() > 0
+
+-- Effect Only mode was already empty when ready; it must stay that way.
+ns.DB:GetGroup("cooldownbars").appearance.barMode = "Effect Only"
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+R.cdBarEffectOnlyReady = CdBarValue()
+ns.DB:GetGroup("cooldownbars").appearance.barMode = nil
+
+_G.__aura = savedAura
+_G.__cd = nil
+ns.Auras:ClearCache(); ns.Cooldowns:ClearCache()
+
 -- Resource bars. Disabled is the default, and a disabled bar must still become
 -- visible and draggable when unlocked -- otherwise the only setting that can
 -- enable it sits behind a frame nobody can click.
@@ -1895,6 +1934,11 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("back to icons", results["backToIcons"], "icons")
     check("cooldown bar widget", results["cooldownBarKind"], "bars")
     check("cooldown bar phase", results["cooldownBarPhase"], "active")
+    check("a running effect fills the bar", results["cdBarActiveFill"], True)
+    check("a ready ability draws an empty bar", results["cdBarReadyEmpty"], 0)
+    check("a ready ability keeps a bright icon", results["cdBarReadyIconBright"], True)
+    check("recharging still draws the cooldown", results["cdBarCooldownFill"], True)
+    check("effect-only ready stays empty", results["cdBarEffectOnlyReady"], 0)
     check("bar hidden when disabled", results["barHiddenWhenDisabled"], False)
     check("bar shown when unlocked", results["barShownWhenUnlocked"], True)
     check("bar draggable when unlocked", results["barDraggable"], True)

@@ -326,9 +326,18 @@ function BuffBar:Update(frame, state, appearance)
             iconTint = Const.ITEM_COLORS.notUsable
             timerRemaining = remaining
         else
+            -- Nothing is running, so the bar is empty. It used to draw full for
+            -- a ready ability, which is indistinguishable from a buff just cast
+            -- at its full duration -- and for something with no cooldown at all,
+            -- like Battle Shout, the bar was therefore at its fullest exactly
+            -- when the buff had dropped.
+            --
+            -- Readiness is not lost by this: the icon carries it, staying bright
+            -- here and dimming below. Letting the bar mean one thing -- time
+            -- remaining on something -- is what stops a full bar ever lying.
             local ready = state.phase == "ready"
             frame.bar:SetMinMaxValues(0, 1)
-            frame.bar:SetValue((ready and not effectOnly) and 1 or 0)
+            frame.bar:SetValue(0)
             frame.pip:Hide()
             if not ready then
                 iconDesaturate = appearance.desaturateUnavailable ~= false
