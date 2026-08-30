@@ -245,14 +245,21 @@ end
 -- nil is a real third state here, not a failure: callers must not fold it into
 -- "out of range".
 --
--- Both branches are kept, but only the modern one has ever been seen to run:
--- /cdmc status reports C_SpellID on Classic Era 1.15.9 and on TBC 2.5.6 alike,
--- so C_Spell.IsSpellInRange exists on both and the name path below is reached
--- by nothing but the test suite. That contradicts the assumption this was
--- written under -- that Classic had only the name-based call -- so do not read
--- the fallback as evidence that some supported client needs it. MoP has not
--- been checked; until it is, the fallback is cheap insurance rather than dead
--- weight, and it is what the TBC test run exercises.
+-- Both branches are kept, but only the modern one has ever been seen to run.
+-- /cdmc status reports C_SpellID on all three supported clients -- Classic Era
+-- 1.15.9, TBC 2.5.6 and MoP 5.5.4 -- so C_Spell.IsSpellInRange exists on every
+-- one of them and the name path below is reached by nothing but the test suite.
+--
+-- That contradicts the assumption this was written under, that Classic had only
+-- the name-based call and bridging ID to name was the work. It was not. Do not
+-- read the fallback as evidence that some supported client needs it.
+--
+-- It stays anyway, for what it costs: ten lines behind a branch that is never
+-- taken, against the alternative failure being no range colour at all on a
+-- client nobody anticipated -- a Classic re-release, a PTR build, or a future
+-- flavour. The pcall above also falls through to here if the modern call errors
+-- rather than merely being absent. The TBC test run keeps the path exercised,
+-- so it is insurance that is checked rather than code left to rot.
 function Compat.IsSpellInRange(spellID, unit)
     if not spellID or not unit then return nil end
 
