@@ -1413,13 +1413,25 @@ ns.Cooldowns:ClearCache()
 ns.Core:UpdateAll()
 
 -- Out of range outranks the no-power tint, as it does on Blizzard's action bars.
-local savedUsable = _G.C_Spell.IsSpellUsable
-_G.C_Spell.IsSpellUsable = function() return false, true end
+-- Driven through whichever engine this run is on: a legacy client has no
+-- C_Spell at all, and reaching for it there is an error, not a no-op.
+local savedModernUsable, savedLegacyUsable
+if _G.C_Spell then
+    savedModernUsable = _G.C_Spell.IsSpellUsable
+    _G.C_Spell.IsSpellUsable = function() return false, true end
+else
+    savedLegacyUsable = _G.IsUsableSpell
+    _G.IsUsableSpell = function() return false, true end
+end
 _G.__inRange = { Wrath = 0 }
 ns.Cooldowns:ClearCache()
 ns.Core:UpdateAll()
 R.rangeBeatsNoPower = TintOf(5176)
-_G.C_Spell.IsSpellUsable = savedUsable
+if _G.C_Spell then
+    _G.C_Spell.IsSpellUsable = savedModernUsable
+else
+    _G.IsUsableSpell = savedLegacyUsable
+end
 
 -- A friendly target is not measured at all: an offensive spell reports out of
 -- range against an ally at any distance, and reddening the bar while healing
@@ -1477,13 +1489,21 @@ ns.Core:UpdateAll()
 R.rangeStopsTicking = _G.__tickerInterval ~= 0.2
 
 -- The modern call wins where a client has one, without going through the name.
-_G.C_Spell.IsSpellInRange = function(id, unit)
-    if id == 5176 and unit == "target" then return false end
-    return nil
+-- Where none exists there is no preference to test: Compat caches the namespace
+-- at load, so injecting one now would not be seen -- and that client is already
+-- covered by everything above, all of which ran on the legacy path.
+if _G.C_Spell then
+    _G.C_Spell.IsSpellInRange = function(id, unit)
+        if id == 5176 and unit == "target" then return false end
+        return nil
+    end
+    R.rangeModernPath = ("%s/%s"):format(
+        tostring(ns.Compat.IsSpellInRange(5176, "target")),
+        tostring(ns.Compat.IsSpellInRange(1126, "target")))
+    _G.C_Spell.IsSpellInRange = nil
+else
+    R.rangeModernPath = "legacy-only"
 end
-R.rangeModernPath = ns.Compat.IsSpellInRange(5176, "target")
-R.rangeModernNil = tostring(ns.Compat.IsSpellInRange(1126, "target"))
-_G.C_Spell.IsSpellInRange = nil
 
 _G.__inRange = nil
 _G.__hasTarget = false
@@ -1749,8 +1769,10 @@ def run(with_art):
     check("off everywhere stops the poll", results["rangeToggledOff"], False)
     check("a watched target keeps the ticker alive", results["rangeKeepsTicking"], 0.2)
     check("dropping the target releases the range cadence", results["rangeStopsTicking"], True)
-    check("modern range call is preferred", results["rangeModernPath"], False)
-    check("modern range call passes nil through", results["rangeModernNil"], "nil")
+    # "false/nil" where the client has C_Spell; "legacy-only" on one that does
+    # not, where every assertion above already ran through the name-based call.
+    check("modern range call is preferred where one exists",
+          results["rangeModernPath"] in ("false/nil", "legacy-only"), True)
     check("bottom hint line is gone", results["noBottomHint"], True)
     check("ID box anchors to the frame edge", results["addBoxAnchorsToFrame"], "TOPRIGHT")
     check("druid offers three layouts", results["druidLayoutCount"], 3)
