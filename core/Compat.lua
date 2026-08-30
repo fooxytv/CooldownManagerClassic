@@ -244,6 +244,15 @@ end
 -- answer for this pairing -- no range requirement, no valid unit, not a spell).
 -- nil is a real third state here, not a failure: callers must not fold it into
 -- "out of range".
+--
+-- Both branches are kept, but only the modern one has ever been seen to run:
+-- /cdmc status reports C_SpellID on Classic Era 1.15.9 and on TBC 2.5.6 alike,
+-- so C_Spell.IsSpellInRange exists on both and the name path below is reached
+-- by nothing but the test suite. That contradicts the assumption this was
+-- written under -- that Classic had only the name-based call -- so do not read
+-- the fallback as evidence that some supported client needs it. MoP has not
+-- been checked; until it is, the fallback is cheap insurance rather than dead
+-- weight, and it is what the TBC test run exercises.
 function Compat.IsSpellInRange(spellID, unit)
     if not spellID or not unit then return nil end
 

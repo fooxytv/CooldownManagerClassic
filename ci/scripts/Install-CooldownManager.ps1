@@ -173,12 +173,29 @@ function Find-AddOnsCandidates {
     foreach ($base in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
         if ($base) { $roots += (Join-Path $base 'World of Warcraft') }
     }
-    $roots += @(
-        'C:\World of Warcraft',
-        'D:\World of Warcraft',
-        'C:\Games\World of Warcraft',
-        'D:\Games\World of Warcraft'
-    )
+
+    # Every fixed drive, rather than a list of drive letters: Battle.net installs
+    # wherever it is pointed, and a game this size routinely lands on whichever
+    # disk had room -- G: as readily as C:. Four Test-Paths per drive costs
+    # nothing, and guessing letters is how an install goes unfound.
+    # Fixed and ready only: a network drive would hang the scan and an empty
+    # optical drive would throw.
+    $drives = @()
+    try {
+        $drives = [IO.DriveInfo]::GetDrives() |
+            Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady } |
+            ForEach-Object { $_.RootDirectory.FullName }
+    } catch {
+        Write-Verbose "Could not enumerate drives; falling back to the usual locations."
+        $drives = @('C:\', 'D:\')
+    }
+
+    foreach ($drive in $drives) {
+        $roots += (Join-Path $drive 'World of Warcraft')
+        $roots += (Join-Path (Join-Path $drive 'Games') 'World of Warcraft')
+        $roots += (Join-Path (Join-Path $drive 'Program Files (x86)') 'World of Warcraft')
+        $roots += (Join-Path (Join-Path $drive 'Program Files') 'World of Warcraft')
+    }
 
     # Roots learned from an explicit -AddOnsPath. Point the script at one client
     # by hand once and its siblings are found from then on, which is what makes
