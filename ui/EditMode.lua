@@ -440,6 +440,19 @@ local function BuildSettings(groupKey)
             get = function() return GetOption(groupKey, "barMode", "Effect + Cooldown") end,
             set = function(_, value) SetOption(groupKey, "barMode", value) end,
         }
+
+        -- Off by default, so a filled bar means something is running and never
+        -- reads as a buff at full duration. On is for anyone who would rather
+        -- the row looked charged than empty while idle -- a real preference,
+        -- unlike most toggles, because both readings are defensible.
+        settings[#settings + 1] = {
+            order = 16.1,
+            name = "Fill When Ready",
+            kind = lem.SettingType.Checkbox,
+            default = false,
+            get = function() return GetOption(groupKey, "fillBarWhenReady", false) and true or false end,
+            set = function(_, value) SetOption(groupKey, "fillBarWhenReady", value and true or false) end,
+        }
     end
 
     return settings

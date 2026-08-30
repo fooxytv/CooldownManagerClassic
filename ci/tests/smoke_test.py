@@ -133,6 +133,27 @@ _G.__cd = { start = GetTime(), duration = 30 }
 ns.Cooldowns:ClearCache()
 R.cdBarCooldownFill = CdBarValue() > 0
 
+-- Fill When Ready puts the old behaviour back for anyone who wants the row to
+-- read as charged rather than idle.
+-- Back to ready first: the step above left a cooldown running, and asking a
+-- recharging bar about the ready state measures the wrong thing.
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+ns.DB:GetGroup("cooldownbars").appearance.fillBarWhenReady = true
+R.cdBarReadyFilledByOption = CdBarValue()
+
+-- But only for a READY ability. The other way into that branch is a cooldown
+-- running in Effect Only mode, which is a deliberate "do not show me the
+-- recharge" -- it must not come back as a full bar instead.
+ns.DB:GetGroup("cooldownbars").appearance.barMode = "Effect Only"
+_G.__cd = { start = GetTime(), duration = 30 }
+ns.Cooldowns:ClearCache()
+R.cdBarEffectOnlyCooldownStaysEmpty = CdBarValue()
+ns.DB:GetGroup("cooldownbars").appearance.barMode = nil
+ns.DB:GetGroup("cooldownbars").appearance.fillBarWhenReady = nil
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+
 -- Effect Only mode was already empty when ready; it must stay that way.
 ns.DB:GetGroup("cooldownbars").appearance.barMode = "Effect Only"
 _G.__cd = nil
@@ -1939,6 +1960,9 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("a ready ability keeps a bright icon", results["cdBarReadyIconBright"], True)
     check("recharging still draws the cooldown", results["cdBarCooldownFill"], True)
     check("effect-only ready stays empty", results["cdBarEffectOnlyReady"], 0)
+    check("fill-when-ready restores the full bar", results["cdBarReadyFilledByOption"], 1)
+    check("fill-when-ready leaves an effect-only cooldown empty",
+          results["cdBarEffectOnlyCooldownStaysEmpty"], 0)
     check("bar hidden when disabled", results["barHiddenWhenDisabled"], False)
     check("bar shown when unlocked", results["barShownWhenUnlocked"], True)
     check("bar draggable when unlocked", results["barDraggable"], True)

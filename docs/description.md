@@ -86,7 +86,7 @@ A fourth group with no Retail equivalent:
 
 - Tracks the **effect duration** of defensives and utility abilities
 - When the effect ends, the bar shows the recharge, dimmed, until ready
-- A ready ability draws an empty bar, so a filled bar always means something is actually running
+- A ready ability draws an empty bar, so a filled bar always means something is actually running — *Fill When Ready* puts the full bar back if you prefer it
 - *Effect and Cooldown* mode mirrors Classic pacing; *Effect Only* matches Retail's simpler behaviour
 - Aura matching uses the ability's spell ID, falling back to recharge tracking when the aura uses a different one
 
