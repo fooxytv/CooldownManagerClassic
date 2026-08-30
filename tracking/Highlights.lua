@@ -172,6 +172,20 @@ local function IsQueued(spellID)
     return (ns.Compat.GetSpellCastTime(spellID) or 0) <= 0
 end
 
+-- A glow should mean "press this now", which is what the action bar means by
+-- lighting a button. Arming a rule only says the trigger happened: a Warrior
+-- gets parried in Battle Stance, where Revenge cannot be cast, and is parried
+-- again while it is still recharging. Without this the glow fires in both.
+--
+-- state.available is deliberately true during the global cooldown -- every
+-- ability is briefly on cooldown each global, and dropping the glow for that
+-- would flicker it off and on continuously through a rotation.
+local function Castable(spellID)
+    if not spellID then return false end
+    if not ns.Compat.IsSpellUsable(spellID) then return false end
+    return ns.Cooldowns:GetState(spellID, false).available and true or false
+end
+
 function Highlights:Apply()
     if not activeRules then self:ResolveRules() end
 
@@ -217,7 +231,12 @@ function Highlights:Apply()
                 local widget = group.widget == ns.BuffBar and ns.BuffBar or ns.Icon
                 for _, item in ipairs(group.icons) do
                     local name = item.entry and item.entry.name
-                    widget:SetGlow(item, on and name ~= nil and glowNames[name] == true)
+                    -- Castable is only asked once a rule already wants this
+                    -- icon lit, which is almost never more than one of them:
+                    -- Lua stops at the first false, so the cooldown lookup does
+                    -- not run for every tracked spell on every pass.
+                    local wanted = on and name ~= nil and glowNames[name] == true
+                    widget:SetGlow(item, wanted and Castable(item.spellID))
                     widget:SetQueued(item, on and IsQueued(item.spellID))
                 end
             end

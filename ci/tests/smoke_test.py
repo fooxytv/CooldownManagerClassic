@@ -1124,6 +1124,53 @@ ns.Highlights:OnCombatLogEvent()
 R.overpowerGroupOff = opIcon.glowRequested and true or false
 ns.DB:SetGroupHighlightEnabled("essential", true)
 
+-- A glow means "press this now" (#76). Arming says only that the trigger
+-- happened: a Warrior gets parried in Battle Stance where Revenge cannot be
+-- cast, and again while it is still recharging. The action bar stays dark in
+-- both, and so must this.
+_G.__clog = { 0, "SWING_MISSED", false, "Player-Test", "Tester", 0, 0,
+              "Target-Test", "Mob", 0, 0, "DODGE", false, 0 }
+
+-- Unusable for a reason that is not a cooldown -- wrong stance, or no rage.
+-- Driven through whichever engine this run is on: the TBC run has no C_Spell
+-- at all, and reaching for it there is an error rather than a no-op.
+local savedModernUsable, savedLegacyUsable
+if _G.C_Spell then
+    savedModernUsable = _G.C_Spell.IsSpellUsable
+    _G.C_Spell.IsSpellUsable = function() return false, false end
+else
+    savedLegacyUsable = _G.IsUsableSpell
+    _G.IsUsableSpell = function() return false, false end
+end
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowSuppressedWhenUnusable = opIcon.glowRequested and true or false
+if _G.C_Spell then
+    _G.C_Spell.IsSpellUsable = savedModernUsable
+else
+    _G.IsUsableSpell = savedLegacyUsable
+end
+
+-- On a real cooldown: armed, castable in every other sense, still not pressable.
+_G.__cd = { start = GetTime(), duration = 10 }
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowSuppressedOnCooldown = opIcon.glowRequested and true or false
+
+-- The global cooldown must NOT suppress it, or the glow flickers off and on
+-- through every rotation.
+_G.__cd = { start = GetTime(), duration = 1.5 }
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowSurvivesGCD = opIcon.glowRequested and true or false
+
+-- Castable again, and the glow returns -- so the suppression is conditional
+-- rather than the rule having been consumed.
+_G.__cd = nil
+ns.Cooldowns:ClearCache()
+ns.Highlights:OnCombatLogEvent()
+R.glowReturnsWhenCastable = opIcon.glowRequested and true or false
+
 -- Proc overlays are counted so /cdmc status can answer whether a Classic client
 -- fires them at all (#76). Zero events and a fired event have to be
 -- distinguishable, or the diagnostic cannot tell "never fires" from "not
@@ -1879,6 +1926,10 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("overpower clears after window", results["overpowerGlowOff"], False)
     check("overpower respects group toggle", results["overpowerGroupOff"], False)
     check("reactive glow reaches the utility group", results["utilityGlowOn"], True)
+    check("no glow while the ability is unusable", results["glowSuppressedWhenUnusable"], False)
+    check("no glow while the ability is on cooldown", results["glowSuppressedOnCooldown"], False)
+    check("the global cooldown does not suppress the glow", results["glowSurvivesGCD"], True)
+    check("glow returns once castable again", results["glowReturnsWhenCastable"], True)
     check("proc overlay counts a fired event", results["overlayCounted"], 1)
     check("proc overlay records the spell", results["overlayLastSpell"], "Wrath")
     check("unnameable spell still records an id", results["overlayUnnamedSpell"], "999999")
