@@ -582,9 +582,10 @@ function Core:PrintStatus()
 
     -- Which range API answered matters more than the answer: "no range colour"
     -- on a client where neither call exists looks identical to a target that is
-    -- simply in range.
-    local rangeAPI = (_G.C_Spell and C_Spell.IsSpellInRange and "C_SpellID")
-        or (_G.IsSpellInRange and "legacy name") or "|cffff5555absent|r"
+    -- simply in range. Asked of Compat rather than re-derived from _G here, so
+    -- what this prints is the branch the code takes and not a second opinion.
+    local rangeAPI = Compat.DescribeRangeAPI()
+    if rangeAPI == "absent" then rangeAPI = "|cffff5555absent|r" end
     out(("Range: API |cffffff00%s|r  watching: |cffffff00%s|r  hostile target: |cffffff00%s|r")
         :format(rangeAPI, tostring(ns.Range:IsWatching()),
                 tostring(UnitExists("target") and UnitCanAttack("player", "target") or false)))

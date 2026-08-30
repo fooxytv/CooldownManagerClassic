@@ -1517,6 +1517,12 @@ _G.__hasTarget = false
 ns.Core:UpdateAll()
 R.rangeStopsTicking = _G.__tickerInterval ~= 0.2
 
+-- What /cdmc status reports must be the branch the code takes, not a second
+-- opinion read off _G: the two can disagree on a client that populates a
+-- namespace after we load, and a status line trusted in a bug report is worse
+-- than none if it can lie.
+R.rangeAPIDescribed = ns.Compat.DescribeRangeAPI()
+
 -- The modern call wins where a client has one, without going through the name.
 -- Where none exists there is no preference to test: Compat caches the namespace
 -- at load, so injecting one now would not be seen -- and that client is already
@@ -1808,6 +1814,10 @@ def run(with_art):
     check("dropping the target releases the range cadence", results["rangeStopsTicking"], True)
     # "false/nil" where the client has C_Spell; "legacy-only" on one that does
     # not, where every assertion above already ran through the name-based call.
+    # "C_SpellID" on a stubbed client with the namespace, "legacy name" on the
+    # TBC run that clears it. Never "absent": the stub always has one of them.
+    check("status reports the range path the code takes",
+          results["rangeAPIDescribed"] in ("C_SpellID", "legacy name"), True)
     check("modern range call is preferred where one exists",
           results["rangeModernPath"] in ("false/nil", "legacy-only"), True)
     check("bottom hint line is gone", results["noBottomHint"], True)
