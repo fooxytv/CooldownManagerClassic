@@ -1,3 +1,10 @@
+<!--
+The CurseForge project description. Kept alongside README.md rather than
+generated from it, because the two cannot be identical: this one carries no
+badges, no repo-relative links and no mermaid, none of which CurseForge
+renders. Everything else should match, so edit both.
+-->
+
 # Cooldown Manager Classic
 
 Retail-style grouped cooldown, charge and buff tracking for World of Warcraft Classic — without the configuration overhead of WeakAuras.
@@ -61,6 +68,7 @@ Each group is moved, resized and styled through Edit Mode.
 - **Rank-independent resolution**, so a profile built at level 20 still works at 60: a rank 1 spell ID follows you to the highest rank you know
 - Spells you cannot use yet (unlearned ranks, unengraved runes) hide themselves and reappear the moment they become available
 - Keybind text read from your action bars, shown on the icon
+- **Out-of-range tinting** — an ability that cannot reach your current hostile target turns red, the way Blizzard's own action bars colour it
 
 ### Tracked buffs
 
