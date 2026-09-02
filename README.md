@@ -117,6 +117,7 @@ An adaptive resource bar that follows your class and spec:
 
 - **Form-aware tracking** — cat, bear, moonkin and caster each show only what applies, with untagged abilities always visible
 - Player-applied DoTs on your target drive cooldown bars (Moonfire, Sunfire); other people's casts are ignored
+- Includes abilities whose effect is named differently to the spell, such as a Death Knight's Icy Touch and Plague Strike
 - DoT spells with no cooldown are tracked across the existing groups
 
 ### Presets and profiles

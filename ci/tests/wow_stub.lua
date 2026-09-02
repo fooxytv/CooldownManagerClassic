@@ -491,6 +491,11 @@ local SPELLS = {
     [6807] = { name = "Maul", icon = "Interface\\Icons\\Ability_Druid_Maul" },
     [5176] = { name = "Wrath", icon = "Interface\\Icons\\Spell_Nature_AbolishMagic" },
     [1126] = { name = "Mark of the Wild", icon = "Interface\\Icons\\Spell_Nature_Regeneration" },
+    -- Death Knight diseases: the aura each applies is named nothing like the
+    -- ability, so these only resolve through Const.APPLIED_AURA.
+    [45477] = { name = "Icy Touch", icon = "Interface\\Icons\\Spell_Deathknight_IcyTouch" },
+    [45462] = { name = "Plague Strike", icon = "Interface\\Icons\\Spell_Deathknight_PlagueStrike" },
+    [49184] = { name = "Howling Blast", icon = "Interface\\Icons\\Spell_Frost_ArcticWinds" },
 }
 
 _G.C_Spell = {
@@ -540,10 +545,22 @@ _G.__aura = {
 -- tests set it, including sourceUnit to exercise the player-cast filter.
 _G.__targetAura = nil
 
+-- Several at once, for a class that keeps more than one debuff up: a Death
+-- Knight holds Frost Fever and Blood Plague together, and picking the right one
+-- per ability is the whole point, which a single-slot stub cannot show.
+-- __targetAura stays the one-debuff shorthand and wins when this is unset.
+_G.__targetAuras = nil
+
+local function TargetDebuff(index)
+    if _G.__targetAuras then return _G.__targetAuras[index] end
+    if index == 1 then return _G.__targetAura end
+    return nil
+end
+
 _G.C_UnitAuras = {
     GetAuraDataByIndex = function(unit, index, filter)
         if unit == "target" then
-            if index == 1 and filter == "HARMFUL" then return _G.__targetAura end
+            if filter == "HARMFUL" then return TargetDebuff(index) end
             return nil
         end
         if index == 1 and filter ~= "HARMFUL" then return _G.__aura end
@@ -570,11 +587,10 @@ _G.__legacyCalls = { unitAura = 0, spellInfo = 0, cooldown = 0 }
 -- reads nil for a field the modern path supplies.
 _G.UnitAura = function(unit, index, filter)
     _G.__legacyCalls.unitAura = _G.__legacyCalls.unitAura + 1
-    if index ~= 1 then return nil end
     local a
     if unit == "target" then
-        if filter == "HARMFUL" then a = _G.__targetAura end
-    elseif filter ~= "HARMFUL" then
+        if filter == "HARMFUL" then a = TargetDebuff(index) end
+    elseif filter ~= "HARMFUL" and index == 1 then
         a = _G.__aura
     end
     if not a then return nil end
