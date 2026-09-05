@@ -270,16 +270,21 @@ function Icon:Update(frame, state, appearance)
 
     if state.swipeDuration and state.swipeDuration > 0 then
         if frame.cooldown.SetSwipeColor then
-            local color
+            local kind
             if state.isGCD then
-                color = Const.GCD_SWIPE_COLOR
+                kind = "gcd"
             elseif state.aura then
-                color = Const.BUFF_SWIPE_COLOR
+                kind = "buff"
             else
-                color = Const.COOLDOWN_SWIPE_COLOR
+                kind = "cooldown"
             end
+
+            -- Swipe Opacity scales all three together, so it stays the one dial
+            -- for "less swipe everywhere" and the colours below it are what you
+            -- reach for when one of them wants to differ from the others.
+            local r, g, b, a = Const.SwipeColor(appearance, kind)
             local scale = (appearance.swipeOpacity or 100) / 100
-            frame.cooldown:SetSwipeColor(color[1], color[2], color[3], color[4] * scale)
+            frame.cooldown:SetSwipeColor(r, g, b, a * scale)
         end
 
         if frame.cooldown.SetDrawSwipe then

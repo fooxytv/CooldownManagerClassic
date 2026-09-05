@@ -515,6 +515,40 @@ Const.ART = {
 }
 
 Const.FALLBACK_BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
-Const.COOLDOWN_SWIPE_COLOR = { 0, 0, 0, 0.7 }
-Const.BUFF_SWIPE_COLOR = { 0, 0, 0, 0.7 }
-Const.GCD_SWIPE_COLOR = { 0, 0, 0, 0.3 }
+-- The swipe drawn over an icon: black at 70% for a cooldown and for a buff
+-- winding down, lighter at 30% for the global cooldown so a GCD sweep does not
+-- read as a real cooldown.
+--
+-- Each row pairs the appearance key that overrides the colour with the default
+-- it falls back to. One table rather than three constants and three key names,
+-- so the icon and the Edit Mode picker cannot disagree about which key drives
+-- which swipe.
+Const.SWIPE_COLORS = {
+    cooldown = { option = "cooldownSwipeColor", default = { 0, 0, 0, 0.7 } },
+    buff     = { option = "buffSwipeColor",     default = { 0, 0, 0, 0.7 } },
+    gcd      = { option = "gcdSwipeColor",      default = { 0, 0, 0, 0.3 } },
+}
+
+-- Returns r, g, b, a rather than a table: this runs for every icon on every
+-- tick, and the caller only unpacks it again.
+--
+-- The keys are deliberately absent from DEFAULT_APPEARANCE. Unset means "use
+-- the default", which keeps an untouched group out of the export and leaves it
+-- following the default if that is ever retuned, rather than pinning today's
+-- value into every saved profile.
+--
+-- An unknown kind can only be a typo at the call site. It resolves to the
+-- cooldown default rather than erroring once per icon per tick in a live UI;
+-- the tests assert each kind reaches its own colour, so a typo fails there.
+function Const.SwipeColor(appearance, kind)
+    local spec = Const.SWIPE_COLORS[kind] or Const.SWIPE_COLORS.cooldown
+
+    local packed = appearance and appearance[spec.option]
+    if type(packed) == "string" and packed ~= "" then
+        local r, g, b, a = Const.UnpackColor(packed)
+        if r then return r, g, b, a end
+    end
+
+    local default = spec.default
+    return default[1], default[2], default[3], default[4]
+end

@@ -1902,6 +1902,123 @@ ns.DB:GetGroup("essential").spells = savedRangeSpells
 _G.UnitClass = function() return "Shaman", "SHAMAN", 7 end
 ns.Cooldowns:ClearCache()
 
+-- Swipe colours, per group and per kind. The three are settable separately, so
+-- the assertions have to show each one reaches its own colour rather than that
+-- some colour arrived -- three distinct values, read back off a state that
+-- differs only in which swipe it asks for.
+local swipeGroup = ns.Group.Create("essential")
+local swipeIcon = ns.Icon:Acquire(swipeGroup.frame, "essential")
+ns.Icon:Configure(swipeIcon, { name = "Shadow Bolt" }, 686, { iconSize = 40 }, "essential")
+
+local function Swiping(extra)
+    local state = { swipeStart = 0, swipeDuration = 10, swipeModRate = 1,
+                    remaining = 5, available = false }
+    for key, value in pairs(extra or {}) do state[key] = value end
+    return state
+end
+
+local function SwipeDrawn(appearance, extra)
+    ns.Icon:Update(swipeIcon, Swiping(extra), appearance)
+    local c = swipeIcon.cooldown.__swipeColor
+    if not c then return "none" end
+    return ("%.2f/%.2f/%.2f/%.2f"):format(c[1], c[2], c[3], c[4])
+end
+
+local GCD  = { isGCD = true }
+local BUFF = { aura = { name = "Shadow Trance" } }
+
+-- Untouched: what the addon has always drawn, and the reason nobody who ignores
+-- these settings sees a change.
+R.swipeCooldownDefault = SwipeDrawn({})
+R.swipeGCDDefault      = SwipeDrawn({}, GCD)
+R.swipeBuffDefault     = SwipeDrawn({}, BUFF)
+
+-- All three set at once, each to a colour only it could produce. Three pickers
+-- wired to one key, or a kind crossed with another, fails here rather than
+-- passing on a value they happen to share.
+local styled = {
+    cooldownSwipeColor = "0.900,0.100,0.100,0.800",
+    buffSwipeColor     = "0.100,0.900,0.100,0.600",
+    gcdSwipeColor      = "0.100,0.100,0.900,0.400",
+}
+R.swipeCooldownSet = SwipeDrawn(styled)
+R.swipeGCDSet      = SwipeDrawn(styled, GCD)
+R.swipeBuffSet     = SwipeDrawn(styled, BUFF)
+
+-- Alpha 0 is the "GCD swipe off" the ticket asked for: the sweep still runs and
+-- the timing is unchanged, it just draws nothing.
+R.swipeGCDOff = SwipeDrawn({ gcdSwipeColor = "0.000,0.000,0.000,0.000" }, GCD)
+
+-- Swipe Opacity keeps scaling a colour the player picked rather than being
+-- replaced by it: 0.8 alpha at 50% is 0.4.
+R.swipeOpacityScales = SwipeDrawn({
+    cooldownSwipeColor = "0.900,0.100,0.100,0.800",
+    swipeOpacity = 50,
+})
+
+-- A value that does not parse -- a hand-edited profile, or an import from a
+-- version that packs them differently -- falls back to the default instead of
+-- erroring or drawing nothing.
+R.swipeGarbageFallsBack = SwipeDrawn({ cooldownSwipeColor = "not a colour" })
+
+-- The Edit Mode wiring, which the rendering above cannot see: three separate
+-- pickers on a group that draws icons, none on one that draws only bars, and
+-- each writing the key it names.
+local lem = _G.LibStub and _G.LibStub("LibEQOLEditMode-1.0", true)
+local sheets = {}
+if lem then
+    local realAddFrameSettings = lem.AddFrameSettings
+    lem.AddFrameSettings = function(self, frame, settings)
+        sheets[frame] = settings
+        return realAddFrameSettings(self, frame, settings)
+    end
+    pcall(ns.EditMode.RegisterWithLibEQOL, ns.EditMode)
+    lem.AddFrameSettings = realAddFrameSettings
+end
+
+local function SwipeSettingsFor(key)
+    local group = ns.groups[key]
+    local found = {}
+    for _, setting in ipairs((group and sheets[group.frame]) or {}) do
+        if type(setting.name) == "string" and setting.name:find("Swipe Colour") then
+            found[setting.name] = setting
+        end
+    end
+    return found
+end
+
+local iconSwipeSettings = SwipeSettingsFor("essential")
+R.swipeSettingCount = 0
+for _ in pairs(iconSwipeSettings) do R.swipeSettingCount = R.swipeSettingCount + 1 end
+R.swipeSettingsOffBarGroup = next(SwipeSettingsFor("cooldownbars")) == nil
+
+local essentialAppearance = ns.DB:GetGroup("essential").appearance
+for name, setting in pairs(iconSwipeSettings) do
+    if name == "GCD Swipe Colour" then
+        setting.set(nil, { r = 0.2, g = 0.4, b = 0.6, a = 0.5 })
+    end
+end
+R.swipeSettingWrote = essentialAppearance.gcdSwipeColor or "none"
+R.swipeSettingLeftOthers = essentialAppearance.cooldownSwipeColor == nil
+    and essentialAppearance.buffSwipeColor == nil
+
+local gcdSetting = iconSwipeSettings["GCD Swipe Colour"]
+if gcdSetting then
+    local current = gcdSetting.get()
+    R.swipeSettingReads = ("%.2f/%.2f"):format(current.b, current.a)
+else
+    R.swipeSettingReads = "none"
+end
+
+-- New keys round-trip through export/import for free, the same way the bar
+-- colours do -- WriteAppearance walks pairs() rather than a fixed list.
+essentialAppearance.cooldownSwipeColor = "0.900,0.100,0.100,0.800"
+local swipeImport = ns.Serialization:Import(ns.Serialization:Export())
+R.rtCooldownSwipe = swipeImport.groups.essential.appearance.cooldownSwipeColor or "none"
+R.rtGCDSwipe = swipeImport.groups.essential.appearance.gcdSwipeColor or "none"
+essentialAppearance.cooldownSwipeColor = nil
+essentialAppearance.gcdSwipeColor = nil
+
 R.artMask = ns.Icon.art.mask and true or false
 
 R.legacyAuraCalls = _G.__legacyCalls.unitAura
@@ -2193,6 +2310,39 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("picker bezel matches the live icons", results["pickerIconHasBezel"],
           results["liveIconHasBezel"])
     check("bar rows hide the button bezel", results["barRowHidesIconBezel"], True)
+    # Swipe colours. The defaults are asserted as literal values rather than
+    # against the constant, so retuning the default is a deliberate act that
+    # shows up here rather than a change the tests follow silently.
+    check("cooldown swipe default unchanged", results["swipeCooldownDefault"],
+          "0.00/0.00/0.00/0.70")
+    check("gcd swipe default unchanged", results["swipeGCDDefault"],
+          "0.00/0.00/0.00/0.30")
+    check("buff swipe default unchanged", results["swipeBuffDefault"],
+          "0.00/0.00/0.00/0.70")
+    check("cooldown swipe takes its own colour", results["swipeCooldownSet"],
+          "0.90/0.10/0.10/0.80")
+    check("gcd swipe takes its own colour", results["swipeGCDSet"],
+          "0.10/0.10/0.90/0.40")
+    check("buff swipe takes its own colour", results["swipeBuffSet"],
+          "0.10/0.90/0.10/0.60")
+    check("gcd swipe turns off at zero alpha", results["swipeGCDOff"],
+          "0.00/0.00/0.00/0.00")
+    check("swipe opacity still scales a chosen colour", results["swipeOpacityScales"],
+          "0.90/0.10/0.10/0.40")
+    check("an unparseable colour falls back", results["swipeGarbageFallsBack"],
+          "0.00/0.00/0.00/0.70")
+    check("icon groups offer three swipe pickers", results["swipeSettingCount"], 3)
+    check("bar-only group offers none", results["swipeSettingsOffBarGroup"], True)
+    check("the gcd picker writes the gcd key", results["swipeSettingWrote"],
+          "0.200,0.400,0.600,0.500")
+    check("the gcd picker leaves the other keys alone",
+          results["swipeSettingLeftOthers"], True)
+    check("the gcd picker reads its own key back", results["swipeSettingReads"],
+          "0.60/0.50")
+    check("swipe colours round-trip", results["rtCooldownSwipe"],
+          "0.900,0.100,0.100,0.800")
+    check("a picked colour round-trips", results["rtGCDSwipe"],
+          "0.200,0.400,0.600,0.500")
     check("preview is a child of its button", results["previewParentedToButton"], True)
     check("preview never takes clicks", results["previewIgnoresClicks"], True)
     check("hover highlight outranks the preview", results["highlightAbovePreview"], True)

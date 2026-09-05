@@ -136,6 +136,37 @@ local function SetOption(groupKey, option, value)
     ns.Core:RefreshGroup(groupKey)
 end
 
+local function PackedColor(value)
+    if type(value) ~= "table" then return nil end
+    return Const.PackColor(value.r or value[1], value.g or value[2],
+                           value.b or value[3], value.a or value[4] or 1)
+end
+
+-- The swipe over an icon, per group and per kind. Reads through Const.SwipeColor
+-- so an untouched group shows the same default the icon draws, without the key
+-- having to exist in the profile until the player picks something.
+local function SwipeColorSetting(order, name, groupKey, kind)
+    local option = Const.SWIPE_COLORS[kind].option
+
+    local function Current()
+        local r, g, b, a = Const.SwipeColor(Appearance(groupKey), kind)
+        return { r = r, g = g, b = b, a = a }
+    end
+
+    return {
+        order = order,
+        name = name,
+        kind = lem.SettingType.Color,
+        hasOpacity = true,
+        default = Current(),
+        get = Current,
+        set = function(_, value)
+            local packed = PackedColor(value)
+            if packed then SetOption(groupKey, option, packed) end
+        end,
+    }
+end
+
 local function DropdownValues(labels)
     local values = {}
     for _, label in ipairs(labels) do
@@ -362,6 +393,21 @@ local function BuildSettings(groupKey)
         },
     }
 
+    -- Icons only. A Cooldown Bars group draws no icon and therefore no swipe,
+    -- so offering it three colours that change nothing would be a lie.
+    if not Const.DURATION_BAR_GROUPS[groupKey] then
+        settings[#settings + 1] =
+            SwipeColorSetting(7.6, "Cooldown Swipe Colour", groupKey, "cooldown")
+        settings[#settings + 1] =
+            SwipeColorSetting(7.7, "Buff Swipe Colour", groupKey, "buff")
+
+        -- The one people most often want lighter, heavier or gone. Alpha 0 hides
+        -- it while the sweep still runs; Show Global Cooldown, above, is what
+        -- stops the sweep being tracked at all.
+        settings[#settings + 1] =
+            SwipeColorSetting(7.8, "GCD Swipe Colour", groupKey, "gcd")
+    end
+
     if Const.AURA_GROUPS[groupKey] then
         settings[#settings + 1] = {
             order = 11,
@@ -528,12 +574,6 @@ local function ChoiceSetting(order, name, key, option, choices)
             end
         end,
     }
-end
-
-local function PackedColor(value)
-    if type(value) ~= "table" then return nil end
-    return Const.PackColor(value.r or value[1], value.g or value[2],
-                           value.b or value[3], value.a or value[4] or 1)
 end
 
 local function ColorSetting(order, name, key, option, fallback)

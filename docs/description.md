@@ -69,6 +69,7 @@ Each group is moved, resized and styled through Edit Mode.
 - Spells you cannot use yet (unlearned ranks, unengraved runes) hide themselves and reappear the moment they become available
 - Keybind text read from your action bars, shown on the icon
 - **Out-of-range tinting** — an ability that cannot reach your current hostile target turns red, the way Blizzard's own action bars colour it
+- **Swipe colours per group** — the cooldown, buff and global-cooldown swipes each take their own colour and opacity in Edit Mode; drop the GCD swipe's alpha to nothing to hide it entirely
 
 ### Tracked buffs
 
@@ -139,7 +140,7 @@ flowchart LR
 
     subgraph next["Next"]
         direction TB
-        B1["Icon styles and<br/>swipe colours"]
+        B1["Icon style<br/>options"]
         B2["Right-click menu<br/>on tracked spells"]
         B3["Icon borders and<br/>count fonts"]
         B4["More highlight rules"]
@@ -159,7 +160,7 @@ flowchart LR
 
 **Next**
 
-- Icon style options, and configurable cooldown / buff / GCD swipe colours ([#63](https://github.com/fooxytv/CooldownManagerClassic/issues/63))
+- Icon style options — zoom, masked or square, desaturation ([#63](https://github.com/fooxytv/CooldownManagerClassic/issues/63))
 - A right-click menu on tracked spells, for per-spell actions ([#64](https://github.com/fooxytv/CooldownManagerClassic/issues/64))
 - Icon borders and a configurable count/stack font ([#22](https://github.com/fooxytv/CooldownManagerClassic/issues/22))
 - More highlight rules, and a panel toggle ([#23](https://github.com/fooxytv/CooldownManagerClassic/issues/23))
