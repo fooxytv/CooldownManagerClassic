@@ -252,8 +252,39 @@ Const.AURA_SPELL_NAMES = {
     ["Slice and Dice"]  = true,
 }
 
+-- Every name above is a spell whose aura is called the same thing it is, which
+-- is why matching on the spell's own ID or name finds it. A Death Knight's
+-- diseases are not: Icy Touch applies Frost Fever and Plague Strike applies
+-- Blood Plague, so both lookups miss and the debuff was untrackable at all --
+-- ticking Track DoT on them did nothing.
+--
+-- Keyed by the casting spell's ID rather than its name. These are Mists
+-- abilities with no ranks, so the ID is stable, and unlike the name table it
+-- resolves on a client in any language. Each row carries the aura's ID and its
+-- English name together so the two cannot drift apart; the name is a fallback
+-- for an ID that shifts between builds, and is only reachable on an English
+-- client, where the ID would have to be wrong for it to matter.
+--
+-- `default` is a separate question from whether tracking works at all: an
+-- ability is only flagged for you if applying the disease is the point of
+-- pressing it. Howling Blast refreshes Frost Fever, but it is cast for damage,
+-- so it resolves when you ask for it and stays off until you do.
+--
+-- Deliberately absent: Outbreak and Unholy Blight apply *both* diseases, and
+-- one bar cannot honestly show two durations. Which one wins is a design call,
+-- not a table entry.
+Const.APPLIED_AURA = {
+    [45477] = { id = 55095, name = "Frost Fever",  default = true },  -- Icy Touch
+    [45462] = { id = 55078, name = "Blood Plague", default = true },  -- Plague Strike
+    [49184] = { id = 55095, name = "Frost Fever"                  },  -- Howling Blast
+}
+
 function Const.IsAuraSpell(spellID)
     if not spellID then return false end
+
+    local applied = Const.APPLIED_AURA[spellID]
+    if applied then return applied.default == true end
+
     local name = ns.Compat and ns.Compat.GetSpellInfo and ns.Compat.GetSpellInfo(spellID)
     return name ~= nil and Const.AURA_SPELL_NAMES[name] == true
 end

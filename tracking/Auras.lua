@@ -179,6 +179,15 @@ function Auras:LookupTargetDot(spellID)
     local data = targetByID[spellID]
     if data then return data end
 
+    -- An ability whose aura is not named after it, such as a Death Knight
+    -- disease. Asked before the spell's own name, because the mapping is exact
+    -- where the name is only a convention that happens to hold for most DoTs.
+    local applied = ns.Constants.APPLIED_AURA[spellID]
+    if applied then
+        data = targetByID[applied.id] or targetByName[applied.name]
+        if data then return data end
+    end
+
     local name = ns.Spellbook:GetName(spellID)
     if not name then return nil end
 

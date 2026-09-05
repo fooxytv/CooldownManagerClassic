@@ -345,6 +345,68 @@ _G.__hasTarget = false
 ns.Cooldowns:ClearCache()
 ns.Auras:ClearCache()
 
+-- Death Knight diseases: the aura an ability applies is named nothing like the
+-- ability, so neither its ID nor its name reaches the debuff and Track DoT did
+-- nothing at all. Both diseases are up at once with different durations, so
+-- resolving the wrong one is visible rather than passing by luck.
+_G.__hasTarget = true
+_G.__targetAuras = {
+    { spellId = 55095, name = "Frost Fever", sourceUnit = "player",
+      duration = 30, expirationTime = GetTime() + 24, timeMod = 1 },
+    { spellId = 55078, name = "Blood Plague", sourceUnit = "player",
+      duration = 30, expirationTime = GetTime() + 12, timeMod = 1 },
+}
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+
+R.dkIcyTouch = math.floor(ns.Cooldowns:GetIconState(45477, false, true).remaining + 0.5)
+R.dkPlagueStrike = math.floor(ns.Cooldowns:GetIconState(45462, false, true).remaining + 0.5)
+
+-- Both are flagged for you on sight. Howling Blast refreshes Frost Fever but is
+-- cast for damage, so it stays off until you ask for it -- which is not the same
+-- as being unable to follow it.
+R.dkIcyAutoFlagged = ns.Constants.IsAuraSpell(45477) and true or false
+R.dkPlagueAutoFlagged = ns.Constants.IsAuraSpell(45462) and true or false
+R.dkHowlingAutoFlagged = ns.Constants.IsAuraSpell(49184) and true or false
+R.dkHowlingTracked = math.floor(ns.Cooldowns:GetBarState(49184, true).remaining + 0.5)
+
+-- Unflagged, nothing changed: the ability reads its own cooldown.
+R.dkUnflaggedPhase = ns.Cooldowns:GetBarState(45477).phase
+
+-- One disease down: that ability alone goes quiet, the other is untouched.
+_G.__targetAuras = {
+    { spellId = 55078, name = "Blood Plague", sourceUnit = "player",
+      duration = 30, expirationTime = GetTime() + 12, timeMod = 1 },
+}
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+R.dkIcyExpired = ns.Cooldowns:GetBarState(45477, true).phase
+R.dkPlagueStillUp = ns.Cooldowns:GetBarState(45462, true).phase
+
+-- Another Death Knight's disease on the same target is not yours to track.
+_G.__targetAuras = {
+    { spellId = 55095, name = "Frost Fever", sourceUnit = "party1",
+      duration = 30, expirationTime = GetTime() + 24, timeMod = 1 },
+}
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+R.dkIgnoresOthers = ns.Cooldowns:GetBarState(45477, true).phase
+
+-- The English name is the fallback for an aura ID that moved between builds:
+-- this ID matches nothing and the disease still resolves.
+_G.__targetAuras = {
+    { spellId = 999999, name = "Frost Fever", sourceUnit = "player",
+      duration = 30, expirationTime = GetTime() + 20, timeMod = 1 },
+}
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+R.dkNameFallback = math.floor(ns.Cooldowns:GetBarState(45477, true).remaining + 0.5)
+
+_G.__targetAuras = nil
+_G.__hasTarget = false
+ns.Auras:ClearCache()
+ns.Cooldowns:ClearCache()
+
 -- The DoT flag round-trips through export/import.
 local savedEssentialDot = ns.DB:GetGroup("essential").spells
 ns.DB:GetGroup("essential").spells = {
@@ -2001,6 +2063,17 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("flame shock desaturates on cooldown", results["flameShockOnCdUsable"], False)
     check("flame shock keeps dot when cd ready", results["flameShockReadyRemaining"], 15)
     check("flame shock usable when cd ready", results["flameShockReadyUsable"], True)
+    check("icy touch follows frost fever", results["dkIcyTouch"], 24)
+    check("plague strike follows blood plague", results["dkPlagueStrike"], 12)
+    check("icy touch auto-flags", results["dkIcyAutoFlagged"], True)
+    check("plague strike auto-flags", results["dkPlagueAutoFlagged"], True)
+    check("howling blast does not auto-flag", results["dkHowlingAutoFlagged"], False)
+    check("howling blast follows frost fever when asked", results["dkHowlingTracked"], 24)
+    check("unflagged disease ability is cooldown-only", results["dkUnflaggedPhase"], "ready")
+    check("expired disease reads ready", results["dkIcyExpired"], "ready")
+    check("other disease unaffected", results["dkPlagueStillUp"], "active")
+    check("disease ignores another dk's cast", results["dkIgnoresOthers"], "ready")
+    check("disease resolves by name when id misses", results["dkNameFallback"], 20)
     check("dot flag round-trips", results["dotFlagRoundTrip"], True)
     check("druid form cat shows cat + untagged", results["formCat"], "1082,1126")
     check("druid form bear shows bear + untagged", results["formBear"], "1126,6807")
