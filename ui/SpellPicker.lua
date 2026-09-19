@@ -1399,17 +1399,19 @@ local function CreateFrameOnce()
     frame.versionText:SetText("v" .. ns.Compat.GetAddonVersion())
 
     -- Blizzard draws these tabs as flat glyphs on a side-tab plate rather than
-    -- as ability icons; the names come from its own Cooldown Viewer settings
-    -- panel. Only Cooldowns and Buffs have a counterpart there -- Profiles is
-    -- ours -- so it keeps an ability icon, desaturated so it does not sit as a
-    -- full-colour outlier beside two monochrome glyphs.
+    -- as ability icons; Cooldowns and Buffs take the names from its own Cooldown
+    -- Viewer settings panel. Profiles has no counterpart there, so it borrows a
+    -- glyph from the same art rather than staying a full-colour outlier. Each is
+    -- probed independently and falls back to its ability icon, which is what
+    -- happens on the Classic clients, where none of this art resolves.
     local TABS_META = {
         cooldowns = { label = "Cooldowns", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01",
                       atlas = Const.ART.tabCooldowns },
         buffs     = { label = "Buffs",     icon = "Interface\\Icons\\Spell_Holy_WordFortitude",
                       atlas = Const.ART.tabBuffs },
         options   = { label = "Options",   icon = "Interface\\Icons\\Trade_Engineering" },
-        profiles  = { label = "Profiles",  icon = "Interface\\Icons\\INV_Misc_Book_09" },
+        profiles  = { label = "Profiles",  icon = "Interface\\Icons\\INV_Misc_Book_09",
+                      atlas = Const.ART.tabProfiles },
     }
 
     -- All three plate atlases or none: a plate without its selected and hover

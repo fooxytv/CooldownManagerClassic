@@ -461,10 +461,16 @@ local atlases = {
     -- question the UI source cannot answer, which is why the code probes.
     ["icon_cooldownmanager"] = true,
     ["icon_trackedbuffs"] = true,
+    ["common-icons-blueprints"] = true,
     ["common-sidetab"] = true,
     ["common-sidetab-selected"] = true,
     ["common-sidetab-hover"] = true,
 }
+-- Single-atlas control, for the case where a client ships some of a set and not
+-- the rest: the tabs then have to cope with a mixed row.
+_G.__setAtlasPresent = function(name, present)
+    atlases[name] = present and true or nil
+end
 _G.__setAtlasesPresent = function(present)
     if present then return end
     for key in pairs(atlases) do atlases[key] = nil end

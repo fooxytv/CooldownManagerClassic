@@ -698,11 +698,14 @@ R.highlightOffHover = barRow.highlight:IsShown()
 -- art, the ability icons on the SpellBook plate where it does not.
 local tabs = _G.CDMCSettingsFrame.tabButtons
 R.tabGlyph = tabs.cooldowns.icon.__atlas or ""
+R.tabBuffsGlyph = tabs.buffs.icon.__atlas or ""
+R.tabProfilesGlyph = tabs.profiles.icon.__atlas or ""
 R.tabWidth = tabs.cooldowns:GetWidth()
--- Profiles has no counterpart in Blizzard's panel, so it keeps an ability icon
--- either way, flattened only when it would otherwise sit beside real glyphs.
+-- The row goes one way or the other: every tab a glyph, or every tab its
+-- ability icon. A half-and-half row is the thing to avoid.
+R.tabsConsistent = (tabs.cooldowns.icon.__atlas ~= nil)
+    == (tabs.profiles.icon.__atlas ~= nil)
 R.tabFallbackTexture = tabs.profiles.icon:GetTexture() or ""
-R.tabFallbackFlattened = tabs.profiles.icon.__desaturated and true or false
 
 -- The ID box sits beside the search on the spell tabs, and neither belongs on a
 -- panel tab.
@@ -1878,12 +1881,16 @@ def run(with_art, env=None, label=None, flavor="era", legacy=False):
     check("hover highlight outranks the preview", results["highlightAbovePreview"], True)
     check("highlight shows on hover", results["highlightOnHover"], True)
     check("highlight clears on leave", results["highlightOffHover"], False)
-    check("tab uses Blizzard's glyph", results["tabGlyph"],
+    check("cooldowns tab glyph", results["tabGlyph"],
           "icon_cooldownmanager" if with_art else "")
+    check("buffs tab glyph", results["tabBuffsGlyph"],
+          "icon_trackedbuffs" if with_art else "")
+    check("profiles tab glyph", results["tabProfilesGlyph"],
+          "common-icons-blueprints" if with_art else "")
+    check("tabs are all glyphs or all icons", results["tabsConsistent"], True)
     check("tab takes the side-tab plate size", results["tabWidth"], 43 if with_art else 32)
-    check("profiles tab keeps an ability icon", results["tabFallbackTexture"],
-          "Interface\\Icons\\INV_Misc_Book_09")
-    check("profiles icon flattened beside glyphs", results["tabFallbackFlattened"], with_art)
+    check("profiles falls back to its ability icon", results["tabFallbackTexture"],
+          "" if with_art else "Interface\\Icons\\INV_Misc_Book_09")
     check("ID box sits on the spell tabs", results["addBoxShownOnSpellTab"], True)
     check("ID box hidden on panel tabs", results["addBoxHiddenOnPanelTab"], False)
     check("title reads Cooldown Settings", results["titleOnCooldowns"], "Cooldown Settings")
@@ -2054,6 +2061,46 @@ _G.C_UnitAuras = nil
 """
 
 
+# A client could ship part of the tab art and not the rest. The row then has a
+# real glyph beside an ability icon, and the odd one out is flattened so it does
+# not sit there in full colour.
+MIXED_TAB_ART_ENV = """
+__setAtlasPresent("common-icons-blueprints", false)
+"""
+
+MIXED_TAB_ART_SCRIPT = """
+local ns = __ns
+local R = {}
+ns.DB:Initialize()
+ns.Core.initialized = true
+ns.SpellPicker:Show("cooldowns")
+
+local tabs = _G.CDMCSettingsFrame.tabButtons
+R.cooldownsGlyph = tabs.cooldowns.icon.__atlas or ""
+R.profilesGlyph = tabs.profiles.icon.__atlas or ""
+R.profilesTexture = tabs.profiles.icon:GetTexture() or ""
+R.profilesFlattened = tabs.profiles.icon.__desaturated and true or false
+return R
+"""
+
+
+def run_mixed_tab_art():
+    print("\nsmoke_test [partial tab art]")
+    try:
+        lua = load_addon(True, env=MIXED_TAB_ART_ENV)
+        results = dict(lua.execute(MIXED_TAB_ART_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[mixed-tab-art] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("the glyph that exists is still used", results["cooldownsGlyph"], "icon_cooldownmanager")
+    check("the missing one falls back", results["profilesGlyph"], "")
+    check("falls back to its ability icon", results["profilesTexture"],
+          "Interface\\Icons\\INV_Misc_Book_09")
+    check("and is flattened beside the glyphs", results["profilesFlattened"], True)
+
+
 MOP_ENV = """
 _G.WOW_PROJECT_MISTS_CLASSIC = 19
 _G.WOW_PROJECT_ID = 19
@@ -2155,6 +2202,7 @@ run(with_art=False, env=TBC_ENV, label="TBC legacy APIs, no atlases",
     flavor="tbc", legacy=True)
 run_profiles()
 run_mop()
+run_mixed_tab_art()
 
 print()
 if failures:

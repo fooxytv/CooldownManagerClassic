@@ -460,6 +460,10 @@ Const.ART = {
     -- gated `AllowLoadGameType: standard`.
     tabCooldowns = "icon_cooldownmanager",
     tabBuffs     = "icon_trackedbuffs",
+    -- Blizzard's panel has no Profiles tab, so this one is borrowed rather than
+    -- matched: a blueprint reads as a saved layout, and it is already used on
+    -- LargeSideTabButtonTemplate elsewhere, so it is drawn for this plate.
+    tabProfiles  = "common-icons-blueprints",
     sideTab      = "common-sidetab",
     sideTabOn    = "common-sidetab-selected",
     sideTabHover = "common-sidetab-hover",
