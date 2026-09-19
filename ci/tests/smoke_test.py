@@ -2417,14 +2417,33 @@ settings.appearance.visibility = "HideWhenFull"
 bar:UpdateVisibility()
 R.shownWhenUndecidable = bar.frame:IsShown()
 
--- A plain value behaves exactly as before.
+-- The power bar reads UnitPower through the same SetFill, and percent text
+-- takes the other FormatValue branch. This is the configuration the second
+-- report came in on, and it arrives through Layout -> Update at login rather
+-- than through Edit Mode.
+local powerBar = ns.ResourceBar.Create("power")
+local powerSettings = powerBar:GetSettings()
+powerSettings.enabled = true
+powerSettings.appearance.showText = true
+powerSettings.appearance.showPercent = true
+
+powerBar:Layout()
+
+R.powerSurvived = true
+R.powerValuePassedThrough = powerBar.statusBar:GetValue() == _G.__secret
+R.powerTextHidden = not powerBar.text:IsShown()
+
+-- Plain values behave exactly as before, on both bars and both text branches.
 settings.appearance.visibility = "Always"
 settings.appearance.animate = false
 _G.UnitHealth = function() return 60 end
+_G.UnitPower = function() return 40 end
 bar:Update()
+powerBar:Update()
 R.plainValue = bar.statusBar:GetValue()
 R.plainText = bar.text:GetText()
 R.plainTextShown = bar.text:IsShown()
+R.plainPercentText = powerBar.text:GetText()
 return R
 """
 
@@ -2447,6 +2466,10 @@ def run_secret():
     check("a plain value still fills", results["plainValue"], 60)
     check("a plain value still prints", results["plainText"], "60 / 100")
     check("a plain value still shows its text", results["plainTextShown"], True)
+    check("power bar survives a secret value", results["powerSurvived"], True)
+    check("power secret is passed to the widget", results["powerValuePassedThrough"], True)
+    check("percent text hides rather than dividing", results["powerTextHidden"], True)
+    check("a plain value still prints a percent", results["plainPercentText"], "40%")
 
 
 MOP_ENV = """
