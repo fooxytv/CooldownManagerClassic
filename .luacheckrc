@@ -17,6 +17,7 @@ globals = {
     "C_SpellBook",
     "C_UnitAuras",
     "C_Engraving",
+    "issecretvalue",
     "C_Timer",
     "C_TooltipInfo",
     "C_Texture",

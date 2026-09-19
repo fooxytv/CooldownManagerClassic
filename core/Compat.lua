@@ -460,6 +460,18 @@ function Compat.GetPlayerAura(spellID)
     return ScanPlayerAuraByName(name, "HELPFUL") or ScanPlayerAuraByName(name, "HARMFUL")
 end
 
+-- Blizzard hands some unit values back as "secret numbers": they can be passed
+-- to a widget, compared for equality, and nothing else. Any numeric conversion
+-- on one throws, which is how UnitHealth("player") started erroring on every
+-- update on WoW: Forever. The global is absent on clients without the system,
+-- so a missing one simply means nothing is ever secret.
+local issecretvalue_ = _G.issecretvalue
+
+function Compat.IsSecret(value)
+    if not issecretvalue_ then return false end
+    return issecretvalue_(value) and true or false
+end
+
 function Compat.GetItemCount(itemID)
     if not itemID then return 0 end
 

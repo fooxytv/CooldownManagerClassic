@@ -2379,6 +2379,76 @@ _G.C_UnitAuras = nil
 """
 
 
+# Blizzard returns some unit values as secret numbers, which can be handed to a
+# widget but never converted. UnitHealth("player") became one on WoW: Forever,
+# and every arithmetic touch of it raised -- 140 times over, once per update.
+SECRET_ENV = """
+_G.UnitHealth = function() return _G.__secret end
+_G.UnitPower = function() return _G.__secret end
+"""
+
+# Run with the riskiest appearance on: spark and animation both need the number,
+# and the text cannot be formatted from it.
+SECRET_SCRIPT = """
+local ns = __ns
+local R = {}
+ns.DB:Initialize()
+ns.Core.initialized = true
+
+local bar = ns.ResourceBar.Create("health")
+local settings = bar:GetSettings()
+settings.enabled = true
+settings.appearance.showText = true
+settings.appearance.spark = true
+settings.appearance.animate = true
+
+bar:Layout()
+bar:Update()
+
+R.survived = true
+-- The bar still tracks: the widget takes the secret even though we cannot read it.
+R.valuePassedThrough = bar.statusBar:GetValue() == _G.__secret
+-- Everything that needs the number stands down rather than inventing one.
+R.textHidden = not bar.text:IsShown()
+R.sparkHidden = not bar.spark:IsShown()
+
+-- Visibility that has to know the fill must not crash either.
+settings.appearance.visibility = "HideWhenFull"
+bar:UpdateVisibility()
+R.shownWhenUndecidable = bar.frame:IsShown()
+
+-- A plain value behaves exactly as before.
+settings.appearance.visibility = "Always"
+settings.appearance.animate = false
+_G.UnitHealth = function() return 60 end
+bar:Update()
+R.plainValue = bar.statusBar:GetValue()
+R.plainText = bar.text:GetText()
+R.plainTextShown = bar.text:IsShown()
+return R
+"""
+
+
+def run_secret():
+    print("\nsmoke_test [secret unit values]")
+    try:
+        lua = load_addon(True, env=SECRET_ENV)
+        results = dict(lua.execute(SECRET_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[secret] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("update survives a secret value", results["survived"], True)
+    check("secret is passed to the widget", results["valuePassedThrough"], True)
+    check("text hides rather than inventing a number", results["textHidden"], True)
+    check("spark hides rather than guessing a position", results["sparkHidden"], True)
+    check("hide-when-full errs towards visible", results["shownWhenUndecidable"], True)
+    check("a plain value still fills", results["plainValue"], 60)
+    check("a plain value still prints", results["plainText"], "60 / 100")
+    check("a plain value still shows its text", results["plainTextShown"], True)
+
+
 MOP_ENV = """
 _G.WOW_PROJECT_MISTS_CLASSIC = 19
 _G.WOW_PROJECT_ID = 19
@@ -2480,6 +2550,7 @@ run(with_art=False, env=TBC_ENV, label="TBC legacy APIs, no atlases",
     flavor="tbc", legacy=True)
 run_profiles()
 run_mop()
+run_secret()
 
 print()
 if failures:

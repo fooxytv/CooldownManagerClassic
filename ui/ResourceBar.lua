@@ -207,8 +207,15 @@ local function ReadResource(key)
     return 0, 0, 0.6, 0.6, 0.6
 end
 
+-- Returns nil when there is nothing safe to print, and the caller hides the
+-- text. A secret value cannot be formatted at all -- Blizzard's own dump prints
+-- a placeholder rather than a number -- and showing a stale or invented figure
+-- beside a bar that is tracking correctly would be worse than showing none.
 local function FormatValue(current, max, appearance)
-    if appearance.showPercent and max and max > 0 then
+    if ns.Compat.IsSecret(current) or ns.Compat.IsSecret(max) then return nil end
+    if not (max and max > 0) then return nil end
+
+    if appearance.showPercent then
         return ("%d%%"):format(math.floor((current / max) * 100 + 0.5))
     end
     return ("%d / %d"):format(current, max)
@@ -417,6 +424,10 @@ end
 
 function Bar:ApplySpark(current, max, appearance)
     local spark = self.spark
+    if ns.Compat.IsSecret(current) or ns.Compat.IsSecret(max) then
+        spark:Hide()
+        return
+    end
     if not (appearance.spark and current and max and max > 0 and current > 0 and current < max) then
         spark:Hide()
         return
@@ -431,6 +442,24 @@ function Bar:ApplySpark(current, max, appearance)
 end
 
 function Bar:SetFill(current, max, appearance)
+    -- StatusBar:SetValue takes a secret happily -- Blizzard's own
+    -- CompactUnitFrame_UpdateHealth passes UnitHealth straight through -- so the
+    -- bar keeps tracking. Everything that needs to read the number stands down:
+    -- the clamp, the spark, and the animation, which interpolates between two
+    -- values it cannot subtract.
+    if ns.Compat.IsSecret(current) or ns.Compat.IsSecret(max) then
+        if self._animating then
+            self.statusBar:SetScript("OnUpdate", nil)
+            self._animating = false
+        end
+        if not ns.Compat.IsSecret(max) then
+            self.statusBar:SetMinMaxValues(0, math.max(max or 1, 1))
+        end
+        self.statusBar:SetValue(current)
+        self.spark:Hide()
+        return
+    end
+
     max = math.max(max or 1, 1)
     current = math.max(0, math.min(current or 0, max))
     self.statusBar:SetMinMaxValues(0, max)
@@ -593,8 +622,9 @@ function Bar:Update()
     self.statusBar:SetStatusBarColor(self:FillColor(appearance, r, g, b))
     self:SetFill(current, max, appearance)
 
-    if appearance.showText ~= false and max > 0 then
-        self.text:SetText(FormatValue(current, max, appearance))
+    local text = appearance.showText ~= false and FormatValue(current, max, appearance)
+    if text then
+        self.text:SetText(text)
         self.text:Show()
     else
         self.text:Hide()
@@ -624,8 +654,9 @@ function Bar:UpdateClassResource(appearance)
         self:SetFill(current, max, appearance)
         self:HidePips()
 
-        if appearance.showText ~= false then
-            self.text:SetText(FormatValue(current, max, appearance))
+        local text = appearance.showText ~= false and FormatValue(current, max, appearance)
+        if text then
+            self.text:SetText(text)
             self.text:Show()
         else
             self.text:Hide()
@@ -645,9 +676,12 @@ function Bar:UpdateClassResource(appearance)
             return
         end
 
+        -- A secret count cannot be compared per pip, so none are filled rather
+        -- than guessing at how many should be.
+        local secretCount = ns.Compat.IsSecret(current)
         local empty = Const.COMBO_COLORS.empty
         for index, pip in ipairs(self.pips) do
-            if index <= current then
+            if not secretCount and index <= current then
                 pip:SetColorTexture(fr, fg, fb, 1)
             else
                 pip:SetColorTexture(empty[1], empty[2], empty[3], empty[4])
@@ -720,7 +754,12 @@ function Bar:UpdateVisibility()
         visible = UnitExists("target")
     elseif visibility == "HideWhenFull" then
         local current, max = self:GetFill()
-        visible = not (current and max and max > 0 and current >= max)
+        if ns.Compat.IsSecret(current) or ns.Compat.IsSecret(max) then
+            -- Cannot tell whether it is full, so err towards showing the bar.
+            visible = true
+        else
+            visible = not (current and max and max > 0 and current >= max)
+        end
     end
 
     if visible and self.key == "combo"

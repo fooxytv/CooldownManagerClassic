@@ -349,6 +349,14 @@ _G.IsSpellInRange = function(name, unit)
 end
 _G.InCombatLockdown = function() return false end
 _G.UnitPowerType = function() return 0, "MANA" end
+-- A stand-in for Blizzard's secret numbers. It can be stored, compared for
+-- equality and handed to a widget, but any arithmetic on it raises -- which is
+-- the whole point, and is what the addon must never reach. Lua's own "bad
+-- argument" from math.min stands in for the client's "numeric conversion on a
+-- secret number value"; what is being tested is that nothing gets that far.
+_G.__secret = setmetatable({}, { __tostring = function() return "<secret number>" end })
+_G.issecretvalue = function(value) return value == _G.__secret end
+
 _G.UnitHealth = function() return 100 end
 _G.UnitHealthMax = function() return 100 end
 _G.UnitPower = function() return 50 end
