@@ -2379,6 +2379,71 @@ _G.C_UnitAuras = nil
 """
 
 
+# Aura access is refused outright on some clients: the call raises rather than
+# returning a secret, so there is no value to inspect and IsSecret cannot help.
+# A different failure mode from the secret numbers below, needing a different
+# guard, so it gets its own run.
+AURA_REFUSAL_ENV = """
+_G.__refuseAuras = true
+"""
+
+AURA_REFUSAL_SCRIPT = """
+local ns = __ns
+local R = {}
+ns.DB:Initialize()
+ns.Core.initialized = true
+
+-- The refresh path walks auras throughout; none of it may raise.
+ns.Core:RefreshAll()
+R.survived = true
+-- Nothing has read an aura yet on a fresh profile, so the flag is still clear:
+-- it records a refusal that happened, not a client that would refuse.
+R.flaggedBeforeAnyRead = ns.Compat.aurasRefused == true
+
+-- Individual reads come back empty rather than raising.
+R.playerAuraNil = ns.Compat.GetPlayerAura(187880) == nil
+local seen = 0
+ns.Compat.ForEachPlayerAura(function() seen = seen + 1 end)
+R.aurasSeen = seen
+R.flagged = ns.Compat.aurasRefused == true
+
+-- A group still lays out; the auras simply are not in it.
+local group = ns.Group.Create("buffs")
+group:Layout()
+R.groupLaidOut = true
+
+-- And the status command says why, since nothing else in the UI would.
+local lines = {}
+DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) lines[#lines + 1] = msg end
+ns.Core:PrintStatus()
+local explained = false
+for _, line in ipairs(lines) do
+    if line:find("refuses aura access") then explained = true end
+end
+R.explained = explained
+return R
+"""
+
+
+def run_aura_refusal():
+    print("\nsmoke_test [aura access refused]")
+    try:
+        lua = load_addon(True, env=AURA_REFUSAL_ENV)
+        results = dict(lua.execute(AURA_REFUSAL_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[aura-refusal] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("a refresh survives the refusal", results["survived"], True)
+    check("clear until something reads an aura", results["flaggedBeforeAnyRead"], False)
+    check("the refusal is recorded once one does", results["flagged"], True)
+    check("a single aura read comes back empty", results["playerAuraNil"], True)
+    check("the walk yields nothing rather than raising", results["aurasSeen"], 0)
+    check("groups still lay out", results["groupLaidOut"], True)
+    check("status explains why auras are missing", results["explained"], True)
+
+
 # Blizzard returns some unit values as secret numbers, which can be handed to a
 # widget but never converted. UnitHealth("player") became one on WoW: Forever,
 # and every arithmetic touch of it raised -- 140 times over, once per update.
@@ -2620,6 +2685,7 @@ run(with_art=False, env=TBC_ENV, label="TBC legacy APIs, no atlases",
 run_profiles()
 run_mop()
 run_secret()
+run_aura_refusal()
 
 print()
 if failures:

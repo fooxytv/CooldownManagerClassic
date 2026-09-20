@@ -566,8 +566,16 @@ local function TargetDebuff(index)
     return nil
 end
 
+-- A client that refuses aura access to tainted code raises from the call rather
+-- than returning a secret, so there is no value to inspect -- only a call that
+-- does not come back.
+_G.__refuseAuras = false
+
 _G.C_UnitAuras = {
     GetAuraDataByIndex = function(unit, index, filter)
+        if _G.__refuseAuras then
+            error("Auras cannot be accessed when secret while tainted by 'X'")
+        end
         if unit == "target" then
             if filter == "HARMFUL" then return TargetDebuff(index) end
             return nil
@@ -576,6 +584,9 @@ _G.C_UnitAuras = {
         return nil
     end,
     GetPlayerAuraBySpellID = function(id)
+        if _G.__refuseAuras then
+            error("Auras cannot be accessed when secret while tainted by 'X'")
+        end
         if id == _G.__aura.spellId then return _G.__aura end
         return nil
     end,

@@ -610,6 +610,13 @@ function Core:PrintStatus()
         :format(tostring(self.auraEventRegistered), tostring(ticker ~= nil),
                 tostring(self:HasTrackedAuras())))
 
+    -- Worth surfacing: a client that refuses aura access to addons leaves every
+    -- buff and debuff untracked, and nothing else in the UI says why.
+    if ns.Compat.aurasRefused then
+        out("|cffffcc00This client refuses aura access to addons,|r so buffs and")
+        out("|cffffcc00debuffs cannot be tracked.|r Cooldowns are unaffected.")
+    end
+
     -- Which range API answered matters more than the answer: "no range colour"
     -- on a client where neither call exists looks identical to a target that is
     -- simply in range. Asked of Compat rather than re-derived from _G here, so
