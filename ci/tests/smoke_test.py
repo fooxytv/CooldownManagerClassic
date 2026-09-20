@@ -2379,6 +2379,210 @@ _G.C_UnitAuras = nil
 """
 
 
+# Aura access is refused outright on some clients: the call raises rather than
+# returning a secret, so there is no value to inspect and IsSecret cannot help.
+# A different failure mode from the secret numbers below, needing a different
+# guard, so it gets its own run.
+AURA_REFUSAL_ENV = """
+_G.__refuseAuras = true
+"""
+
+AURA_REFUSAL_SCRIPT = """
+local ns = __ns
+local R = {}
+ns.DB:Initialize()
+ns.Core.initialized = true
+
+-- The refresh path walks auras throughout; none of it may raise.
+ns.Core:RefreshAll()
+R.survived = true
+-- Nothing has read an aura yet on a fresh profile, so the flag is still clear:
+-- it records a refusal that happened, not a client that would refuse.
+R.flaggedBeforeAnyRead = ns.Compat.aurasRefused == true
+
+-- Individual reads come back empty rather than raising.
+R.playerAuraNil = ns.Compat.GetPlayerAura(187880) == nil
+local seen = 0
+ns.Compat.ForEachPlayerAura(function() seen = seen + 1 end)
+R.aurasSeen = seen
+R.flagged = ns.Compat.aurasRefused == true
+
+-- A group still lays out; the auras simply are not in it.
+local group = ns.Group.Create("buffs")
+group:Layout()
+R.groupLaidOut = true
+
+-- And the status command says why, since nothing else in the UI would.
+local lines = {}
+DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) lines[#lines + 1] = msg end
+ns.Core:PrintStatus()
+local explained = false
+for _, line in ipairs(lines) do
+    if line:find("refuses aura access") then explained = true end
+end
+R.explained = explained
+return R
+"""
+
+
+def run_aura_refusal():
+    print("\nsmoke_test [aura access refused]")
+    try:
+        lua = load_addon(True, env=AURA_REFUSAL_ENV)
+        results = dict(lua.execute(AURA_REFUSAL_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[aura-refusal] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("a refresh survives the refusal", results["survived"], True)
+    check("clear until something reads an aura", results["flaggedBeforeAnyRead"], False)
+    check("the refusal is recorded once one does", results["flagged"], True)
+    check("a single aura read comes back empty", results["playerAuraNil"], True)
+    check("the walk yields nothing rather than raising", results["aurasSeen"], 0)
+    check("groups still lay out", results["groupLaidOut"], True)
+    check("status explains why auras are missing", results["explained"], True)
+
+
+# Blizzard returns some unit values as secret numbers, which can be handed to a
+# widget but never converted. UnitHealth("player") became one on WoW: Forever,
+# and every arithmetic touch of it raised -- 140 times over, once per update.
+SECRET_ENV = """
+_G.UnitHealth = function() return _G.__secret end
+_G.UnitPower = function() return _G.__secret end
+-- Cooldowns go the same way on this client: the booleans stay readable, the
+-- numbers do not.
+_G.C_Spell.GetSpellCooldown = function()
+    return { startTime = _G.__secret, duration = _G.__secret,
+             isEnabled = true, modRate = _G.__secret }
+end
+"""
+
+# Run with the riskiest appearance on: spark and animation both need the number,
+# and the text cannot be formatted from it.
+SECRET_SCRIPT = """
+local ns = __ns
+local R = {}
+ns.DB:Initialize()
+ns.Core.initialized = true
+
+local bar = ns.ResourceBar.Create("health")
+local settings = bar:GetSettings()
+settings.enabled = true
+settings.appearance.showText = true
+settings.appearance.spark = true
+settings.appearance.animate = true
+
+bar:Layout()
+bar:Update()
+
+R.survived = true
+-- The bar still tracks: the widget takes the secret even though we cannot read it.
+R.valuePassedThrough = bar.statusBar:GetValue() == _G.__secret
+-- Everything that needs the number stands down rather than inventing one.
+R.textHidden = not bar.text:IsShown()
+R.sparkHidden = not bar.spark:IsShown()
+
+-- Visibility that has to know the fill must not crash either.
+settings.appearance.visibility = "HideWhenFull"
+bar:UpdateVisibility()
+R.shownWhenUndecidable = bar.frame:IsShown()
+
+-- Cooldowns:GetState is the choke point: everything downstream reads the state
+-- it returns rather than the API, so a safe state here keeps a secret out of
+-- all of it. Only the two swipe values travel on raw.
+local cdState = ns.Cooldowns:GetState(1082, true)
+R.cdFlagged = cdState.secret == true
+R.cdRemaining = cdState.remaining
+R.cdIsGCD = cdState.isGCD
+R.cdActive = cdState.active
+R.cdSwipeStaysRaw = cdState.swipeDuration == _G.__secret
+
+-- The global cooldown cannot be told apart from a real one, so the scan bails
+-- rather than raising.
+ns.Cooldowns:RefreshGlobalCooldown({ 1082 })
+R.gcdDuration = ns.Cooldowns.gcdDuration
+
+-- The icon keeps its swipe -- the widget takes the secret -- and hands the
+-- countdown back to the widget, which can read what we cannot.
+local iconAppearance = ns.DB:GetGroup("essential").appearance
+local icon = ns.Icon:Acquire(UIParent, "essential")
+ns.Icon:Update(icon, cdState, iconAppearance)
+R.iconSwipeDrawn = icon.cooldown.__cooldown ~= nil
+R.iconCountdownDrawnByWidget = icon.cooldown.__hideCountdown == false
+
+-- The bar cannot make a ratio out of it, so it sits empty rather than wrong.
+local barAppearance = ns.DB:GetGroup("cooldownbars").appearance
+local barFrame = ns.BuffBar:Acquire(UIParent, "cooldownbars")
+ns.BuffBar:Update(barFrame, cdState, barAppearance)
+R.barEmptied = barFrame.bar:GetValue()
+R.barTimerHidden = not barFrame.timeText:IsShown()
+
+-- The power bar reads UnitPower through the same SetFill, and percent text
+-- takes the other FormatValue branch. This is the configuration the second
+-- report came in on, and it arrives through Layout -> Update at login rather
+-- than through Edit Mode.
+local powerBar = ns.ResourceBar.Create("power")
+local powerSettings = powerBar:GetSettings()
+powerSettings.enabled = true
+powerSettings.appearance.showText = true
+powerSettings.appearance.showPercent = true
+
+powerBar:Layout()
+
+R.powerSurvived = true
+R.powerValuePassedThrough = powerBar.statusBar:GetValue() == _G.__secret
+R.powerTextHidden = not powerBar.text:IsShown()
+
+-- Plain values behave exactly as before, on both bars and both text branches.
+settings.appearance.visibility = "Always"
+settings.appearance.animate = false
+_G.UnitHealth = function() return 60 end
+_G.UnitPower = function() return 40 end
+bar:Update()
+powerBar:Update()
+R.plainValue = bar.statusBar:GetValue()
+R.plainText = bar.text:GetText()
+R.plainTextShown = bar.text:IsShown()
+R.plainPercentText = powerBar.text:GetText()
+return R
+"""
+
+
+def run_secret():
+    print("\nsmoke_test [secret unit values]")
+    try:
+        lua = load_addon(True, env=SECRET_ENV)
+        results = dict(lua.execute(SECRET_SCRIPT))
+    except Exception as exc:  # noqa: BLE001 - any Lua error is a test failure
+        failures.append(f"[secret] {exc}")
+        print(f"  FAIL {exc}")
+        return
+
+    check("update survives a secret value", results["survived"], True)
+    check("secret is passed to the widget", results["valuePassedThrough"], True)
+    check("text hides rather than inventing a number", results["textHidden"], True)
+    check("spark hides rather than guessing a position", results["sparkHidden"], True)
+    check("hide-when-full errs towards visible", results["shownWhenUndecidable"], True)
+    check("a plain value still fills", results["plainValue"], 60)
+    check("a plain value still prints", results["plainText"], "60 / 100")
+    check("a plain value still shows its text", results["plainTextShown"], True)
+    check("power bar survives a secret value", results["powerSurvived"], True)
+    check("power secret is passed to the widget", results["powerValuePassedThrough"], True)
+    check("percent text hides rather than dividing", results["powerTextHidden"], True)
+    check("a plain value still prints a percent", results["plainPercentText"], "40%")
+    check("cooldown state is flagged secret", results["cdFlagged"], True)
+    check("remaining settles at zero", results["cdRemaining"], 0)
+    check("GCD is not guessed at", results["cdIsGCD"], False)
+    check("active is not guessed at", results["cdActive"], False)
+    check("swipe values travel on raw", results["cdSwipeStaysRaw"], True)
+    check("the GCD scan bails", results["gcdDuration"], 0)
+    check("icon still draws its swipe", results["iconSwipeDrawn"], True)
+    check("widget draws the countdown", results["iconCountdownDrawnByWidget"], True)
+    check("bar sits empty", results["barEmptied"], 0)
+    check("bar timer hidden", results["barTimerHidden"], True)
+
+
 MOP_ENV = """
 _G.WOW_PROJECT_MISTS_CLASSIC = 19
 _G.WOW_PROJECT_ID = 19
@@ -2480,6 +2684,8 @@ run(with_art=False, env=TBC_ENV, label="TBC legacy APIs, no atlases",
     flavor="tbc", legacy=True)
 run_profiles()
 run_mop()
+run_secret()
+run_aura_refusal()
 
 print()
 if failures:

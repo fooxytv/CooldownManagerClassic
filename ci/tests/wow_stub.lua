@@ -186,6 +186,7 @@ function Widget:AddMaskTexture(mask) self.__mask = mask end
 
 -- Cooldown
 function Widget:SetCooldown(start, duration, modRate) self.__cooldown = { start, duration, modRate } end
+function Widget:SetHideCountdownNumbers(hide) self.__hideCountdown = hide end
 function Widget:Clear() self.__cooldown = nil end
 function Widget:SetSwipeColor(r, g, b, a) self.__swipeColor = { r, g, b, a } end
 
@@ -349,6 +350,14 @@ _G.IsSpellInRange = function(name, unit)
 end
 _G.InCombatLockdown = function() return false end
 _G.UnitPowerType = function() return 0, "MANA" end
+-- A stand-in for Blizzard's secret numbers. It can be stored, compared for
+-- equality and handed to a widget, but any arithmetic on it raises -- which is
+-- the whole point, and is what the addon must never reach. Lua's own "bad
+-- argument" from math.min stands in for the client's "numeric conversion on a
+-- secret number value"; what is being tested is that nothing gets that far.
+_G.__secret = setmetatable({}, { __tostring = function() return "<secret number>" end })
+_G.issecretvalue = function(value) return value == _G.__secret end
+
 _G.UnitHealth = function() return 100 end
 _G.UnitHealthMax = function() return 100 end
 _G.UnitPower = function() return 50 end
@@ -557,8 +566,16 @@ local function TargetDebuff(index)
     return nil
 end
 
+-- A client that refuses aura access to tainted code raises from the call rather
+-- than returning a secret, so there is no value to inspect -- only a call that
+-- does not come back.
+_G.__refuseAuras = false
+
 _G.C_UnitAuras = {
     GetAuraDataByIndex = function(unit, index, filter)
+        if _G.__refuseAuras then
+            error("Auras cannot be accessed when secret while tainted by 'X'")
+        end
         if unit == "target" then
             if filter == "HARMFUL" then return TargetDebuff(index) end
             return nil
@@ -567,6 +584,9 @@ _G.C_UnitAuras = {
         return nil
     end,
     GetPlayerAuraBySpellID = function(id)
+        if _G.__refuseAuras then
+            error("Auras cannot be accessed when secret while tainted by 'X'")
+        end
         if id == _G.__aura.spellId then return _G.__aura end
         return nil
     end,

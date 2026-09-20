@@ -291,6 +291,24 @@ end
 function BuffBar:Update(frame, state, appearance)
     if not state then return false end
 
+    -- Nothing here survives a secret duration: the fill is a ratio and the
+    -- timer is a formatted number. The bar sits empty rather than showing a
+    -- wrong one, and the icon beside it keeps its swipe.
+    if state.secret then
+        frame.bar:SetMinMaxValues(0, 1)
+        frame.bar:SetValue(0)
+        frame.pip:Hide()
+        frame.timeText:Hide()
+        frame.lastTimeText = nil
+        frame.countText:Hide()
+
+        local idle = Const.BAR_FILL_COLOR
+        frame.bar:SetStatusBarColor(idle[1], idle[2], idle[3])
+        if frame.texture.SetDesaturated then frame.texture:SetDesaturated(false) end
+        frame.texture:SetVertexColor(1, 1, 1)
+        return false
+    end
+
     local duration = state.swipeDuration or 0
     local remaining = state.remaining or 0
 

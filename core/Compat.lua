@@ -299,10 +299,38 @@ end
 
 local MAX_AURA_INDEX = 255
 
+-- Aura access is refused outright to tainted code on some clients: the call
+-- raises rather than returning a secret, so Compat.IsSecret cannot help --
+-- there is no value to inspect, only a call that does not come back. The call
+-- itself has to be guarded.
+--
+-- A refusal reads as "no aura here", which ends the walk it happened in, and is
+-- not remembered: the client decides per aura, so the answer can differ next
+-- time. That costs one failed call per scan rather than one per index.
+Compat.aurasRefused = false
+
+local function AuraByIndex(unit, index, filter)
+    local ok, data = pcall(C_UnitAuras_.GetAuraDataByIndex, unit, index, filter)
+    if not ok then
+        Compat.aurasRefused = true
+        return nil
+    end
+    return data
+end
+
+local function PlayerAuraBySpellID(spellID)
+    local ok, data = pcall(C_UnitAuras_.GetPlayerAuraBySpellID, spellID)
+    if not ok then
+        Compat.aurasRefused = true
+        return nil
+    end
+    return data
+end
+
 local function ScanPlayerAura(spellID, filter)
     if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
         for i = 1, MAX_AURA_INDEX do
-            local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
+            local data = AuraByIndex("player", i, filter)
             if not data then break end
             if data.spellId == spellID then return data end
         end
@@ -334,7 +362,7 @@ end
 local function ScanPlayerAuraByName(auraName, filter)
     if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
         for i = 1, MAX_AURA_INDEX do
-            local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
+            local data = AuraByIndex("player", i, filter)
             if not data then break end
             if data.name == auraName then return data end
         end
@@ -367,7 +395,7 @@ function Compat.ForEachPlayerAura(callback)
     local function Walk(filter)
         for i = 1, MAX_AURA_INDEX do
             if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
-                local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
+                local data = AuraByIndex("player", i, filter)
                 if not data then return end
                 callback(data)
             elseif _G.UnitAura then
@@ -401,7 +429,7 @@ function Compat.ForEachPlayerDebuffOn(unit, callback)
 
     for i = 1, MAX_AURA_INDEX do
         if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
-            local data = C_UnitAuras_.GetAuraDataByIndex(unit, i, "HARMFUL")
+            local data = AuraByIndex(unit, i, "HARMFUL")
             if not data then return end
             if data.sourceUnit == "player" then callback(data) end
         elseif _G.UnitAura then
@@ -447,7 +475,7 @@ function Compat.GetPlayerAura(spellID)
     if not spellID then return nil end
 
     if C_UnitAuras_ and C_UnitAuras_.GetPlayerAuraBySpellID then
-        local data = C_UnitAuras_.GetPlayerAuraBySpellID(spellID)
+        local data = PlayerAuraBySpellID(spellID)
         if data then return data end
     end
 
@@ -458,6 +486,18 @@ function Compat.GetPlayerAura(spellID)
     if not name then return nil end
 
     return ScanPlayerAuraByName(name, "HELPFUL") or ScanPlayerAuraByName(name, "HARMFUL")
+end
+
+-- Blizzard hands some unit values back as "secret numbers": they can be passed
+-- to a widget, compared for equality, and nothing else. Any numeric conversion
+-- on one throws, which is how UnitHealth("player") started erroring on every
+-- update on WoW: Forever. The global is absent on clients without the system,
+-- so a missing one simply means nothing is ever secret.
+local issecretvalue_ = _G.issecretvalue
+
+function Compat.IsSecret(value)
+    if not issecretvalue_ then return false end
+    return issecretvalue_(value) and true or false
 end
 
 function Compat.GetItemCount(itemID)
@@ -612,7 +652,7 @@ function Compat.GetPlayerAuras(includeHarmful)
     local function Collect(filter)
         for i = 1, MAX_AURA_INDEX do
             if C_UnitAuras_ and C_UnitAuras_.GetAuraDataByIndex then
-                local data = C_UnitAuras_.GetAuraDataByIndex("player", i, filter)
+                local data = AuraByIndex("player", i, filter)
                 if not data then return end
                 if data.spellId and not seen[data.spellId] then
                     seen[data.spellId] = true
