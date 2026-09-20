@@ -24,6 +24,9 @@ function Cooldowns:RefreshGlobalCooldown(spellIDs)
 
     for _, spellID in ipairs(spellIDs) do
         local start, duration = Compat.GetSpellCooldown(spellID)
+        -- A secret duration cannot be measured against the threshold, so the
+        -- global cooldown simply goes undetected on a client that hides it.
+        if Compat.IsSecret(duration) then return end
         if duration and duration > 0 and duration <= Const.GCD_THRESHOLD then
             self.gcdStart = start
             self.gcdDuration = duration
@@ -54,6 +57,30 @@ function Cooldowns:GetState(spellID, showGCD)
     state.modRate = modRate
     state.charges = charges
     state.maxCharges = maxCharges
+
+    -- The choke point. On a client that hides cooldown values these come back
+    -- secret: they can be handed to the Cooldown widget, which draws both the
+    -- swipe and its own countdown, but nothing here can measure them. Every
+    -- consumer downstream reads this state rather than the API, so settling for
+    -- safe values here keeps a secret out of all of it. Only the two swipe
+    -- values travel on raw, and their three consumers check state.secret.
+    if Compat.IsSecret(duration) or Compat.IsSecret(start)
+        or Compat.IsSecret(chargeDuration) or Compat.IsSecret(chargeStart) then
+        state.secret = true
+        state.swipeStart = start
+        state.swipeDuration = duration
+        state.swipeModRate = modRate
+        state.remaining = 0
+        state.isGCD = false
+        state.active = false
+        -- isEnabled comes back plain even when the numbers do not, so whether
+        -- the ability is on cooldown at all is still known; how long is not.
+        state.available = enabled ~= false
+        state.suppressText = true
+        state.charges, state.maxCharges = nil, nil
+        return state
+    end
+    state.secret = nil
 
     state.isGCD = duration > 0 and duration <= Const.GCD_THRESHOLD
 

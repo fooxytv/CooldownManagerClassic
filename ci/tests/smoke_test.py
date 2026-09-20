@@ -2385,6 +2385,12 @@ _G.C_UnitAuras = nil
 SECRET_ENV = """
 _G.UnitHealth = function() return _G.__secret end
 _G.UnitPower = function() return _G.__secret end
+-- Cooldowns go the same way on this client: the booleans stay readable, the
+-- numbers do not.
+_G.C_Spell.GetSpellCooldown = function()
+    return { startTime = _G.__secret, duration = _G.__secret,
+             isEnabled = true, modRate = _G.__secret }
+end
 """
 
 # Run with the riskiest appearance on: spark and animation both need the number,
@@ -2416,6 +2422,36 @@ R.sparkHidden = not bar.spark:IsShown()
 settings.appearance.visibility = "HideWhenFull"
 bar:UpdateVisibility()
 R.shownWhenUndecidable = bar.frame:IsShown()
+
+-- Cooldowns:GetState is the choke point: everything downstream reads the state
+-- it returns rather than the API, so a safe state here keeps a secret out of
+-- all of it. Only the two swipe values travel on raw.
+local cdState = ns.Cooldowns:GetState(1082, true)
+R.cdFlagged = cdState.secret == true
+R.cdRemaining = cdState.remaining
+R.cdIsGCD = cdState.isGCD
+R.cdActive = cdState.active
+R.cdSwipeStaysRaw = cdState.swipeDuration == _G.__secret
+
+-- The global cooldown cannot be told apart from a real one, so the scan bails
+-- rather than raising.
+ns.Cooldowns:RefreshGlobalCooldown({ 1082 })
+R.gcdDuration = ns.Cooldowns.gcdDuration
+
+-- The icon keeps its swipe -- the widget takes the secret -- and hands the
+-- countdown back to the widget, which can read what we cannot.
+local iconAppearance = ns.DB:GetGroup("essential").appearance
+local icon = ns.Icon:Acquire(UIParent, "essential")
+ns.Icon:Update(icon, cdState, iconAppearance)
+R.iconSwipeDrawn = icon.cooldown.__cooldown ~= nil
+R.iconCountdownDrawnByWidget = icon.cooldown.__hideCountdown == false
+
+-- The bar cannot make a ratio out of it, so it sits empty rather than wrong.
+local barAppearance = ns.DB:GetGroup("cooldownbars").appearance
+local barFrame = ns.BuffBar:Acquire(UIParent, "cooldownbars")
+ns.BuffBar:Update(barFrame, cdState, barAppearance)
+R.barEmptied = barFrame.bar:GetValue()
+R.barTimerHidden = not barFrame.timeText:IsShown()
 
 -- The power bar reads UnitPower through the same SetFill, and percent text
 -- takes the other FormatValue branch. This is the configuration the second
@@ -2470,6 +2506,16 @@ def run_secret():
     check("power secret is passed to the widget", results["powerValuePassedThrough"], True)
     check("percent text hides rather than dividing", results["powerTextHidden"], True)
     check("a plain value still prints a percent", results["plainPercentText"], "40%")
+    check("cooldown state is flagged secret", results["cdFlagged"], True)
+    check("remaining settles at zero", results["cdRemaining"], 0)
+    check("GCD is not guessed at", results["cdIsGCD"], False)
+    check("active is not guessed at", results["cdActive"], False)
+    check("swipe values travel on raw", results["cdSwipeStaysRaw"], True)
+    check("the GCD scan bails", results["gcdDuration"], 0)
+    check("icon still draws its swipe", results["iconSwipeDrawn"], True)
+    check("widget draws the countdown", results["iconCountdownDrawnByWidget"], True)
+    check("bar sits empty", results["barEmptied"], 0)
+    check("bar timer hidden", results["barTimerHidden"], True)
 
 
 MOP_ENV = """

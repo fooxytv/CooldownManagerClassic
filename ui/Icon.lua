@@ -268,7 +268,14 @@ end
 function Icon:Update(frame, state, appearance)
     if not state then return false end
 
-    if state.swipeDuration and state.swipeDuration > 0 then
+    if frame.cooldown.SetHideCountdownNumbers then
+        -- A secret duration cannot be formatted here, so the widget draws its
+        -- own countdown instead of the icon showing no timer at all. It renders
+        -- untainted, which is why it can read what this cannot.
+        frame.cooldown:SetHideCountdownNumbers(not state.secret)
+    end
+
+    if state.secret or (state.swipeDuration and state.swipeDuration > 0) then
         if frame.cooldown.SetSwipeColor then
             local color
             if state.isGCD then

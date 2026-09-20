@@ -186,6 +186,7 @@ function Widget:AddMaskTexture(mask) self.__mask = mask end
 
 -- Cooldown
 function Widget:SetCooldown(start, duration, modRate) self.__cooldown = { start, duration, modRate } end
+function Widget:SetHideCountdownNumbers(hide) self.__hideCountdown = hide end
 function Widget:Clear() self.__cooldown = nil end
 function Widget:SetSwipeColor(r, g, b, a) self.__swipeColor = { r, g, b, a } end
 
